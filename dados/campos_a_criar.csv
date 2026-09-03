@@ -1,0 +1,13 @@
+ID,Campo,Para que serve,Origem do valor,Consequência de não ter
+C01,EVENTO,"Distinguir mensal, 13º, férias, rescisão e admissão",Cadastro do tipo documental,Documentos de eventos diferentes competem pela mesma linha do checklist
+C02,GRANULARIDADE,Saber se a exigência é por contrato ou por profissional,Cadastro do tipo documental,"Impossível calcular completude (""faltam 3 de 42"")"
+C03,CRITICIDADE,Separar o que bloqueia o faturamento do que é regularizável,Decisão da DAF por contrato,"Ou tudo bloqueia, ou nada bloqueia"
+C04,COMPETENCIA_REFERENCIA,Defasagem do documento em relação à competência faturada,Regra legal por tipo documental,Busca do documento no mês errado
+C05,PRAZO_ANCORA / TIPO_DIA / LIMITE,Tornar o prazo computável e medir SLA por área,Conversão do texto atual + calendário de feriados,Sem alerta automático e sem apuração de atraso
+C06,FUNDAMENTO,Cláusula do edital/contrato ou norma que origina a exigência,Leitura do contrato pela área de Contratos,Sem rastreabilidade perante o cliente e órgãos de controle
+C07,REPOSITORIO_MESTRE,Definir onde está a evidência oficial (Cloud x Jira),Decisão de TI + DAF,Conferência depende de onde a pessoa procurou
+C08,CONDICIONALIDADE,"Expressar regras ""A ou B"" (ex.: relação de VT ou termo de não adesão)",Cadastro do tipo documental,Pendência falsa em situações legítimas
+C09,VIGENCIA_INICIO / VIGENCIA_FIM,Registrar quando a exigência passou a valer (aditivos),Gestão contratual,Reprocessar competência antiga com a regra errada
+C10,CLASSIFICACAO_SIGILO,Marcar o que contém dado pessoal ou sensível e o que pode ir ao cliente,Política de classificação da informação,"Envio de dado além do necessário ao cliente (LGPD, art. 6º, III)"
+C11,RESPONSAVEL_SUBSTITUTO,Escalonamento quando o responsável primário não atua no prazo,Estrutura das áreas,Pendência parada sem escalonamento
+C12,EVENTO_ATESTE,Data e forma do ateste formal do cliente,Operação / gestor do contrato,O D+3 da política não é apurável de forma objetiva

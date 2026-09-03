@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SGDF — Gestão Documental do Faturamento · Engesoftware</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --brand:#E87605;       /* laranja Engesoftware, medido do logotipo */
+  --brand-ink:#9A4E00;   /* laranja escurecido para texto sobre branco (AA) */
+  --brand-soft:#FCEEDE;
+  --ink:#26211A;
+  --ink-2:#645C4F;
+  --ink-3:#8B8375;
+  --paper:#F4F3F0;
+  --surface:#FFFFFF;
+  --line:#E5E1D9;
+  --line-2:#D4CFC4;
+  --side:#241B10;
+  --side-2:#3A2C1A;
+  --ok:#1E7F4F;    --ok-bg:#E6F3EC;
+  --pend:#6B7280;  --pend-bg:#EFF0F2;
+  --tri:#2258C4;   --tri-bg:#E9F0FC;
+  --div:#C2362B;   --div-bg:#FBEAE7;
+  --disp:#7854C8;  --disp-bg:#F1ECFA;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --sans:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:15px}
+body{font-family:var(--sans);background:var(--paper);color:var(--ink);line-height:1.45;-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer}
+a{color:var(--brand-ink)}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:2px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+/* ---------- casca ---------- */
+.app{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
+.side{background:var(--side);color:#EFE8DD;display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.side .logo{padding:22px 20px 18px;border-bottom:1px solid var(--side-2)}
+.side .logo img{height:40px;display:block}
+.side .logo small{display:block;margin-top:10px;color:#B8AD9C;font-size:.76rem;letter-spacing:.01em}
+.nav{padding:14px 10px;display:flex;flex-direction:column;gap:2px;flex:1}
+.nav .sec{margin:14px 10px 6px;color:#8D8271;font-size:.74rem}
+.nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;color:#E3DACB;
+  padding:9px 12px;border-radius:7px;font-size:.92rem;font-weight:500}
+.nav button:hover{background:var(--side-2)}
+.nav button[aria-current="page"]{background:var(--side-2);color:#fff;box-shadow:inset 3px 0 0 var(--brand)}
+.nav .mark{width:8px;height:8px;border:1.5px solid #9a8f7d;border-radius:2px;flex:none}
+.nav button[aria-current="page"] .mark{background:var(--brand);border-color:var(--brand)}
+.side .foot{padding:14px 20px;border-top:1px solid var(--side-2);font-size:.76rem;color:#B8AD9C}
+.side .foot b{color:#EFE8DD;font-weight:600;display:block}
+.envpill{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:3px 9px;border:1px solid #5b4a30;border-radius:99px;font-size:.72rem;color:#E8B87E}
+.envpill::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--brand)}
+
+.main{min-width:0}
+.topbar{display:flex;align-items:center;gap:18px;background:var(--surface);border-bottom:1px solid var(--line);
+  padding:14px 28px;position:sticky;top:0;z-index:5}
+.topbar h1{font-size:1.06rem;font-weight:600}
+.topbar .crumb{color:var(--ink-3);font-weight:400}
+.comp{margin-left:auto;display:flex;align-items:center;gap:8px}
+.comp label{font-size:.8rem;color:var(--ink-2)}
+.comp select{font:500 .88rem var(--mono);padding:6px 10px;border:1px solid var(--line-2);border-radius:7px;background:#fff;color:var(--ink)}
+.user{display:flex;align-items:center;gap:10px;padding-left:18px;border-left:1px solid var(--line)}
+.user .av{width:32px;height:32px;border-radius:50%;background:var(--brand-soft);color:var(--brand-ink);display:grid;place-items:center;font-weight:700;font-size:.8rem}
+.user div{line-height:1.15}
+.user b{font-size:.84rem;font-weight:600;display:block}
+.user span{font-size:.74rem;color:var(--ink-3)}
+
+.screen{display:none;padding:24px 28px 48px;max-width:1240px}
+.screen.on{display:block}
+
+/* ---------- componentes ---------- */
+.statband{display:flex;background:var(--surface);border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-bottom:20px}
+.stat{flex:1;padding:14px 20px}
+.stat + .stat{border-left:1px solid var(--line)}
+.stat .v{font:600 1.5rem/1.1 var(--sans)}
+.stat .v em{font-style:normal;font-size:.9rem;color:var(--ink-3);font-weight:500}
+.stat .l{font-size:.8rem;color:var(--ink-2);margin-top:2px}
+.stat.warn .v{color:var(--div)}
+.stat.good .v{color:var(--ok)}
+
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:.76rem;font-weight:600;padding:2px 9px;border-radius:99px;white-space:nowrap}
+.chip::before{content:"";width:7px;height:7px;border-radius:2px}
+.chip.ok{background:var(--ok-bg);color:var(--ok)}.chip.ok::before{background:var(--ok)}
+.chip.pend{background:var(--pend-bg);color:#4B5563}.chip.pend::before{background:var(--pend)}
+.chip.tri{background:var(--tri-bg);color:var(--tri)}.chip.tri::before{background:var(--tri)}
+.chip.div{background:var(--div-bg);color:var(--div)}.chip.div::before{background:var(--div)}
+.chip.disp{background:var(--disp-bg);color:var(--disp)}.chip.disp::before{background:var(--disp)}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:9px}
+.panel > .phead{display:flex;align-items:baseline;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.panel > .phead h2{font-size:.98rem;font-weight:600}
+.panel > .phead .sub{font-size:.8rem;color:var(--ink-2)}
+.panel > .phead .right{margin-left:auto;font-size:.8rem;color:var(--ink-2)}
+
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th{font-size:.75rem;font-weight:600;color:var(--ink-3);text-align:left;padding:9px 14px;border-bottom:1px solid var(--line);background:#FAF9F6}
+td{padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tr.rowlink:hover td{background:#FCFAF6}
+.code{font:500 .8rem var(--mono);color:var(--ink-2);white-space:nowrap}
+.mono{font-family:var(--mono)}
+td .name{font-weight:600}
+td .meta{font-size:.78rem;color:var(--ink-3);margin-top:1px}
+
+.segbar{display:flex;gap:2px;width:170px;height:10px}
+.segbar i{flex:1;border-radius:2px;background:var(--line-2)}
+.segbar i.f{background:var(--ok)}
+.segbar i.p{background:repeating-linear-gradient(45deg,var(--line-2) 0 3px,#fff 3px 5px)}
+.segbar i.d{background:var(--div)}
+.segbar i.t{background:var(--tri)}
+
+.btn{display:inline-flex;align-items:center;gap:8px;border-radius:8px;padding:8px 14px;font-size:.86rem;font-weight:600;border:1px solid transparent}
+.btn.primary{background:var(--brand);color:#fff}
+.btn.primary:hover{background:#D06A04}
+.btn.ghost{background:#fff;border-color:var(--line-2);color:var(--ink)}
+.btn.ghost:hover{border-color:var(--brand);color:var(--brand-ink)}
+.btn.sm{padding:5px 11px;font-size:.8rem;border-radius:7px}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.danger{background:#fff;border-color:var(--line-2);color:var(--div)}
+
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin:14px 2px 0;font-size:.78rem;color:var(--ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
+
+/* bloco corporativo */
+.corp{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:8px;padding:14px 18px 18px}
+.corp .doc{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#FCFBF9}
+.corp .doc .code{display:block;margin-bottom:6px}
+.corp .doc.okd{border-left:3px solid var(--ok)}
+.corp .doc.pendd{border-left:3px solid var(--line-2)}
+.corp .doc.trid{border-left:3px solid var(--tri)}
+
+/* detalhe do ciclo */
+.cyc{display:grid;grid-template-columns:1fr 316px;gap:20px;align-items:start}
+.fam{padding:10px 18px 6px;font-size:.8rem;font-weight:600;color:var(--ink-2);background:#FAF9F6;border-bottom:1px solid var(--line);display:flex;justify-content:space-between}
+.exp{background:#FFF9F1;border-left:3px solid var(--brand)}
+.exp td{padding:14px 18px}
+.pair{display:grid;grid-template-columns:1fr 34px 1fr;gap:10px;align-items:center;max-width:640px}
+.pair .card{border:1px solid var(--line-2);border-radius:8px;background:#fff;padding:10px 12px;font-size:.8rem}
+.pair .card b{display:block;font-size:.84rem}
+.pair .tie{text-align:center;color:var(--ok);font-weight:700}
+.pair .val{font-family:var(--mono);font-weight:600}
+.note{font-size:.78rem;color:var(--ink-2);margin-top:10px}
+.note b{color:var(--ok)}
+
+.rail{display:flex;flex-direction:column;gap:16px}
+.rail .panel{padding:16px 18px}
+.rail h3{font-size:.86rem;font-weight:600;margin-bottom:10px}
+.kv{display:flex;justify-content:space-between;font-size:.84rem;padding:5px 0;border-bottom:1px dashed var(--line)}
+.kv:last-of-type{border-bottom:0}
+.kv b{font-weight:600}
+.blockmsg{margin-top:12px;background:var(--div-bg);border:1px solid #F2C7C0;border-radius:8px;padding:10px 12px;font-size:.8rem;color:#8C2A21}
+.evt{border-left:3px solid var(--tri);background:var(--tri-bg);border-radius:0 8px 8px 0;padding:9px 12px;font-size:.8rem;margin-bottom:8px}
+.evt b{display:block;font-size:.82rem}
+.hash{font:400 .72rem var(--mono);color:var(--ink-3);word-break:break-all}
+
+/* triagem */
+.tri-wrap{display:grid;grid-template-columns:390px 1fr;gap:20px;align-items:start}
+.queue .item{display:block;width:100%;text-align:left;background:#fff;border:0;border-bottom:1px solid var(--line);padding:13px 16px}
+.queue .item:hover{background:#FCFAF6}
+.queue .item.sel{background:#FFF6EA;box-shadow:inset 3px 0 0 var(--brand)}
+.queue .file{font:500 .82rem var(--mono);color:var(--ink);word-break:break-all}
+.queue .from{font-size:.76rem;color:var(--ink-3);margin:3px 0 7px}
+.conf{display:flex;align-items:center;gap:8px;font-size:.76rem;color:var(--ink-2)}
+.conf .bar{flex:1;height:5px;border-radius:99px;background:var(--line);max-width:120px;overflow:hidden}
+.conf .bar i{display:block;height:100%;background:var(--tri)}
+.preview{border:1px dashed var(--line-2);border-radius:8px;background:#FCFBF9;padding:18px;margin:16px 18px 0;color:var(--ink-3);font:400 .78rem var(--mono);line-height:1.7}
+.fields{padding:6px 18px 4px}
+.fields .kv{font-size:.86rem}
+.tri-actions{display:flex;gap:10px;padding:16px 18px 18px}
+.reclass{padding:0 18px 16px;font-size:.82rem;color:var(--ink-2)}
+.reclass select{font:inherit;padding:6px 10px;border:1px solid var(--line-2);border-radius:7px;margin-left:8px}
+
+/* matriz */
+.mtabs{display:flex;gap:6px;padding:14px 18px 0}
+.mtabs button{border:1px solid var(--line-2);background:#fff;border-radius:99px;padding:6px 14px;font-size:.82rem;font-weight:600;color:var(--ink-2)}
+.mtabs button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.crit{font-size:.76rem;font-weight:600;padding:2px 9px;border-radius:6px}
+.crit.b{background:#FDEFE0;color:var(--brand-ink);border:1px solid #F3D3AE}
+.crit.n{background:var(--pend-bg);color:#4B5563;border:1px solid var(--line)}
+.callout{margin:16px 0 20px;background:var(--brand-soft);border:1px solid #F2D4AE;border-radius:9px;padding:12px 16px;font-size:.84rem;color:#6E4212}
+.callout b{color:#8A4B00}
+.vtag{font:500 .78rem var(--mono);background:#fff;border:1px solid var(--line-2);border-radius:6px;padding:3px 8px;color:var(--ink-2)}
+
+/* books */
+.toast{position:fixed;bottom:22px;right:22px;background:var(--ink);color:#fff;border-radius:9px;padding:11px 16px;font-size:.86rem;box-shadow:0 8px 24px rgba(30,20,5,.25);opacity:0;transform:translateY(8px);transition:opacity .18s,transform .18s;pointer-events:none}
+.toast.show{opacity:1;transform:none}
+
+@media (max-width:1080px){
+  .app{grid-template-columns:1fr}
+  .side{position:static;height:auto;flex-direction:row;align-items:center;flex-wrap:wrap}
+  .side .logo{border:0}.nav{flex-direction:row;flex-wrap:wrap}.nav .sec,.side .foot{display:none}
+  .cyc,.tri-wrap{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===================== NAVEGAÇÃO ===================== -->
+  <aside class="side">
+    <div class="logo">
+      <img src="data:image/png;base64,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" alt="Engesoftware Tecnologia S.A.">
+      <small>SGDF · Gestão Documental do Faturamento</small>
+    </div>
+    <nav class="nav" aria-label="Navegação principal">
+      <div class="sec">Operação</div>
+      <button data-go="painel" aria-current="page"><span class="mark"></span>Painel da competência</button>
+      <button data-go="ciclo"><span class="mark"></span>Ciclos de faturamento</button>
+      <button data-go="triagem"><span class="mark"></span>Triagem <span class="chip tri" style="margin-left:auto">6</span></button>
+      <div class="sec">Governança</div>
+      <button data-go="matriz"><span class="mark"></span>Matriz de exigibilidade</button>
+      <button data-go="books"><span class="mark"></span>Books publicados</button>
+    </nav>
+    <div class="foot">
+      <b>Ambiente corporativo</b>
+      acesso registrado em trilha de auditoria
+      <span class="envpill">rede interna</span>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <h1 id="screen-title">Painel da competência</h1>
+      <div class="comp">
+        <label for="selcomp">Competência</label>
+        <select id="selcomp"><option>04/2026</option><option>03/2026</option><option>02/2026</option></select>
+      </div>
+      <div class="user">
+        <div class="av">GC</div>
+        <div><b>Curadoria da matriz</b><span>Gestão de Contratos</span></div>
+      </div>
+    </header>
+
+    <!-- ===================== PAINEL ===================== -->
+    <section class="screen on" id="painel">
+      <div class="statband">
+        <div class="stat"><div class="v">11</div><div class="l">ciclos abertos na competência</div></div>
+        <div class="stat good"><div class="v">4</div><div class="l">prontos para faturar</div></div>
+        <div class="stat"><div class="v">23 <em>de 214</em></div><div class="l">exigências pendentes</div></div>
+        <div class="stat warn"><div class="v">3</div><div class="l">divergências de conciliação</div></div>
+        <div class="stat"><div class="v">2<em>,1 dias</em></div><div class="l">tempo médio ateste → NF (meta ≤ 3)</div></div>
+      </div>
+
+      <div class="panel">
+        <div class="phead"><h2>Bloco corporativo</h2><span class="sub">coletado uma vez por competência e replicado em todos os books</span><span class="right">CNPJ matriz · competência de encargos 03/2026 (M-1)</span></div>
+        <div class="corp">
+          <div class="doc okd"><span class="code">CER.CND_RFB</span><span class="chip ok">Validado</span></div>
+          <div class="doc okd"><span class="code">CER.CRF_FGTS</span><span class="chip ok">Validado</span></div>
+          <div class="doc okd"><span class="code">CER.CNDT</span><span class="chip ok">Validado</span></div>
+          <div class="doc okd"><span class="code">CER.SICAF</span><span class="chip ok">Validado</span></div>
+          <div class="doc pendd"><span class="code">CER.CND_ESTADUAL</span><span class="chip pend">Pendente</span></div>
+          <div class="doc okd"><span class="code">CER.CND_FALENCIA</span><span class="chip ok">Validado</span></div>
+          <div class="doc okd"><span class="code">INS.DCTFWEB</span><span class="chip ok">Validado</span></div>
+          <div class="doc okd"><span class="code">INS.DARF</span><span class="chip ok">Conciliado</span></div>
+          <div class="doc okd"><span class="code">FGT.GUIA</span><span class="chip ok">Conciliado</span></div>
+          <div class="doc trid"><span class="code">FGT.COMPROVANTE_PG</span><span class="chip tri">Em triagem</span></div>
+          <div class="doc okd"><span class="code">FGT.EXTRATO</span><span class="chip ok">Validado</span></div>
+          <div class="doc okd"><span class="code">INS.COMPROVANTE_PG</span><span class="chip ok">Conciliado</span></div>
+        </div>
+      </div>
+
+      <div style="height:20px"></div>
+
+      <div class="panel">
+        <div class="phead"><h2>Ciclos por contrato</h2><span class="sub">competência 04/2026</span><span class="right">barra segmentada por família documental</span></div>
+        <table>
+          <thead><tr><th>Contrato</th><th>Modalidade</th><th>Completude</th><th>Pendentes</th><th>Prazo interno</th><th>Situação</th><th></th></tr></thead>
+          <tbody>
+            <tr class="rowlink"><td><span class="name">CAIXA · 09705.2025</span><div class="meta">Fábrica de software</div></td><td>Outsourcing</td>
+              <td><div class="segbar" title="Certidões, fiscal, folha, FGTS, INSS, benefícios, eventos"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="t"></i><i class="p"></i></div></td>
+              <td>3</td><td class="mono">dia 21</td><td><span class="chip tri">Em triagem</span></td>
+              <td><button class="btn ghost sm" data-go="ciclo">Abrir ciclo</button></td></tr>
+            <tr class="rowlink"><td><span class="name">CAIXA · 00005.2026</span><div class="meta">Sustentação</div></td><td>Sustentação</td>
+              <td><div class="segbar"><i class="f"></i><i class="f"></i><i class="f"></i></div></td>
+              <td>0</td><td class="mono">dia 21</td><td><span class="chip ok">Pronto</span></td>
+              <td><button class="btn ghost sm" data-go="books">Ver book</button></td></tr>
+            <tr class="rowlink"><td><span class="name">BNB · 482023</span><div class="meta">Outsourcing</div></td><td>Outsourcing</td>
+              <td><div class="segbar"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="d"></i><i class="f"></i><i class="p"></i></div></td>
+              <td>2</td><td class="mono">5º dia útil</td><td><span class="chip div">Divergente</span></td>
+              <td><button class="btn ghost sm" data-go="ciclo">Abrir ciclo</button></td></tr>
+            <tr class="rowlink"><td><span class="name">BNB · 482023</span><div class="meta">Sustentação</div></td><td>Sustentação</td>
+              <td><div class="segbar"><i class="f"></i><i class="f"></i><i class="f"></i></div></td>
+              <td>0</td><td class="mono">5º dia útil</td><td><span class="chip ok">Pronto</span></td>
+              <td><button class="btn ghost sm" data-go="books">Ver book</button></td></tr>
+            <tr class="rowlink"><td><span class="name">TJCE · 172023</span><div class="meta">Outsourcing</div></td><td>Outsourcing</td>
+              <td><div class="segbar"><i class="f"></i><i class="f"></i><i class="p"></i><i class="p"></i><i class="f"></i><i class="f"></i><i class="f"></i></div></td>
+              <td>9</td><td class="mono">dia 20</td><td><span class="chip pend">Em coleta</span></td>
+              <td><button class="btn ghost sm" data-go="ciclo">Abrir ciclo</button></td></tr>
+            <tr class="rowlink"><td><span class="name">DOCAS</span><div class="meta">Outsourcing</div></td><td>Outsourcing</td>
+              <td><div class="segbar"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i></div></td>
+              <td>0</td><td class="mono">5º dia útil</td><td><span class="chip ok">Pronto</span></td>
+              <td><button class="btn ghost sm" data-go="books">Ver book</button></td></tr>
+            <tr class="rowlink"><td><span class="name">SESCOOP</span><div class="meta">Outsourcing</div></td><td>Outsourcing</td>
+              <td><div class="segbar"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="p"></i><i class="f"></i></div></td>
+              <td>1</td><td class="mono">dia 07</td><td><span class="chip pend">Em coleta</span></td>
+              <td><button class="btn ghost sm" data-go="ciclo">Abrir ciclo</button></td></tr>
+            <tr class="rowlink"><td><span class="name">TERRACAP</span><div class="meta">Entrega de produto</div></td><td>Entrega</td>
+              <td><div class="segbar"><i class="f"></i><i class="f"></i><i class="f"></i></div></td>
+              <td>0</td><td class="mono">9º dia útil</td><td><span class="chip ok">Pronto</span></td>
+              <td><button class="btn ghost sm" data-go="books">Ver book</button></td></tr>
+            <tr class="rowlink"><td><span class="name">Telebrás</span><div class="meta">Entrega de produto</div></td><td>Entrega</td>
+              <td><div class="segbar"><i class="f"></i><i class="f"></i><i class="p"></i></div></td>
+              <td>1</td><td class="mono">sob faturamento</td><td><span class="chip pend">Em coleta</span></td>
+              <td><button class="btn ghost sm" data-go="ciclo">Abrir ciclo</button></td></tr>
+            <tr class="rowlink"><td><span class="name">SEFAZ RS</span><div class="meta">Entrega de produto</div></td><td>Entrega</td>
+              <td><div class="segbar"><i class="f"></i><i class="f"></i><i class="f"></i></div></td>
+              <td>0</td><td class="mono">sob faturamento</td><td><span class="chip disp">Aguarda solicitação</span></td>
+              <td><button class="btn ghost sm" data-go="ciclo">Abrir ciclo</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--ok)"></i>família completa</span>
+        <span><i style="background:var(--tri)"></i>em triagem</span>
+        <span><i style="background:var(--div)"></i>divergência</span>
+        <span><i style="background:repeating-linear-gradient(45deg,var(--line-2) 0 3px,#fff 3px 5px);border:1px solid var(--line-2)"></i>pendente</span>
+      </div>
+    </section>
+
+    <!-- ===================== CICLO ===================== -->
+    <section class="screen" id="ciclo">
+      <div class="cyc">
+        <div>
+          <div class="panel">
+            <div class="phead"><h2>CAIXA · 09705.2025 — competência 04/2026</h2><span class="sub">outsourcing · 42 profissionais alocados</span>
+              <span class="right">31 de 34 exigências resolvidas</span></div>
+
+            <div class="fam"><span>Certidões e regularidade · escopo corporativo</span><span>7 de 7</span></div>
+            <table>
+              <tbody>
+              <tr><td class="code">CER.CND_RFB</td><td><span class="name">CND Receita Federal / Dívida Ativa</span><div class="meta">positiva com efeito de negativa · válida até 14/08/2026</div></td><td>Financeiro</td><td><span class="chip ok">Validado</span></td></tr>
+              <tr><td class="code">CER.CRF_FGTS</td><td><span class="name">Certificado de Regularidade do FGTS</span><div class="meta">válido até 02/05/2026 — vence antes da NF prevista? não</div></td><td>Financeiro</td><td><span class="chip ok">Validado</span></td></tr>
+              <tr><td class="code">CER.CNDT</td><td><span class="name">Certidão Negativa de Débitos Trabalhistas</span><div class="meta">válida até 21/10/2026</div></td><td>Financeiro</td><td><span class="chip ok">Validado</span></td></tr>
+              </tbody>
+            </table>
+
+            <div class="fam"><span>FGTS · competência de referência 03/2026 (M-1)</span><span>3 de 4</span></div>
+            <table>
+              <tbody>
+              <tr><td class="code">FGT.GUIA</td><td><span class="name">Guia FGTS Digital</span><div class="meta">competência 03/2026 · R$ 187.402,11</div></td><td>AP</td><td><span class="chip ok">Conciliado</span></td></tr>
+              <tr class="exp"><td colspan="4">
+                <div style="font-weight:600;margin-bottom:10px">Pareamento automático — regra R01: guia ↔ comprovante</div>
+                <div class="pair">
+                  <div class="card"><b>Guia FGTS Digital</b>competência <span class="mono">03/2026</span> · identificador <span class="mono">…8842</span><div class="val">R$ 187.402,11</div></div>
+                  <div class="tie">=</div>
+                  <div class="card"><b>Comprovante bancário</b>pago em <span class="mono">07/04/2026</span> · identificador <span class="mono">…8842</span><div class="val">R$ 187.402,11</div></div>
+                </div>
+                <div class="note"><b>Valores e identificador conferem.</b> Pareado sem intervenção · confiança 0,99 · decisão registrada na trilha de auditoria.</div>
+              </td></tr>
+              <tr><td class="code">FGT.EXTRATO</td><td><span class="name">Extrato analítico por trabalhador</span><div class="meta">42 CPFs individualizados — cobre 100% da equipe alocada</div></td><td>AP</td><td><span class="chip ok">Validado</span></td></tr>
+              <tr><td class="code">FGT.RELATORIO_DIGITAL</td><td><span class="name">Relatórios do FGTS Digital</span><div class="meta">nenhum arquivo compatível encontrado na varredura de 03/06</div></td><td>AP</td><td><span class="chip pend">Pendente</span></td></tr>
+              </tbody>
+            </table>
+
+            <div class="fam"><span>Benefícios</span><span>2 de 4</span></div>
+            <table>
+              <tbody>
+              <tr><td class="code">BEN.RELACAO_PLANO_SAUDE</td><td><span class="name">Relação de beneficiários do plano</span><div class="meta">41 beneficiários · 1 profissional sem desconto correspondente na folha</div></td><td>AP</td><td><span class="chip div">Divergente</span></td></tr>
+              <tr><td class="code">BEN.COMPROVANTE_PLANO_SAUDE</td><td><span class="name">Comprovante de pagamento do plano</span><div class="meta">arquivo digitalizado, aguardando confirmação humana</div></td><td>Financeiro</td><td><span class="chip tri">Em triagem</span></td></tr>
+              <tr><td class="code">BEN.RELACAO_VA_VR</td><td><span class="name">Relação de vale-alimentação</span><div class="meta">PDF e XLSX presentes · competências coerentes</div></td><td>AP</td><td><span class="chip ok">Validado</span></td></tr>
+              <tr><td class="code">BEN.TERMO_NAO_ADESAO_VT</td><td><span class="name">Termo de não adesão ao VT</span><div class="meta">condicional — aceito no lugar da relação de VT para 3 profissionais</div></td><td>AP</td><td><span class="chip disp">Condicional atendida</span></td></tr>
+              </tbody>
+            </table>
+
+            <div class="fam"><span>Eventos derivados da folha · 04/2026</span><span>1 de 2</span></div>
+            <table>
+              <tbody>
+              <tr><td class="code">RES.TRCT</td><td><span class="name">Rescisão — matrícula 10415</span><div class="meta">desligamento em 12/04 · TRCT, comprovante e GRRF conciliados · falta ASO demissional</div></td><td>AP</td><td><span class="chip pend">Pendente</span></td></tr>
+              <tr><td class="code">DEC.FOPAG_13</td><td><span class="name">13º antecipado — matrícula 10082</span><div class="meta">rubrica identificada na folha de 04/2026 (antecipação em férias)</div></td><td>AP</td><td><span class="chip ok">Validado</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="rail">
+          <div class="panel">
+            <h3>Resumo do ciclo</h3>
+            <div class="kv"><span>Exigências</span><b>34</b></div>
+            <div class="kv"><span>Validadas e conciliadas</span><b style="color:var(--ok)">29</b></div>
+            <div class="kv"><span>Em triagem</span><b style="color:var(--tri)">2</b></div>
+            <div class="kv"><span>Pendentes</span><b>2</b></div>
+            <div class="kv"><span>Divergentes</span><b style="color:var(--div)">1</b></div>
+            <div class="kv"><span>Prazo interno</span><b class="mono">21/04</b></div>
+            <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px">
+              <button class="btn primary" disabled title="Há exigências bloqueantes não resolvidas">Publicar book v2</button>
+              <button class="btn ghost" id="notify">Cobrar pendências por e-mail</button>
+            </div>
+            <div class="blockmsg">Publicação bloqueada: 1 divergência e 2 pendências em exigências bloqueantes. A dispensa exige aprovação da DAF, com justificativa registrada.</div>
+          </div>
+
+          <div class="panel">
+            <h3>Eventos detectados na folha</h3>
+            <div class="evt"><b>1 rescisão</b>matrícula 10415 · desligamento 12/04 · 4 de 5 documentos entregues</div>
+            <div class="evt"><b>1 antecipação de 13º</b>matrícula 10082 · junto às férias de abril</div>
+            <div style="font-size:.76rem;color:var(--ink-3)">Exigências de evento são criadas a partir das rubricas da folha — não há cadastro manual.</div>
+          </div>
+
+          <div class="panel">
+            <h3>Books desta competência</h3>
+            <div class="kv"><span class="mono">v1 · 08/04 14:22</span><b><a href="#" onclick="return false">índice</a></b></div>
+            <div class="hash">sha-256 9f31c2…a8e4 · 33 peças · publicado por conta de serviço</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== TRIAGEM ===================== -->
+    <section class="screen" id="triagem">
+      <div class="tri-wrap">
+        <div class="panel queue">
+          <div class="phead"><h2>Fila de triagem</h2><span class="right"><span id="qcount">6</span> itens</span></div>
+          <button class="item sel">
+            <span class="file">comprov plano abril CAIXA (1).pdf</span>
+            <div class="from">CAIXA - 09705.2025 / 2026 / 04 — raiz do mês</div>
+            <div class="conf">sugestão <span class="code">BEN.COMPROVANTE_PLANO_SAUDE</span><span class="bar"><i style="width:82%"></i></span>0,82</div>
+          </button>
+          <button class="item">
+            <span class="file">FGTS pgto 03-2026 scan.pdf</span>
+            <div class="from">Bloco corporativo — pasta FGTS</div>
+            <div class="conf">sugestão <span class="code">FGT.COMPROVANTE_PG</span><span class="bar"><i style="width:78%"></i></span>0,78</div>
+          </button>
+          <button class="item">
+            <span class="file">10415 - RECIBO DE PAG...NTO.pdf</span>
+            <div class="from">CAIXA - 09705.2025 / 2026 / 04 / Folha</div>
+            <div class="conf">sugestão <span class="code">FOL.CONTRACHEQUE</span><span class="bar"><i style="width:74%"></i></span>0,74</div>
+          </button>
+          <button class="item">
+            <span class="file">doc rescisao abril (conflito de sincronização).pdf</span>
+            <div class="from">TJCE - 172023 / 2026 / 04 / Rescisao</div>
+            <div class="conf">cópia em conflito detectada<span class="bar"><i style="width:40%;background:var(--div)"></i></span>—</div>
+          </button>
+          <button class="item">
+            <span class="file">relacao VT + termo joao.pdf</span>
+            <div class="from">SESCOOP / 2026 / 04 / Transporte</div>
+            <div class="conf">dois artefatos no mesmo arquivo<span class="bar"><i style="width:55%"></i></span>0,55</div>
+          </button>
+          <button class="item">
+            <span class="file">digitalizado_020426.pdf</span>
+            <div class="from">BNB - 482023 Outsourcing / 2026 / 04 — raiz do mês</div>
+            <div class="conf">sem texto extraível — OCR aplicado<span class="bar"><i style="width:31%"></i></span>0,31</div>
+          </button>
+        </div>
+
+        <div class="panel">
+          <div class="phead"><h2>comprov plano abril CAIXA (1).pdf</h2><span class="right">encontrado na varredura de 03/06 · 214 KB</span></div>
+          <div class="fields">
+            <div class="kv"><span>Tipo sugerido</span><b class="code">BEN.COMPROVANTE_PLANO_SAUDE · confiança 0,82</b></div>
+            <div class="kv"><span>Competência extraída</span><b class="mono">04/2026</b></div>
+            <div class="kv"><span>Valor identificado</span><b class="mono">R$ 61.238,40</b></div>
+            <div class="kv"><span>Pareamento candidato</span><b>fatura da operadora · <span class="mono">R$ 61.238,40</span> · valores conferem</b></div>
+            <div class="kv"><span>Por que está em triagem</span><b>documento digitalizado — OCR abaixo do limiar de 0,95</b></div>
+          </div>
+          <div class="preview">— pré-visualização do documento —<br>OPERADORA ▓▓▓▓▓ SAÚDE S.A.<br>COMPROVANTE DE PAGAMENTO · ABRIL/2026<br>BENEFICIÁRIO: ENGESOFTWARE TECNOLOGIA S.A.<br>VALOR: R$ 61.238,40 · AUTENTICAÇÃO ▓▓▓▓▓▓▓▓</div>
+          <div class="tri-actions">
+            <button class="btn primary" id="confirm">Confirmar tipo e validar</button>
+            <button class="btn ghost">Reclassificar</button>
+            <button class="btn danger">Marcar como ilegível</button>
+          </div>
+          <div class="reclass">A confirmação registra o alias novo — da próxima vez, este padrão de arquivo é reconhecido sem triagem.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== MATRIZ ===================== -->
+    <section class="screen" id="matriz">
+      <div class="callout"><b>Alterações não travam o faturamento.</b> Regra nova vale a partir do próximo ciclo, salvo aplicação imediata com justificativa. Tipo sem regra de reconhecimento entra em conferência manual. Criticidade bloqueante exige aprovação da DAF.</div>
+      <div class="panel">
+        <div class="phead">
+          <h2>Matriz de exigibilidade</h2>
+          <span class="vtag">versão 1.3 · vigente desde 01/04/2026</span>
+          <span class="right" style="display:flex;gap:10px">
+            <button class="btn ghost sm">Histórico de versões</button>
+            <button class="btn primary sm">Nova regra</button>
+          </span>
+        </div>
+        <div class="mtabs">
+          <button class="on">Bloco base · 14 tipos</button>
+          <button>Bloco outsourcing · 29 tipos</button>
+          <button>Específicos por edital · 8 regras</button>
+        </div>
+        <div style="height:12px"></div>
+        <table>
+          <thead><tr><th>Tipo</th><th>Documento</th><th>Escopo</th><th>Competência ref.</th><th>Formatos</th><th>Criticidade</th><th>Responsável</th><th>Prazo</th></tr></thead>
+          <tbody>
+            <tr><td class="code">CER.CND_RFB</td><td>CND Receita Federal / Dívida Ativa</td><td>Corporativo</td><td>vigente na NF</td><td class="mono">pdf</td><td><span class="crit b">Bloqueante</span></td><td>Financeiro</td><td class="mono">dia 05</td></tr>
+            <tr><td class="code">CER.CRF_FGTS</td><td>Certificado de Regularidade do FGTS</td><td>Corporativo</td><td>vigente na NF</td><td class="mono">pdf</td><td><span class="crit b">Bloqueante</span></td><td>Financeiro</td><td class="mono">dia 05</td></tr>
+            <tr><td class="code">CER.CNDT</td><td>Certidão Negativa de Débitos Trabalhistas</td><td>Corporativo</td><td>vigente na NF</td><td class="mono">pdf</td><td><span class="crit b">Bloqueante</span></td><td>Financeiro</td><td class="mono">dia 05</td></tr>
+            <tr><td class="code">FIS.NOTA_FISCAL</td><td>Nota fiscal de serviço</td><td>Contrato</td><td>mês da competência</td><td class="mono">pdf + xml</td><td><span class="crit b">Bloqueante</span></td><td>Financeiro</td><td class="mono">ateste + 3</td></tr>
+            <tr><td class="code">OPE.RELATORIO_MEDICAO</td><td>Relatório técnico de medição</td><td>Contrato</td><td>mês da competência</td><td class="mono">pdf</td><td><span class="crit b">Bloqueante</span></td><td>Gestor do contrato</td><td class="mono">dia 03</td></tr>
+            <tr><td class="code">OPE.ATESTE_RECEBIMENTO</td><td>Ateste formal do cliente — marco do D+3</td><td>Contrato</td><td>mês da competência</td><td class="mono">pdf</td><td><span class="crit b">Bloqueante</span></td><td>Gestor do contrato</td><td class="mono">evento</td></tr>
+            <tr><td class="code">OPE.EMPENHO</td><td>Nota de empenho vigente</td><td>Contrato</td><td>mês da competência</td><td class="mono">pdf</td><td><span class="crit n">Não bloqueante</span></td><td>Gestão de Contratos</td><td class="mono">dia 10</td></tr>
+            <tr><td class="code">OPE.PLANILHA_MEDICAO</td><td>Planilha de faturamento (memória de cálculo)</td><td>Contrato</td><td>mês da competência</td><td class="mono">xlsx</td><td><span class="crit b">Bloqueante</span></td><td>Operação</td><td class="mono">dia 03</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===================== BOOKS ===================== -->
+    <section class="screen" id="books">
+      <div class="panel">
+        <div class="phead"><h2>Books publicados</h2><span class="sub">repositório de evidências · imutável após publicação</span><span class="right">retenção conforme tabela de temporalidade</span></div>
+        <table>
+          <thead><tr><th>Contrato</th><th>Competência</th><th>Versão</th><th>Peças</th><th>Publicado em</th><th>Integridade (sha-256)</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><span class="name">DOCAS</span></td><td class="mono">04/2026</td><td class="mono">v1</td><td>27</td><td class="mono">06/04 · 09:12</td><td class="hash">4c17aa…09b3</td><td><button class="btn ghost sm">Abrir índice</button></td></tr>
+            <tr><td><span class="name">CAIXA · 00005.2026</span></td><td class="mono">04/2026</td><td class="mono">v1</td><td>11</td><td class="mono">07/04 · 16:40</td><td class="hash">be02f1…77d0</td><td><button class="btn ghost sm">Abrir índice</button></td></tr>
+            <tr><td><span class="name">CAIXA · 09705.2025</span></td><td class="mono">04/2026</td><td class="mono">v1 <span class="chip pend" style="margin-left:6px">substituída</span></td><td>33</td><td class="mono">08/04 · 14:22</td><td class="hash">9f31c2…a8e4</td><td><button class="btn ghost sm">Abrir índice</button></td></tr>
+            <tr><td><span class="name">TERRACAP</span></td><td class="mono">04/2026</td><td class="mono">v1</td><td>12</td><td class="mono">09/04 · 10:05</td><td class="hash">1d90bc…3e51</td><td><button class="btn ghost sm">Abrir índice</button></td></tr>
+            <tr><td><span class="name">BNB · 482023 · Sustentação</span></td><td class="mono">04/2026</td><td class="mono">v1</td><td>10</td><td class="mono">09/04 · 11:47</td><td class="hash">a3f6d8…c214</td><td><button class="btn ghost sm">Abrir índice</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="legend"><span>Republicação gera nova versão; a anterior permanece íntegra e consultável. O acesso de leitura é registrado na trilha de auditoria.</span></div>
+    </section>
+  </div>
+</div>
+
+<div class="toast" id="toast">E-mail consolidado enviado — 1 por área, com link autenticado.</div>
+
+<script>
+const titles={painel:'Painel da competência',ciclo:'Ciclos de faturamento',triagem:'Triagem',matriz:'Matriz de exigibilidade',books:'Books publicados'};
+function go(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id));
+  document.querySelectorAll('.nav button').forEach(b=>{
+    if(b.dataset.go===id) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current');
+  });
+  document.getElementById('screen-title').textContent=titles[id];
+  window.scrollTo({top:0});
+}
+document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.go)));
+
+const toast=document.getElementById('toast');
+function showToast(msg){toast.textContent=msg;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),2600);}
+document.getElementById('notify')?.addEventListener('click',()=>showToast('E-mail consolidado enviado — 1 por área, com link autenticado.'));
+document.getElementById('confirm')?.addEventListener('click',()=>{
+  const sel=document.querySelector('.queue .item.sel');
+  if(sel){sel.remove();const q=document.getElementById('qcount');q.textContent=+q.textContent-1;
+    const first=document.querySelector('.queue .item');first&&first.classList.add('sel');
+    showToast('Tipo confirmado. Alias registrado — próxima ocorrência dispensa triagem.');}
+});
+document.querySelectorAll('.queue .item').forEach(it=>it.addEventListener('click',()=>{
+  document.querySelectorAll('.queue .item').forEach(x=>x.classList.remove('sel'));it.classList.add('sel');
+}));
+</script>
+</body>
+</html>

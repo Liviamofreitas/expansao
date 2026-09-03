@@ -1,0 +1,15 @@
+Cobertura documental por contrato e família (contagem automática sobre a aba MATRIZ_EXIGIBILIDADE),,,,,,,,,
+Célula zerada = a família não é exigida naquele contrato. Confirmar se é correto ou se é lacuna do checklist (ver achado D09).,,,,,,,,,
+FAMILIA,BNB,CEF,DOCAS,SEFAZ RS,SESCOOP,TERRACAP,TJ CE,Telebrás,TOTAL
+13º salário,0,1,0,0,0,0,2,0,3
+Admissão,0,0,0,0,0,0,1,0,1
+Benefícios,0,5,2,0,6,0,2,0,15
+Certidões e regularidade,7,4,8,7,0,7,7,7,47
+FGTS,2,6,2,0,4,0,7,0,21
+Fiscal,2,2,2,2,2,2,2,3,17
+Folha,3,2,3,0,3,0,3,0,14
+Férias,0,3,0,0,0,0,5,0,8
+INSS e tributos,2,4,2,0,4,0,3,0,15
+Operação e medição,2,2,5,2,2,3,4,2,22
+Rescisão,0,5,0,0,3,0,5,0,13
+TOTAL,18,34,24,11,24,12,41,12,176

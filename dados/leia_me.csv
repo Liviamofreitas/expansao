@@ -1,0 +1,20 @@
+,Diagnóstico e normalização do checklist de faturamento,
+,Origem,"Arquivo ""F2_Preenchimento_checklist - FINANCEIRO_DP_OPERAÇÃO_DOCUMENTAÇÃO_FATURAMENTO"", enviado pela DAF."
+,Base analisada,"176 linhas úteis, 8 contratos (BNB, CEF, DOCAS, SEFAZ RS, SESCOOP, TERRACAP, TJ CE, Telebrás), 3 áreas responsáveis."
+,Objetivo,"Transformar o checklist atual em uma matriz de exigibilidade computável, que possa ser lida por um sistema de conferência automática de documentação de faturamento."
+,O que foi feito,"1) Catálogo canônico de tipos documentais, consolidando 69 nomenclaturas distintas em 51 tipos reais.
+2) Normalização das 176 linhas contra esse catálogo.
+3) Detecção automática de divergências (duplicidade, competência incoerente, campo em branco, pasta incompatível, linha composta).
+4) Proposta dos campos que faltam no checklist para viabilizar a automação."
+,Como usar,Revisar as abas na ordem: DIAGNOSTICO → CATALOGO_DOCUMENTOS → MATRIZ_EXIGIBILIDADE → DIVERGENCIAS_POR_LINHA. As células em AMARELO são decisões que dependem da área de negócio e não podem ser inferidas do arquivo.
+,Status,Documento de trabalho. Nenhuma conclusão aqui substitui a leitura do edital/contrato de cada cliente.
+,PREMISSAS ADOTADAS,
+,P1,"FGTS, DCTFWeb/DARF e INSS de uma competência são recolhidos no mês seguinte; portanto a competência-referência desses documentos é sempre M-1. Divergências no arquivo foram sinalizadas com base nessa regra."
+,P2,"Contratos públicos: a exigência documental decorre do edital/contrato e do art. 121 da Lei 14.133/2021 (responsabilidade subsidiária). O campo ""PREVISÃO = Edital"" não identifica a cláusula — isso foi marcado como lacuna."
+,P3,"A criticidade sugerida (""Bloqueante"" / ""Não bloqueante"") é proposta técnica e precisa ser validada contrato a contrato antes de virar regra de bloqueio no sistema."
+,P4,"Granularidade (por contrato x por profissional) foi inferida da natureza do documento, não do arquivo original, que não possui esse campo."
+,P5,Nenhum dado pessoal de colaborador foi utilizado: o arquivo contém apenas metadados de tipos documentais.
+,LEGENDA,
+,Amarelo,Campo a preencher/decidir pela área de negócio
+,Laranja,Divergência que impede a automação enquanto não for corrigida
+,Verde,"Campo derivado da normalização, já preenchido"

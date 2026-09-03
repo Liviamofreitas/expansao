@@ -1,0 +1,13 @@
+ID,Regra,Fontes cruzadas,Falha que detecta,Severidade,Tolerância (preencher),Exceções previstas (preencher)
+R01,Cobertura do plano de saúde,BEN.RELACAO_PLANO_SAUDE x rubrica de desconto na FOL.FOPAG x BEN.COMPROVANTE_PLANO_SAUDE,"Profissional na relação sem desconto em folha, ou desconto sem cobertura",Bloqueante,,
+R02,Cobertura do FGTS,FOL.FOPAG (base) x FGT.GUIA x FGT.EXTRATO x FGT.COMPROVANTE_PG,Recolhimento sem individualização por trabalhador; base divergente,Bloqueante,,
+R03,Cobertura do INSS,FOL.FOPAG x INS.DCTFWEB x INS.DARF x INS.COMPROVANTE_PG,Guia paga em valor diferente do apurado na folha,Bloqueante,,
+R04,Completude da equipe,OPE.RELACAO_ALOCADOS x FOL.FOPAG x FOL.CONTRACHEQUE (por profissional),Profissional faturado sem evidência de vínculo ou pagamento,Bloqueante,,
+R05,Aderência da medição,OPE.RELATORIO_MEDICAO x OPE.FOLHA_PONTO x OPE.PLANILHA_MEDICAO,Horas/postos faturados sem lastro de medição,Bloqueante,,
+R06,Vigência das certidões,CER.* com data de validade na data de emissão da NF,Certidão vencida no momento do ateste ou da emissão,Bloqueante,,
+R07,Cobertura de VA/VR e VT,BEN.RELACAO_* x desconto/crédito na folha x comprovante x termo de não adesão,"Benefício pago sem relação, ou relação sem comprovante",Bloqueante,,
+R08,Fechamento de eventos de rescisão,RES.TRCT x RES.COMPROVANTE_PG x FGT.GUIA_RESCISORIA x RES.ASO_DEMISSIONAL,Rescisão no período sem conjunto documental completo,Bloqueante,,
+R09,Fechamento de férias,FER.AVISO x FER.RECIBO x FER.COMPROVANTE_PG x FOL.FOPAG,Férias concedidas sem recibo ou sem comprovante de pagamento,Bloqueante,,
+R10,Defasagem de competência,Todo documento de FGTS/INSS/IRRF deve referir-se a M-1,Documento anexado da competência errada,Bloqueante,,
+R11,Vinculação ao empenho,OPE.EMPENHO x valor da OPE.PLANILHA_MEDICAO x FIS.NOTA_FISCAL,Faturamento acima do saldo de empenho,Bloqueante,,
+R12,Relógio D+3,OPE.ATESTE_RECEBIMENTO (data) x FIS.NOTA_FISCAL (data de emissão),Descumprimento da meta institucional de emissão em D+3,Indicador,,
