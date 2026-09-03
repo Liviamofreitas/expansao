@@ -21,7 +21,7 @@ Automatiza a conferência documental do faturamento por medição na **Engesoftw
 | [`dados/complemento_tipo_documental.csv`](dados/complemento_tipo_documental.csv) | `escopo`, `sigilo`, `formatos` e `condicional_grupo` — campos que o modelo exige e o Anexo 1 não carrega (achado E-05). **Este é editável à mão**, e é onde a área demandante confirma os valores. |
 | [`db/`](db/) | Esquema, carga inicial e testes de aceite. Ver abaixo. |
 | [`tools/`](tools/) | Geradores. Nada aqui é executado em produção. |
-| [`especificacao/prazo/`](especificacao/prazo/) | Suíte de conformidade **normativa** do prazo estruturado + implementação de referência. Ver abaixo. |
+| [`especificacao/`](especificacao/) | Suítes de conformidade **normativas** + implementações de referência: [`prazo/`](especificacao/prazo/) e [`materializacao/`](especificacao/materializacao/). Ver abaixo. |
 
 ---
 
@@ -128,6 +128,47 @@ A suíte não existe só para testar: ela **fixa** as decisões que o documento 
 ### Calendário
 
 `db/seed/V101__calendario_feriados.sql` traz 120 linhas (2025–2032): nacionais fixos, móveis derivados da Páscoa e estaduais de CE e RS. **Feriados municipais não estão lá** — não constam de nenhuma fonte do pacote e precisam ser cadastrados antes de qualquer prazo em dia útil valer para contratos cujo município tenha feriado local.
+
+---
+
+## Abertura de ciclo (história F0-07)
+
+O cap. 7.1 é decomposto em duas partes, e a separação não é estética:
+
+1. **Resolver** (função pura) — dado contrato, competência, matriz, tipos e alocações, decidir *quais* exigências existem e com que prazo. Toda a regra de negócio vive aqui, testável sem banco, sem relógio e sem fila.
+2. **Persistir** (efeito) — gravar o resultado e congelar a versão da matriz no ciclo. Mecânico.
+
+```
+especificacao/materializacao/     18 casos — a resolução
+db/testes/T002__abertura_de_ciclo.sql   11 testes — a persistência
+```
+
+```bash
+python3 especificacao/materializacao/verificar.py
+```
+
+**O critério de aceite** — *"No 1º dia útil, 15 ciclos abertos; exigência corporativa única compartilhada"* — está partido entre os dois: a contagem e o compartilhamento em `T002`, a decisão de quais exigências existem na suíte.
+
+### A exigência corporativa (achado E-09)
+
+O cap. 5.2 modela `exigencia.ciclo_id`; o cap. 7.1 diz que a corporativa é "compartilhada entre ciclos, satisfeita uma única vez". Uma linha não faz as duas coisas.
+
+A `V004` resolve dando a `exigencia` **dois modos de endereçamento mutuamente exclusivos** — ou um ciclo, ou `(empresa, competência)` — e uma view que reúne os dois:
+
+```sql
+SELECT * FROM exigencia_do_ciclo WHERE ciclo_id = ...;
+--   procedencia = 'PROPRIA'      as do próprio ciclo
+--   procedencia = 'CORPORATIVA'  as do CNPJ, na mesma competência
+```
+
+A migration também cria `empresa` — o CNPJ do **prestador**, que o cadastro não tinha e que é o titular de tudo no bloco corporativo. Nasce vazia: nenhum CNPJ é inventado.
+
+### Duas decisões que o cap. 7.1 não fecha (achado E-10)
+
+| Questão | Adotado | Por quê |
+|---|---|---|
+| Prazo da corporativa compartilhada, quando os contratos pedem prazos diferentes | O **menor** | Ela precisa estar lá quando o primeiro ciclo precisa dela |
+| O que é "alocado ativo na competência" | **Interseção** — um dia de sobreposição basta | Quem saiu no dia 3 tem contracheque, encargos e rescisão a comprovar. É o caso que a responsabilidade subsidiária alcança |
 
 ---
 

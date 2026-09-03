@@ -169,6 +169,63 @@ Na aba `MATRIZ_EXIGIBILIDADE`, oito linhas têm âncora "Início da competência
 
 ---
 
+## E-09 — CRÍTICO · O modelo do cap. 5.2 não comporta a exigência corporativa do cap. 7.1
+
+Dois capítulos do mesmo documento se contradizem:
+
+| Capítulo | O que diz |
+|---|---|
+| 5.2 | `exigencia \| id, **ciclo_id**, tipo_id, evento, profissional_id?, status, …` |
+| 7.1 | "escopo CORPORATIVO gera 1 exigência por CNPJ por competência (**compartilhada entre ciclos, satisfeita uma única vez**)" |
+
+Uma linha não pode pertencer a um ciclo e, ao mesmo tempo, ser compartilhada por todos eles.
+
+**Efeito prático.** A saída fácil — duplicar a exigência corporativa em cada ciclo — está errada e é a que um desenvolvedor adota sem pensar, porque o modelo do cap. 5.2 empurra para ela. Com 15 contratos, a mesma CND passaria a ser cobrada 15 vezes, apareceria 15 vezes na régua de notificação e o "satisfeita uma única vez" deixaria de valer. É exatamente o oposto do que a decisão **D-03** pretende ("coleta única com replicação nos books").
+
+**Um segundo buraco, do mesmo tamanho.** O cadastro tem `cliente` (o contratante) e **nenhuma tabela para o CNPJ do prestador** — que é o titular das certidões e guias do bloco corporativo, o que a validação **V3** confere e o que **R-03** diz que precisa suportar N (matriz e filiais).
+
+**Como está tratado no código.** A migration `V004`:
+
+- cria a tabela `empresa` (24ª do modelo), **vazia** — nenhum CNPJ é inventado;
+- acrescenta `contrato_servico.empresa_id`, exigido para ativar o contrato;
+- dá a `exigencia` dois modos de endereçamento mutuamente exclusivos, impostos por `CHECK`: ou `ciclo_id`, ou `(empresa_id, competencia)`;
+- cria `ux_exigencia_corporativa`, que é o que faz valer o "satisfeita uma única vez";
+- cria a view `exigencia_do_ciclo`, para que quem pergunta "o que falta neste ciclo?" não precise saber que existem dois modos.
+
+Verificado em `db/testes/T002`: uma linha corporativa, quinze ciclos a enxergando.
+
+**Ação recomendada:** incorporar ao cap. 5.2 do documento. A pendência **A07** (recolhimento por CNPJ único ou por filial) continua valendo — o modelo já suporta N, como R-03 antecipa.
+
+---
+
+## E-10 — MÉDIO · Duas regras que o cap. 7.1 não define
+
+A materialização precisa de duas respostas que o documento não dá. Nenhuma tem resposta óbvia, e ambas mudam o que o sistema cobra.
+
+**1. Qual o prazo de uma exigência corporativa compartilhada?**
+
+Ela é uma só, mas o prazo vem de uma regra que pode variar por contrato. Se o BNB exige a CND no 5º dia útil e a CEF no 10º, qual vale para a CND compartilhada?
+
+Adotado o **menor prazo** entre os contratos que a exigem — a CND precisa estar lá quando o primeiro ciclo precisa dela. Prazos ainda indefinidos (aguardando evento) não entram no cálculo.
+
+**2. O que é "profissional alocado ativo na competência"?**
+
+O cap. 7.1 usa a expressão sem defini-la. As leituras possíveis divergem em quem entra:
+
+| Critério | Quem entra |
+|---|---|
+| **Interseção** (adotado) | Qualquer sobreposição entre a alocação e o mês |
+| Ativo no último dia | Exclui quem foi desligado durante o mês |
+| Ativo no primeiro dia | Exclui quem foi admitido durante o mês |
+
+Adotada a **interseção**. Quem foi desligado no dia 3 trabalhou três dias, tem contracheque, encargos e rescisão a comprovar; quem entrou no dia 20 idem. Deixar qualquer um dos dois de fora é deixar passar exatamente o caso que a responsabilidade subsidiária alcança — e é o caso que mais aparece, porque admissão e desligamento raramente coincidem com a virada do mês.
+
+Casos `MAT-08` (interseção) e `MAT-09` (sem alocado, gera alerta) na suíte.
+
+**Ação recomendada:** confirmar as duas leituras e registrá-las no cap. 7.1.
+
+---
+
 ## Como cada achado está tratado no repositório
 
 | ID | Tratamento no código | Ainda pendente |
@@ -181,6 +238,8 @@ Na aba `MATRIZ_EXIGIBILIDADE`, oito linhas têm âncora "Início da competência
 | E-06 | Leitura que satisfaz os dois exemplos do documento, fixada nos casos `DOC-01`/`DOC-02` da suíte | Confirmação e registro no cap. 7.3 |
 | E-07 | Facultativos marcados com `[FACULTATIVO]` no calendário, removíveis por cadastro; par de casos mede a diferença | Decisão da DAF + feriados municipais |
 | E-08 | Ajuste para o último dia do período com aviso `AJUSTE_FIM_DE_PERIODO`; 5 casos na suíte | Confirmar o ajuste ou criar âncora `FIM_COMPETENCIA` |
+| E-09 | `V004`: tabela `empresa`, endereçamento duplo com `CHECK`, unicidade corporativa e view `exigencia_do_ciclo`. Verificado em `T002` | Incorporar ao cap. 5.2; pendência A07 |
+| E-10 | Menor prazo entre contratos; interseção para alocação ativa. Casos `MAT-08`/`MAT-09` | Confirmar e registrar no cap. 7.1 |
 
 ---
 
@@ -196,5 +255,7 @@ Na aba `MATRIZ_EXIGIBILIDADE`, oito linhas têm âncora "Início da competência
 | E-06 | Alto | Semântica do prazo — erro de um dia em 95 das 176 linhas | Área demandante + arquitetura |
 | E-07 | Médio | Cômputo de dia útil; feriados municipais | DAF |
 | E-08 | Alto | Abertura de ciclo em fevereiro para 6 contratos | Área demandante |
+| E-09 | Crítico | Modelo da exigência corporativa e CNPJ do prestador | Arquitetura + AP (A07) |
+| E-10 | Médio | Prazo compartilhado e critério de alocação ativa | Área demandante |
 
 **E-01 e E-02 merecem entrar na mesma frente das pendências A03, A13 e A05**, porque são baratos de resolver agora (decisão de numeração e uma linha de catálogo) e caros de resolver depois — E-01 depois de escrito o código de conciliação, E-02 depois de calibrados os limiares em modo sombra.

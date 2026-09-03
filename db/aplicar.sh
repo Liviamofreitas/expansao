@@ -29,13 +29,17 @@ if [[ $COM_CARGA -eq 1 ]]; then
     done
 fi
 
-echo "→ testes de aceite"
-saida="$(psql -v ON_ERROR_STOP=1 -f "$RAIZ/db/testes/T001__criterios_de_aceite.sql" 2>&1)" || {
-    echo "$saida" | grep -E 'PASSOU|FALHOU|ERROR' || echo "$saida"
-    echo "FALHA: os testes de aceite não passaram." >&2
-    exit 1
-}
-echo "$saida" | grep -E 'PASSOU|FALHOU'
-echo "$saida" | grep -cE 'PASSOU' | xargs -I{} echo "{} testes passaram."
+total=0
+for teste in "$RAIZ"/db/testes/T*.sql; do
+    echo "→ $(basename "$teste")"
+    saida="$(psql -v ON_ERROR_STOP=1 -f "$teste" 2>&1)" || {
+        echo "$saida" | grep -E 'PASSOU|FALHOU|ERROR' || echo "$saida"
+        echo "FALHA em $(basename "$teste")." >&2
+        exit 1
+    }
+    echo "$saida" | grep -E 'PASSOU|FALHOU' || true
+    total=$(( total + $(echo "$saida" | grep -cE 'PASSOU') ))
+done
+echo "$total testes passaram."
 
 echo "pronto."

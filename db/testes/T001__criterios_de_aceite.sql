@@ -37,11 +37,16 @@ ON CONFLICT (codigo) DO NOTHING;
 CREATE TEMP TABLE t_fixture AS
 SELECT id AS modalidade_id FROM modalidade WHERE codigo = 'OUTSOURCING';
 
+INSERT INTO empresa (id, razao_social, cnpj, criado_por)
+VALUES ('99999999-9999-9999-9999-999999999999', 'Empresa de Teste', '99999999000199', 'teste');
+
 INSERT INTO contrato_servico (id, cliente_id, numero, servico, modalidade_id, vigencia_ini,
-                              pasta_origem, data_contratual_faturamento, calendario_uf, criado_por)
+                              pasta_origem, data_contratual_faturamento, calendario_uf,
+                              empresa_id, criado_por)
 VALUES ('33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111',
         '482023-TESTE', 'OUT', (SELECT modalidade_id FROM t_fixture), '2025-01-01',
-        '/CLIENTE - 482023', '{"ancora":"ATESTE","tipo_dia":"CORRIDO","offset":3}', 'CE', 'teste');
+        '/CLIENTE - 482023', '{"ancora":"ATESTE","tipo_dia":"CORRIDO","offset":3}', 'CE',
+        '99999999-9999-9999-9999-999999999999', 'teste');
 
 INSERT INTO tipo_documental (id, codigo, nome, familia, escopo, evento, defasagem,
                              criticidade, sigilo, criado_por)

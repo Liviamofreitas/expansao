@@ -1,0 +1,256 @@
+{
+  "versao": "1.0",
+  "titulo": "Suíte de conformidade da abertura de ciclo",
+  "referencia": "SGDF_Documentacao_Desenvolvimento_V1, cap. 7.1 — história F0-07",
+  "contrato": [
+    "NORMATIVA e independente de linguagem, como a suíte de prazo.",
+    "Cobre apenas a RESOLUÇÃO (quais exigências existem e com que prazo).",
+    "O compartilhamento da exigência corporativa entre ciclos é propriedade da",
+    "persistência e está testado em db/testes/T002__abertura_de_ciclo.sql."
+  ],
+  "tipos_padrao": {
+    "CER.CND_RFB":           { "escopo": "CORPORATIVO",  "evento": "MENSAL", "criticidade": "BLOQUEANTE" },
+    "FGT.GUIA":              { "escopo": "CORPORATIVO",  "evento": "MENSAL", "criticidade": "BLOQUEANTE" },
+    "OPE.RELATORIO_MEDICAO": { "escopo": "CONTRATO",     "evento": "MENSAL", "criticidade": "BLOQUEANTE" },
+    "OPE.DOC_TECNICA":       { "escopo": "CONTRATO",     "evento": "MENSAL", "criticidade": "NAO_BLOQUEANTE" },
+    "FOL.CONTRACHEQUE":      { "escopo": "PROFISSIONAL", "evento": "MENSAL", "criticidade": "BLOQUEANTE" },
+    "RES.TRCT":              { "escopo": "PROFISSIONAL", "evento": "RESCISAO", "criticidade": "BLOQUEANTE" },
+    "BEN.RELACAO_VT":        { "escopo": "PROFISSIONAL", "evento": "MENSAL", "criticidade": "BLOQUEANTE", "condicional_grupo": "VT_ADESAO" },
+    "BEN.TERMO_NAO_ADESAO_VT": { "escopo": "PROFISSIONAL", "evento": "EVENTUAL", "criticidade": "NAO_BLOQUEANTE", "condicional_grupo": "VT_ADESAO" }
+  },
+  "prazo_padrao": { "ancora": "INICIO_COMPETENCIA", "tipo_dia": "UTIL", "offset": 5 },
+  "feriados_padrao": ["2026-04-03", "2026-04-21"],
+
+  "casos": [
+
+    { "id": "MAT-01",
+      "descricao": "D-01: documentação de profissionais só em contratos outsourcing. A modalidade OUTSOURCING herda o bloco base e o de profissionais.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "regras": [
+        { "tipo": "CER.CND_RFB", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" },
+        { "tipo": "OPE.RELATORIO_MEDICAO", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" },
+        { "tipo": "FOL.CONTRACHEQUE", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" }
+      ],
+      "alocacoes": [ { "matricula": "0001", "inicio": "2025-01-01" },
+                     { "matricula": "0002", "inicio": "2025-01-01" } ],
+      "esperado": [
+        { "tipo": "CER.CND_RFB", "escopo": "CORPORATIVO", "profissional": null, "prazo": "2026-04-08" },
+        { "tipo": "FOL.CONTRACHEQUE", "escopo": "PROFISSIONAL", "profissional": "0001", "prazo": "2026-04-08" },
+        { "tipo": "FOL.CONTRACHEQUE", "escopo": "PROFISSIONAL", "profissional": "0002", "prazo": "2026-04-08" },
+        { "tipo": "OPE.RELATORIO_MEDICAO", "escopo": "CONTRATO", "profissional": null, "prazo": "2026-04-08" }
+      ] },
+
+    { "id": "MAT-02",
+      "descricao": "D-01, o outro lado: sustentação não herda o bloco de profissionais. As regras de OUTSOURCING não alcançam o contrato.",
+      "contrato": { "numero": "09705-SUS", "modalidade": "SUSTENTACAO" },
+      "competencia": "2026-04",
+      "regras": [
+        { "tipo": "CER.CND_RFB", "alvo": "MODALIDADE", "alvo_id": "SUSTENTACAO" },
+        { "tipo": "FOL.CONTRACHEQUE", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" }
+      ],
+      "alocacoes": [ { "matricula": "0001", "inicio": "2025-01-01" } ],
+      "esperado": [
+        { "tipo": "CER.CND_RFB", "escopo": "CORPORATIVO", "profissional": null, "prazo": "2026-04-08" }
+      ] },
+
+    { "id": "MAT-03",
+      "descricao": "Cap. 7.1 passo 2: em conflito, a regra de contrato sobrepõe a de modalidade. Aqui o contrato pede prazo diferente para o mesmo tipo.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "regras": [
+        { "tipo": "CER.CND_RFB", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" },
+        { "tipo": "CER.CND_RFB", "alvo": "CONTRATO", "alvo_id": "482023-OUT",
+          "prazo": { "ancora": "INICIO_COMPETENCIA", "tipo_dia": "CORRIDO", "offset": 15 },
+          "responsavel": "OPERACAO" }
+      ],
+      "esperado": [
+        { "tipo": "CER.CND_RFB", "escopo": "CORPORATIVO", "profissional": null,
+          "prazo": "2026-04-15", "responsavel": "OPERACAO" }
+      ] },
+
+    { "id": "MAT-04",
+      "descricao": "Duas regras do MESMO alvo para o mesmo (tipo, evento) é matriz ambígua. Escolher uma em silêncio esconderia erro de cadastro que muda o prazo.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "regras": [
+        { "tipo": "CER.CND_RFB", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" },
+        { "tipo": "CER.CND_RFB", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING",
+          "prazo": { "ancora": "INICIO_COMPETENCIA", "tipo_dia": "CORRIDO", "offset": 20 } }
+      ],
+      "erro": "REGRA_AMBIGUA" },
+
+    { "id": "MAT-05",
+      "descricao": "Obrigatoriedade DISPENSADO não materializa exigência. É como a matriz desliga um tipo para um contrato sem apagar a regra.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "regras": [
+        { "tipo": "CER.CND_RFB", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" },
+        { "tipo": "OPE.DOC_TECNICA", "alvo": "CONTRATO", "alvo_id": "482023-OUT",
+          "obrigatoriedade": "DISPENSADO" }
+      ],
+      "esperado": [
+        { "tipo": "CER.CND_RFB", "escopo": "CORPORATIVO", "profissional": null, "prazo": "2026-04-08" }
+      ] },
+
+    { "id": "MAT-06",
+      "descricao": "Cap. 7.1 passo 1: regra encerrada antes da competência não entra.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "regras": [
+        { "tipo": "CER.CND_RFB", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" },
+        { "tipo": "OPE.RELATORIO_MEDICAO", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING",
+          "vigencia_fim": "2026-03-31" }
+      ],
+      "esperado": [
+        { "tipo": "CER.CND_RFB", "escopo": "CORPORATIVO", "profissional": null, "prazo": "2026-04-08" }
+      ] },
+
+    { "id": "MAT-07",
+      "descricao": "Vigência que começa no meio da competência vale para a competência inteira: a comparação é contra o mês, não contra o dia 1. Uma regra publicada em 20/04 vale para abril.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "regras": [
+        { "tipo": "CER.CND_RFB", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING",
+          "vigencia_ini": "2026-04-20" }
+      ],
+      "esperado": [
+        { "tipo": "CER.CND_RFB", "escopo": "CORPORATIVO", "profissional": null, "prazo": "2026-04-08" }
+      ] },
+
+    { "id": "MAT-08",
+      "descricao": "Alocado ativo é quem tem ao menos um dia dentro da competência. 0002 foi admitido em 20/04 e 0003 desligado em 03/04 — ambos trabalharam em abril e ambos têm contracheque. 0004 saiu em março e 0005 entra em maio: fora.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "regras": [ { "tipo": "FOL.CONTRACHEQUE", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" } ],
+      "alocacoes": [
+        { "matricula": "0001", "inicio": "2025-01-01" },
+        { "matricula": "0002", "inicio": "2026-04-20" },
+        { "matricula": "0003", "inicio": "2020-01-01", "fim": "2026-04-03" },
+        { "matricula": "0004", "inicio": "2020-01-01", "fim": "2026-03-31" },
+        { "matricula": "0005", "inicio": "2026-05-01" }
+      ],
+      "esperado": [
+        { "tipo": "FOL.CONTRACHEQUE", "escopo": "PROFISSIONAL", "profissional": "0001", "prazo": "2026-04-08" },
+        { "tipo": "FOL.CONTRACHEQUE", "escopo": "PROFISSIONAL", "profissional": "0002", "prazo": "2026-04-08" },
+        { "tipo": "FOL.CONTRACHEQUE", "escopo": "PROFISSIONAL", "profissional": "0003", "prazo": "2026-04-08" }
+      ] },
+
+    { "id": "MAT-09",
+      "descricao": "Escopo profissional sem nenhum alocado ativo não gera exigência, mas gera ALERTA. Silêncio aqui seria indistinguível de contrato sem equipe, que é o caso em que alguém esqueceu de cadastrar a alocação.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "regras": [ { "tipo": "FOL.CONTRACHEQUE", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" } ],
+      "alocacoes": [],
+      "esperado": [],
+      "alertas_contem": ["escopo profissional sem alocado"] },
+
+    { "id": "MAT-10",
+      "descricao": "A criticidade da regra sobrepõe a do tipo. Um tipo não bloqueante pode ser bloqueante num contrato específico.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "regras": [
+        { "tipo": "OPE.DOC_TECNICA", "alvo": "CONTRATO", "alvo_id": "482023-OUT",
+          "criticidade": "BLOQUEANTE" }
+      ],
+      "esperado": [
+        { "tipo": "OPE.DOC_TECNICA", "escopo": "CONTRATO", "profissional": null,
+          "prazo": "2026-04-08", "criticidade": "BLOQUEANTE" }
+      ] },
+
+    { "id": "MAT-11",
+      "descricao": "Documento 'sob faturamento' (âncora de ateste, sem ateste ainda) é materializado SEM prazo e com aviso. Suprimi-lo esconderia do operador o que ainda vai ser exigido.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "regras": [
+        { "tipo": "OPE.RELATORIO_MEDICAO", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING",
+          "prazo": { "ancora": "ATESTE", "tipo_dia": "CORRIDO", "offset": 0 } }
+      ],
+      "esperado": [
+        { "tipo": "OPE.RELATORIO_MEDICAO", "escopo": "CONTRATO", "profissional": null,
+          "prazo": null, "avisos": ["PRAZO_AGUARDA_EVENTO"] }
+      ] },
+
+    { "id": "MAT-12",
+      "descricao": "O mesmo documento COM o ateste registrado passa a ter prazo.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "contexto": { "ateste": "2026-05-08" },
+      "regras": [
+        { "tipo": "OPE.RELATORIO_MEDICAO", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING",
+          "prazo": { "ancora": "ATESTE", "tipo_dia": "CORRIDO", "offset": 3 } }
+      ],
+      "esperado": [
+        { "tipo": "OPE.RELATORIO_MEDICAO", "escopo": "CONTRATO", "profissional": null,
+          "prazo": "2026-05-11" }
+      ] },
+
+    { "id": "MAT-13",
+      "descricao": "Condicional A-ou-B (cap. 7.5): as duas alternativas são materializadas, cada uma por profissional, carregando o mesmo condicional_grupo. Quem resolve o grupo é a satisfação, não a materialização.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "regras": [
+        { "tipo": "BEN.RELACAO_VT", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" },
+        { "tipo": "BEN.TERMO_NAO_ADESAO_VT", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" }
+      ],
+      "alocacoes": [ { "matricula": "0001", "inicio": "2025-01-01" } ],
+      "esperado": [
+        { "tipo": "BEN.RELACAO_VT", "escopo": "PROFISSIONAL", "profissional": "0001",
+          "prazo": "2026-04-08", "condicional_grupo": "VT_ADESAO" },
+        { "tipo": "BEN.TERMO_NAO_ADESAO_VT", "escopo": "PROFISSIONAL", "profissional": "0001",
+          "prazo": "2026-04-08", "condicional_grupo": "VT_ADESAO" }
+      ] },
+
+    { "id": "MAT-14",
+      "descricao": "Duas exigências corporativas distintas continuam sendo duas. O escopo corporativo reduz a contagem entre CICLOS, não entre TIPOS.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "regras": [
+        { "tipo": "CER.CND_RFB", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" },
+        { "tipo": "FGT.GUIA", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" }
+      ],
+      "esperado": [
+        { "tipo": "CER.CND_RFB", "escopo": "CORPORATIVO", "profissional": null, "prazo": "2026-04-08" },
+        { "tipo": "FGT.GUIA", "escopo": "CORPORATIVO", "profissional": null, "prazo": "2026-04-08" }
+      ] },
+
+    { "id": "MAT-15",
+      "descricao": "Prazo que estoura o mês (achado E-08) propaga o aviso até a exigência, em vez de morrer dentro da resolução do prazo.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-02",
+      "feriados": [],
+      "regras": [
+        { "tipo": "CER.CND_RFB", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING",
+          "prazo": { "ancora": "INICIO_COMPETENCIA", "tipo_dia": "CORRIDO", "offset": 30 } }
+      ],
+      "esperado": [
+        { "tipo": "CER.CND_RFB", "escopo": "CORPORATIVO", "profissional": null,
+          "prazo": "2026-02-28", "avisos": ["AJUSTE_FIM_DE_PERIODO"] }
+      ] },
+
+    { "id": "ERRO-01",
+      "descricao": "Regra apontando para tipo fora do catálogo.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "regras": [ { "tipo": "XXX.INEXISTENTE", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" } ],
+      "erro": "TIPO_DESCONHECIDO" },
+
+    { "id": "ERRO-02",
+      "descricao": "Competência malformada.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026/04",
+      "regras": [ { "tipo": "CER.CND_RFB", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING" } ],
+      "erro": "COMPETENCIA_INVALIDA" },
+
+    { "id": "ERRO-03",
+      "descricao": "Prazo malformado numa regra da matriz interrompe a abertura com o tipo identificado, em vez de gravar uma data errada.",
+      "contrato": { "numero": "482023-OUT", "modalidade": "OUTSOURCING" },
+      "competencia": "2026-04",
+      "regras": [
+        { "tipo": "CER.CND_RFB", "alvo": "MODALIDADE", "alvo_id": "OUTSOURCING",
+          "prazo": { "ancora": "INICIO_COMPETENCIA", "tipo_dia": "UTIL", "offset": 0 } }
+      ],
+      "erro": "PRAZO_INVALIDO" }
+
+  ]
+}
