@@ -270,11 +270,69 @@ BEGIN
                                      vigencia_ini, versao_matriz_id, criado_por)
     VALUES ('44444444-4444-4444-4444-444444444444', 'MODALIDADE',
             (SELECT modalidade_id FROM t_fixture), '33333333-3333-3333-3333-333333333333',
-            'OBRIGATORIO', '{}', 'FINANCEIRO', '2025-01-01',
+            'OBRIGATORIO', '{"ancora":"INICIO_COMPETENCIA","tipo_dia":"UTIL","offset":5}',
+            'FINANCEIRO', '2025-01-01',
             '55555555-5555-5555-5555-555555555555', 'teste');
     PERFORM teste_falhou('Cap. 7.1: regra com dois alvos simultâneos foi aceita');
 EXCEPTION WHEN check_violation THEN
     PERFORM teste_ok('Cap. 7.1 · regra de exigibilidade tem exatamente um alvo');
+END $$;
+
+-- =============================================================================
+-- F0-06 / cap. 7.3 — forma do prazo estruturado (V003)
+-- =============================================================================
+DO $$
+BEGIN
+    INSERT INTO regra_exigibilidade (tipo_id, alvo, alvo_modalidade_id, obrigatoriedade,
+                                     prazo, responsavel_titular, vigencia_ini,
+                                     versao_matriz_id, criado_por)
+    VALUES ('44444444-4444-4444-4444-444444444444', 'MODALIDADE',
+            (SELECT modalidade_id FROM t_fixture), 'OBRIGATORIO',
+            '{"ancora":"FIM_COMPETENCIA","tipo_dia":"UTIL","offset":5}',
+            'FINANCEIRO', '2025-01-01', '55555555-5555-5555-5555-555555555555', 'teste');
+    PERFORM teste_falhou('Cap. 7.3: âncora fora do domínio foi aceita no cadastro');
+EXCEPTION WHEN check_violation THEN
+    PERFORM teste_ok('Cap. 7.3 · âncora fora do domínio é rejeitada no cadastro');
+END $$;
+
+DO $$
+BEGIN
+    INSERT INTO regra_exigibilidade (tipo_id, alvo, alvo_modalidade_id, obrigatoriedade,
+                                     prazo, responsavel_titular, vigencia_ini,
+                                     versao_matriz_id, criado_por)
+    VALUES ('44444444-4444-4444-4444-444444444444', 'MODALIDADE',
+            (SELECT modalidade_id FROM t_fixture), 'OBRIGATORIO',
+            '{"ancora":"INICIO_COMPETENCIA","tipo_dia":"UTIL","offset":0}',
+            'FINANCEIRO', '2025-01-01', '55555555-5555-5555-5555-555555555555', 'teste');
+    PERFORM teste_falhou('Cap. 7.3: offset ordinal 0 foi aceito no cadastro');
+EXCEPTION WHEN check_violation THEN
+    PERFORM teste_ok('Cap. 7.3 · offset ordinal 0 é rejeitado (não existe dia zero do mês)');
+END $$;
+
+DO $$
+BEGIN
+    INSERT INTO regra_exigibilidade (tipo_id, alvo, alvo_modalidade_id, obrigatoriedade,
+                                     prazo, responsavel_titular, vigencia_ini,
+                                     versao_matriz_id, criado_por)
+    VALUES ('44444444-4444-4444-4444-444444444444', 'MODALIDADE',
+            (SELECT modalidade_id FROM t_fixture), 'OBRIGATORIO',
+            '{"ancora":"ATESTE","tipo_dia":"CORRIDO"}',
+            'FINANCEIRO', '2025-01-01', '55555555-5555-5555-5555-555555555555', 'teste');
+    PERFORM teste_falhou('Cap. 7.3: prazo sem offset foi aceito no cadastro');
+EXCEPTION WHEN check_violation THEN
+    PERFORM teste_ok('Cap. 7.3 · prazo sem campo obrigatório é rejeitado');
+END $$;
+
+DO $$
+BEGIN
+    INSERT INTO regra_exigibilidade (tipo_id, alvo, alvo_modalidade_id, obrigatoriedade,
+                                     prazo, responsavel_titular, vigencia_ini,
+                                     versao_matriz_id, criado_por)
+    VALUES ('44444444-4444-4444-4444-444444444444', 'MODALIDADE',
+            (SELECT modalidade_id FROM t_fixture), 'OBRIGATORIO',
+            '{"ancora":"ATESTE","tipo_dia":"CORRIDO","offset":3}',
+            'FINANCEIRO', '2025-01-01', '55555555-5555-5555-5555-555555555555', 'teste');
+    PERFORM teste_ok('Cap. 7.3 · prazo bem formado (D+3 do ateste) é aceito');
 END $$;
 
 ROLLBACK;   -- os testes não deixam massa no banco

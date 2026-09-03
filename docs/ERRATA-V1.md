@@ -116,6 +116,59 @@ A direção da derivação é deliberadamente restritiva: superestimar o sigilo 
 
 ---
 
+## E-06 — ALTO · O `offset` do prazo tem duas semânticas, decididas pela âncora
+
+O cap. 7.3 dá dois exemplos que nenhuma regra única satisfaz:
+
+| Exemplo do documento | Leitura que o satisfaz |
+|---|---|
+| `{INICIO_COMPETENCIA, CORRIDO, 21}` = "até o dia 21" | **ordinal** — o 21º dia do mês |
+| `{ATESTE, CORRIDO, 3}` = "D+3 da política" | **aditiva** — base + 3 dias |
+
+Sob contagem aditiva, o primeiro daria dia 22 (`1 + 21`). Sob contagem ordinal, o segundo daria o dia do ateste mais dois. O mesmo campo, portanto, significa coisas diferentes conforme a âncora.
+
+**Efeito prático.** É um erro de um dia — a classe de defeito que passa por revisão de código, passa por teste feito pelo mesmo desenvolvedor que escreveu a regra, e só aparece quando um prazo real vence. Em 95 das 176 linhas do Anexo 1 a âncora é "Início da competência"; um deslocamento sistemático de um dia em todas elas desloca a régua de cobrança inteira.
+
+**Como está tratado no código.** A implementação de referência adota a única leitura que satisfaz os dois exemplos do próprio documento — ordinal para `INICIO_COMPETENCIA`, aditiva para `ATESTE`, `SOLICITACAO_FATURAMENTO` e `EVENTO` — e os dois exemplos do documento estão na suíte de conformidade como os casos `DOC-01` e `DOC-02`. Os dados do Anexo 1 sustentam a leitura: as 95 linhas de "Início da competência" usam limites de 1 a 31 (ordinais de dia do mês) e as 81 de "Ateste do cliente" usam limite 0 (D+0, "SOB FATURAMENTO").
+
+**Ação recomendada:** confirmar a leitura e registrá-la no cap. 7.3 como tabela explícita de semântica por âncora. Se a área demandante decidir o contrário, o que muda é a suíte — e todos os prazos de âncora ordinal deslocam um dia.
+
+---
+
+## E-07 — MÉDIO · Carnaval e Corpus Christi não são feriados, mas ninguém trabalha
+
+O cap. 7.3 manda contar dia útil pelo `calendario_feriados` da UF, mas nada no pacote diz o que fazer com **ponto facultativo federal**: Carnaval (segunda e terça) e Corpus Christi não são feriados nacionais por lei, e na prática não há expediente.
+
+A escolha não é neutra e vai nos dois sentidos:
+
+| Decisão | Efeito no prazo | Risco |
+|---|---|---|
+| Contar como **não úteis** | Prazo mais longo | Cobrança mais tarde; menos margem antes do faturamento |
+| Contar como **úteis** | Prazo mais curto | O prazo vence e a régua dispara num dia em que não há ninguém para responder |
+
+**Como está tratado no código.** As 24 linhas facultativas entram no calendário com o prefixo `[FACULTATIVO]` na descrição, para que sejam identificáveis e removíveis por cadastro sem tocar em código. A suíte tem o par `FACULTATIVO-01`/`FACULTATIVO-02`, que mede a diferença: com Carnaval, o 13º dia útil de 02/2026 é 20/02; sem, é 18/02.
+
+**Ação recomendada:** decisão da DAF, aplicada por cadastro. Vale a mesma pergunta para os **feriados municipais**, que não estão no calendário porque não constam de nenhuma fonte do pacote — e que precisam ser cadastrados antes de qualquer prazo em dia útil valer para contratos cujo município tenha feriado local.
+
+---
+
+## E-08 — ALTO · Oito linhas da matriz pedem um dia do mês que não existe
+
+Na aba `MATRIZ_EXIGIBILIDADE`, oito linhas têm âncora "Início da competência" com limite maior que o número de dias de alguns meses:
+
+| Linha | Contrato | Tipo | Limite | Prazo original | Falha em |
+|---|---|---|---|---|---|
+| L026, L027 | CEF | `INS.PARCELAMENTO_*` | 31 | "ENTRE DIA 30 A 31" | fev, abr, jun, set, nov |
+| L015, L051, L071, L108, L109, L174 | BNB, CEF, DOCAS, SESCOOP, TJ CE | `INS.COMPROVANTE_PG`, `INS.COMPROVANTE_PG_IRRF` | 30 | "ENTRE DIA 20 A 30" | fevereiro |
+
+**Efeito prático.** Sob leitura ordinal estrita, a resolução do prazo não tem resposta e a abertura do ciclo falha — em fevereiro, para seis contratos. Um sistema que não abre o ciclo de fevereiro é um sistema que não funciona no fechamento de fevereiro.
+
+**Como está tratado no código.** O princípio 1 do cap. 1, primeiro na ordem de precedência, diz que o sistema nunca trava o faturamento por falta de configuração própria. A resolução, portanto, **ajusta para o último dia do período e devolve o aviso `AJUSTE_FIM_DE_PERIODO`**. O ajuste antecipa a data, nunca a adia — prazo mais curto é seguro para o cumprimento — e o aviso existe para que a tela e a trilha mostrem que houve ajuste. Ajuste silencioso seria pior que o estouro. Casos `E-08-01` a `E-08-04` e `BISSEXTO-02` na suíte.
+
+**Ação recomendada:** confirmar o ajuste, ou introduzir uma âncora `FIM_COMPETENCIA` no cap. 7.3 — que é o que "ENTRE DIA 30 A 31" provavelmente quer dizer ("até o fim do mês"). A segunda opção é mais limpa e elimina o aviso; exige alterar o domínio de âncoras e a `V003`.
+
+---
+
 ## Como cada achado está tratado no repositório
 
 | ID | Tratamento no código | Ainda pendente |
@@ -125,6 +178,9 @@ A direção da derivação é deliberadamente restritiva: superestimar o sigilo 
 | E-03 | — | Redação do critério de aceite da F0-03. O número correto hoje é **59** aliases carregáveis (60 menos a colisão) |
 | E-04 | `contrato_servico` e `regra_exigibilidade` **não são semeadas**: a coluna `CONTRATO` do anexo é cliente. Os 8 clientes entram inativos (`ativo=false`), com CNPJ marcador a substituir no cadastro. | A03 e A04 |
 | E-05 | Valores derivados isolados em `dados/complemento_tipo_documental.csv`, todos com `CONFIRMADO=NAO` | Revisão da área demandante |
+| E-06 | Leitura que satisfaz os dois exemplos do documento, fixada nos casos `DOC-01`/`DOC-02` da suíte | Confirmação e registro no cap. 7.3 |
+| E-07 | Facultativos marcados com `[FACULTATIVO]` no calendário, removíveis por cadastro; par de casos mede a diferença | Decisão da DAF + feriados municipais |
+| E-08 | Ajuste para o último dia do período com aviso `AJUSTE_FIM_DE_PERIODO`; 5 casos na suíte | Confirmar o ajuste ou criar âncora `FIM_COMPETENCIA` |
 
 ---
 
@@ -137,5 +193,8 @@ A direção da derivação é deliberadamente restritiva: superestimar o sigilo 
 | E-03 | Médio | Aceite da F0-03 | Arquitetura (redação do critério) |
 | E-04 | Baixo | Carga da fase 0 — já coberto por A03/A04 | Gestão de Contratos |
 | E-05 | Médio | Materialização por CNPJ (cap. 7.1) e tarjamento (F2-07) | Gestão de Contratos + DAF |
+| E-06 | Alto | Semântica do prazo — erro de um dia em 95 das 176 linhas | Área demandante + arquitetura |
+| E-07 | Médio | Cômputo de dia útil; feriados municipais | DAF |
+| E-08 | Alto | Abertura de ciclo em fevereiro para 6 contratos | Área demandante |
 
 **E-01 e E-02 merecem entrar na mesma frente das pendências A03, A13 e A05**, porque são baratos de resolver agora (decisão de numeração e uma linha de catálogo) e caros de resolver depois — E-01 depois de escrito o código de conciliação, E-02 depois de calibrados os limiares em modo sombra.

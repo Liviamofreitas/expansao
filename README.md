@@ -21,6 +21,7 @@ Automatiza a conferência documental do faturamento por medição na **Engesoftw
 | [`dados/complemento_tipo_documental.csv`](dados/complemento_tipo_documental.csv) | `escopo`, `sigilo`, `formatos` e `condicional_grupo` — campos que o modelo exige e o Anexo 1 não carrega (achado E-05). **Este é editável à mão**, e é onde a área demandante confirma os valores. |
 | [`db/`](db/) | Esquema, carga inicial e testes de aceite. Ver abaixo. |
 | [`tools/`](tools/) | Geradores. Nada aqui é executado em produção. |
+| [`especificacao/prazo/`](especificacao/prazo/) | Suíte de conformidade **normativa** do prazo estruturado + implementação de referência. Ver abaixo. |
 
 ---
 
@@ -89,6 +90,44 @@ Essas três ausências são a tradução, em código, da regra de leitura: o que
 | CPF nunca em claro | SEC-02 | `cpf_cifrado bytea` + `cpf_hash` (HMAC, não hash simples — o espaço de CPF é enumerável) |
 
 Os 16 testes em `T001` verificam cada um deles tentando violá-los.
+
+---
+
+## Prazo estruturado (história F0-06)
+
+O prazo do cap. 7.3 não é um número: é `{ancora, tipo_dia, offset}`. O cálculo é a função mais sensível do sistema — erra em um dia e a régua de cobrança inteira desloca.
+
+Como a stack ainda depende de **A13**, a entrega é uma **suíte de conformidade agnóstica de linguagem**, não uma implementação de produção:
+
+```
+especificacao/prazo/
+├── casos.json      NORMATIVO — 27 casos com entrada, saída esperada e o porquê
+├── referencia.py   implementação de referência (o oráculo, não código de produção)
+└── verificar.py    executa a suíte
+```
+
+```bash
+python3 especificacao/prazo/verificar.py            # verifica a de referência
+python3 especificacao/prazo/verificar.py --comando './minha-impl'
+```
+
+Quando A13 for decidida, a implementação definitiva é considerada pronta quando passa nestes 27 casos. Basta expor um executável que leia um caso em JSON no stdin e escreva `{"data": ..., "avisos": [...]}` ou `{"erro": "CODIGO"}` no stdout.
+
+**O critério de aceite da F0-06** — *"'5º dia útil' de 04/2026 calculado corretamente com feriado cadastrado"* — é o caso `F0-06-01`: a Sexta-Feira Santa cai em 03/04/2026 e desloca o resultado de 07 para **08/04/2026**. O caso `F0-06-02` é o controle sem feriado, que prova que o calendário está de fato sendo consultado.
+
+### Três decisões que o cap. 7.3 não fecha
+
+A suíte não existe só para testar: ela **fixa** as decisões que o documento deixou em aberto, de forma mensurável.
+
+| Achado | Questão | Como está resolvido | Caso na suíte |
+|---|---|---|---|
+| **E-06** | `offset` é ordinal ("dia 21") ou aditivo ("D+3")? Os dois exemplos do documento exigem regras diferentes | Ordinal para `INICIO_COMPETENCIA`, aditivo para âncoras de evento — a única leitura que satisfaz ambos | `DOC-01`, `DOC-02` |
+| **E-07** | Carnaval e Corpus Christi são ponto facultativo, não feriado. Contam como dia útil? | Entram marcados `[FACULTATIVO]`, removíveis por cadastro | `FACULTATIVO-01/02` |
+| **E-08** | 8 linhas da matriz pedem o dia 30 ou 31; fevereiro não tem | Ajusta para o último dia do período e devolve `AJUSTE_FIM_DE_PERIODO`. Travar violaria o princípio 1 do cap. 1 | `E-08-01` a `E-08-04` |
+
+### Calendário
+
+`db/seed/V101__calendario_feriados.sql` traz 120 linhas (2025–2032): nacionais fixos, móveis derivados da Páscoa e estaduais de CE e RS. **Feriados municipais não estão lá** — não constam de nenhuma fonte do pacote e precisam ser cadastrados antes de qualquer prazo em dia útil valer para contratos cujo município tenha feriado local.
 
 ---
 
