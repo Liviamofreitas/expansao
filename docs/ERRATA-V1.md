@@ -92,6 +92,42 @@ Também há divergência de nomenclatura entre as fontes: o catálogo e a matriz
 
 ---
 
+## E-05 — MÉDIO · `escopo` e `sigilo` são exigidos pelo modelo e não existem no Anexo 1
+
+O cap. 5.1 define `tipo_documental` com dois campos que governam comportamento crítico e que o catálogo do Anexo 1 não carrega:
+
+| Campo | Governa | Coluna equivalente no Anexo 1 |
+|---|---|---|
+| `escopo` (`CORPORATIVO`/`CONTRATO`/`PROFISSIONAL`) | Quantas exigências o cap. 7.1 materializa: uma por CNPJ, uma por ciclo, ou uma por profissional alocado | `GRANULARIDADE` — só tem `Contrato` e `Profissional`; **não tem `Corporativo`** |
+| `sigilo` (`PUBLICO_CLIENTE`/`INTERNO`/`PESSOAL`/`PESSOAL_SENSIVEL`) | O tarjamento antes da cópia para o book do cliente (cap. 10, LGPD-03, história F2-07) | **nenhuma** |
+
+**Efeito prático em `escopo`.** A decisão **D-03** diz que "certidões e encargos são por CNPJ", e o cap. 12 fala em "bloco corporativo (estado dos **12 tipos** por CNPJ)" — mas esse conjunto de 12 não está enumerado em lugar nenhum, e nenhuma leitura das famílias produz exatamente 12. Sem o campo, o cap. 7.1 materializa uma certidão por ciclo em vez de uma por CNPJ, e o mesmo documento é cobrado 15 vezes.
+
+**Efeito prático em `sigilo`.** Ausente, o tarjamento não tem gatilho: contracheques e ASO seguiriam íntegros para o book do cliente. É a falha que o risco **P05** descreve.
+
+**Como está tratado no código.** O campo é `NOT NULL` no esquema — não aceita omissão. Os valores foram **derivados de forma conservadora** e isolados em [`dados/complemento_tipo_documental.csv`](../dados/complemento_tipo_documental.csv), com a coluna `CONFIRMADO=NAO` em todas as 51 linhas. O critério de derivação:
+
+- `escopo`: `CORPORATIVO` para as famílias de certidões, INSS e as guias mensais de FGTS (15 tipos); o resto segue `GRANULARIDADE`.
+- `sigilo`: `PESSOAL_SENSIVEL` onde há dado de saúde (ASO demissional, plano de saúde); `PESSOAL` para escopo profissional e folha; `PUBLICO_CLIENTE` para certidões, fiscal e operação; `INTERNO` no restante.
+
+A direção da derivação é deliberadamente restritiva: superestimar o sigilo causa tarjamento a mais (revisável); subestimar vaza dado pessoal (irreversível).
+
+**Ação recomendada:** a área demandante revisa o CSV e marca `CONFIRMADO=SIM`. Nada além de editar o CSV e rodar `python3 tools/gerar_carga_inicial.py` é necessário — é cadastro, não código, como exige o princípio 2 do cap. 1.
+
+---
+
+## Como cada achado está tratado no repositório
+
+| ID | Tratamento no código | Ainda pendente |
+|---|---|---|
+| E-01 | `regra_conciliacao` existe no esquema mas **não é semeada**. A restrição `regra_conc_sem_tolerancia_nao_bloqueia` impõe o cap. 9 (sem tolerância ⇒ modo ALERTA). | A numeração canônica |
+| E-02 | `tipo_alias_normalizado_unico` é uma restrição **global**, e o gerador emite o alias em colisão **comentado**, com as duas opções lado a lado. A carga entra com 59 aliases; o 60º espera decisão. | A qual tipo o alias pertence |
+| E-03 | — | Redação do critério de aceite da F0-03. O número correto hoje é **59** aliases carregáveis (60 menos a colisão) |
+| E-04 | `contrato_servico` e `regra_exigibilidade` **não são semeadas**: a coluna `CONTRATO` do anexo é cliente. Os 8 clientes entram inativos (`ativo=false`), com CNPJ marcador a substituir no cadastro. | A03 e A04 |
+| E-05 | Valores derivados isolados em `dados/complemento_tipo_documental.csv`, todos com `CONFIRMADO=NAO` | Revisão da área demandante |
+
+---
+
 ## Resumo para a reunião de kickoff
 
 | ID | Severidade | Bloqueia | Decisão necessária de |
@@ -100,5 +136,6 @@ Também há divergência de nomenclatura entre as fontes: o catálogo e a matriz
 | E-02 | Alto | Meta de precisão da F1-03; carga inicial da F0-03 | Gestão de Contratos (AP) |
 | E-03 | Médio | Aceite da F0-03 | Arquitetura (redação do critério) |
 | E-04 | Baixo | Carga da fase 0 — já coberto por A03/A04 | Gestão de Contratos |
+| E-05 | Médio | Materialização por CNPJ (cap. 7.1) e tarjamento (F2-07) | Gestão de Contratos + DAF |
 
 **E-01 e E-02 merecem entrar na mesma frente das pendências A03, A13 e A05**, porque são baratos de resolver agora (decisão de numeração e uma linha de catálogo) e caros de resolver depois — E-01 depois de escrito o código de conciliação, E-02 depois de calibrados os limiares em modo sombra.
