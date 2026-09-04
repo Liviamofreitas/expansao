@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>br.com.engesoftware</groupId>
+  <artifactId>sgdf</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <name>SGDF — Sistema de Gestão Documental do Faturamento</name>
+
+  <!--
+    ADR-001 fixou Java 21 + Spring Boot. Este POM ainda NÃO declara Spring nem
+    JUnit: o ambiente sem internet (D-06) exige um espelho Maven interno, que é
+    item da sprint 0. Até lá, o módulo de coleta compila com o JDK puro e os
+    testes rodam pelo executor próprio em src/test — ver ../scripts/testar-app.sh.
+
+    Quando o espelho existir, acrescentar nesta ordem:
+      1. spring-boot-starter-parent como <parent>, com a versão fixada;
+      2. junit-jupiter (escopo test) e migrar TestesDeColeta para @Test;
+      3. pdfbox (extração com posições — história F1-02);
+      4. tess4j ou wrapper equivalente para Tesseract (contingência de OCR);
+      5. flyway-core, substituindo db/aplicar.sh;
+      6. spring-boot-starter-oauth2-resource-server (OIDC — história F0-01).
+    Toda dependência entra com versão fixada e passa pelo SCA do gate SEC-07.
+  -->
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <build>
+    <sourceDirectory>src/main/java</sourceDirectory>
+    <testSourceDirectory>src/test/java</testSourceDirectory>
+  </build>
+</project>

@@ -27,6 +27,7 @@ Automatiza a conferência documental do faturamento por medição na **Engesoftw
 | [`db/`](db/) | Esquema, carga inicial e testes de aceite. Ver abaixo. |
 | [`tools/`](tools/) | Geradores. Nada aqui é executado em produção. |
 | [`especificacao/`](especificacao/) | Suítes de conformidade **normativas** + implementações de referência: [`prazo/`](especificacao/prazo/) e [`materializacao/`](especificacao/materializacao/). Ver abaixo. |
+| [`app/`](app/) | Aplicação Java 21. Hoje: o módulo de coleta (F1-01). |
 
 ---
 
@@ -174,6 +175,42 @@ A migration também cria `empresa` — o CNPJ do **prestador**, que o cadastro n
 |---|---|---|
 | Prazo da corporativa compartilhada, quando os contratos pedem prazos diferentes | O **menor** | Ela precisa estar lá quando o primeiro ciclo precisa dela |
 | O que é "alocado ativo na competência" | **Interseção** — um dia de sobreposição basta | Quem saiu no dia 3 tem contracheque, encargos e rescisão a comprovar. É o caso que a responsabilidade subsidiária alcança |
+
+---
+
+## Aplicação Java (`app/`)
+
+Estrutura Maven real, mas o `pom.xml` **ainda não declara dependências**: o ambiente sem internet (D-06) exige um espelho Maven interno, que é item da sprint 0. Até lá o módulo compila com o JDK puro.
+
+```bash
+./scripts/testar-app.sh        # compila e roda os testes
+```
+
+### Módulo de coleta — história F1-01
+
+Conector WebDAV somente-leitura, com delta por ETag e antivírus antes de qualquer parsing.
+
+| Classe | Papel |
+|---|---|
+| `ClienteWebDav` | PROPFIND e GET sobre `java.net.http`. **Não tem método de escrita** — o cap. 14.1 exige origem somente-leitura, e ter o método e confiar em não chamá-lo seria depender de disciplina em vez de estrutura |
+| `CaminhoRemoto` | Canonicaliza e contém o href, que é entrada não confiável (R-03) |
+| `PoliticaDeArquivos` | O que entra e o que é ignorado (cap. 8.1) — sempre **com motivo registrado** |
+| `AntivirusClamd` | Protocolo INSTREAM, sem tocar o disco do worker |
+| `Varredura` | Orquestra: listar → filtrar → delta → baixar → antivírus → hash |
+
+**A ordem das etapas é a decisão de projeto.** Filtrar antes de baixar poupa rede e encurta a janela de exposição a arquivo hostil; o delta antes do download é o que torna a varredura incremental de 30 em 30 minutos barata; o antivírus antes de qualquer parsing porque o parser é justamente o alvo.
+
+### Três escolhas que valem registro
+
+**Antivírus indisponível não é "limpo".** `VeredictoAntivirus` distingue `INDISPONIVEL` de `LIMPO`. A validação V1 exige antivírus limpo; tratar indisponibilidade como aprovação transformaria uma falha de infraestrutura em ingestão de arquivo não verificado. O arquivo vira falha registrada e volta na varredura seguinte.
+
+**Nada é descartado em silêncio.** Todo arquivo ignorado carrega um motivo que chega à tela (história F1-10). Arquivo que some sem rastro produz o sintoma "coloquei na pasta e o sistema não viu", indistinguível de defeito — e é o que faz o operador voltar a conferir tudo à mão.
+
+**O href do PROPFIND é entrada hostil.** Canonicalização com `..` colapsado, decodificação percentual **uma única vez** (decodificar em laço faria `%252e` virar `..` num segundo passe), rejeição de caractere de controle, e descarte de qualquer entrada fora da raiz do contrato. O parser XML roda com DOCTYPE e entidades externas desligados — um multistatus é XML de terceiro, e sem isso uma resposta forjada lê arquivos do worker (XXE).
+
+### Cobertura
+
+41 testes, com servidor WebDAV e clamd simulados. O critério de aceite — *"varredura de pasta real; arquivo infectado (EICAR) rejeitado e logado"* — é verificado de ponta a ponta: numa pasta com 6 arquivos, 2 são coletados, 1 EICAR é rejeitado com a assinatura preservada, 3 são ignorados com motivo, e nenhum desaparece da contagem.
 
 ---
 
