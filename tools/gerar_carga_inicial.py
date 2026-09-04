@@ -20,6 +20,7 @@ cap. 8.3 já manda identificar pelo conteúdo, com o nome apenas como reforço.
 Eles são listados no rodapé do arquivo gerado, para registro.
 """
 import csv
+import json
 import re
 import sys
 import unicodedata
@@ -30,6 +31,14 @@ CATALOGO = Path("dados/catalogo_documentos.csv")
 COMPLEMENTO = Path("dados/complemento_tipo_documental.csv")
 REGRAS = Path("dados/regras_conciliacao.csv")
 COMPLEMENTO_REGRAS = Path("dados/complemento_regra_conciliacao.csv")
+MATRIZ = Path("dados/matriz_exigibilidade.csv")
+
+# A09 · repositório-mestre por tipo. Derivado da coluna REPOSITORIO da matriz:
+# CLOUD -> OWNCLOUD, JIRA -> JIRA. Para os 3 tipos marcados "CLOUD/JIRA" o mestre
+# é OWNCLOUD com JIRA como alternativa, porque o cap. 14.2 declara o Jira como
+# "fonte complementar" — a leitura não é inventada, vem do próprio documento.
+REPOSITORIO = {"CLOUD": ("OWNCLOUD", []), "JIRA": ("JIRA", []),
+               "CLOUD/JIRA": ("OWNCLOUD", ["JIRA"])}
 SAIDA = Path("db/seed/V100__carga_inicial.sql")
 ATOR = "carga-inicial-anexo1"
 
@@ -129,6 +138,21 @@ def main() -> int:
             f"ON CONFLICT (cnpj) DO NOTHING;"
         )
 
+    # ---- repositório-mestre por tipo (A09) ---------------------------------
+    repos: dict[str, set[str]] = {}
+    for linha in csv.DictReader(MATRIZ.open(encoding="utf-8")):
+        repos.setdefault(linha["COD_CANONICO"], set()).add(linha["REPOSITORIO"])
+
+    def mestre(cod: str) -> tuple:
+        """Repositório que decide a evidência quando o tipo tem duas origens."""
+        marcas = repos.get(cod, set())
+        if len(marcas) != 1:
+            # Sem consenso na matriz: sem mestre declarado. O documento vai a
+            # conferência manual em vez de ser descartado (cap. 1, princípio 1).
+            return None, []
+        return REPOSITORIO.get(next(iter(marcas)), (None, []))
+
+
     L += [
         "",
         "-- --- versão inicial da matriz ---------------------------------------------",
@@ -140,9 +164,11 @@ def main() -> int:
         "-- escopo, sigilo, formatos e condicional_grupo vêm de",
         "-- dados/complemento_tipo_documental.csv: são DERIVADOS, não confirmados",
         "-- (coluna CONFIRMADO=NAO). Ver docs/ERRATA-V1.md, achado E-05.",
+        "-- repositorio_mestre vem da coluna REPOSITORIO da matriz (A09).",
         "INSERT INTO tipo_documental",
         "    (codigo, nome, familia, escopo, evento, defasagem, formatos, criticidade,",
-        "     sigilo, fonte_mestre, condicional_grupo, criado_por)",
+        "     sigilo, fonte_mestre, condicional_grupo, repositorio_mestre,",
+        "     repositorios_alternativos, criado_por)",
         "VALUES",
     ]
 
@@ -155,7 +181,9 @@ def main() -> int:
             f"{sql(c['ESCOPO'])}, {sql(EVENTO[x['EVENTO']])}, "
             f"{sql(DEFASAGEM[x['COMPETENCIA_REFERENCIA']])}, {sql(formatos)}::jsonb, "
             f"{sql(CRITICIDADE[x['CRITICIDADE_SUGERIDA']])}, {sql(c['SIGILO'])}, "
-            f"{sql(x['FONTE_MESTRE'])}, {sql(c['CONDICIONAL_GRUPO'])}, {sql(ATOR)})"
+            f"{sql(x['FONTE_MESTRE'])}, {sql(c['CONDICIONAL_GRUPO'])}, "
+            f"{sql(mestre(x['COD_CANONICO'])[0])}, "
+            f"{sql(json.dumps(mestre(x['COD_CANONICO'])[1]))}::jsonb, {sql(ATOR)})"
         )
     L.append(",\n".join(linhas))
     L += ["ON CONFLICT (codigo) DO NOTHING;", ""]
@@ -249,6 +277,8 @@ def main() -> int:
     print(f"  aliases carregados .. {len(aliases)}")
     print(f"  aliases descartados . {len(colisoes)} (colisão — E-02, decidido)")
     print(f"  regras conciliação .. {len(regras_conc)} (numeração do Anexo 1 — E-01)")
+    com_mestre = sum(1 for x in catalogo if mestre(x["COD_CANONICO"])[0])
+    print(f"  repositório-mestre .. {com_mestre}/{len(catalogo)} tipos (A09)")
     return 0
 
 

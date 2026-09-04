@@ -18,6 +18,9 @@ Automatiza a conferência documental do faturamento por medição na **Engesoftw
 | [`docs/anexos/Anexo2_SGDF_Layout_Prototipo.html`](docs/anexos/Anexo2_SGDF_Layout_Prototipo.html) | **Anexo 2** — protótipo navegável das 5 telas e tokens de design da identidade Engesoftware. Abrir direto no navegador. |
 | [`docs/ERRATA-V1.md`](docs/ERRATA-V1.md) | **Ler antes de codificar.** 10 inconsistências verificadas entre o documento, o Anexo 1 e o próprio modelo. Quatro já decididas e implementadas. |
 | [`docs/CORRECOES-V1.1.md`](docs/CORRECOES-V1.1.md) | O patch a aplicar no documento normativo, seção por seção. Enquanto não for aplicado, código e documento divergem — e o código está de acordo com as decisões. |
+| [`docs/PENDENCIAS.md`](docs/PENDENCIAS.md) | **Estado definitivo de A01–A13.** Substitui o cap. 23. Sete resolvidas, duas encaminhadas, quatro que engenharia não fecha. |
+| [`docs/INVENTARIO-DADOS-PESSOAIS.md`](docs/INVENTARIO-DADOS-PESSOAIS.md) | Gerado. A parte factual do RIPD (A12): 23 dos 51 tipos tratam dado pessoal, 4 deles sensível. |
+| [`docs/adr/`](docs/adr/) | Decisões de arquitetura. ADR-001: Java 21 + Spring Boot (A13). |
 | [`dados/*.csv`](dados/) | As 8 abas do Anexo 1 exportadas em CSV UTF-8 — insumo direto da *migration* de carga inicial e revisável em *code review*. Gerados a partir do `.xlsx`; **não editar à mão**. |
 | [`dados/complemento_*.csv`](dados/) | Campos que o modelo exige e o Anexo 1 não carrega (achados E-05 e E-01). **Editáveis à mão** — é onde a área demandante confirma os valores. |
 | [`dados/correcoes_matriz.csv`](dados/correcoes_matriz.csv) | As 8 linhas da matriz a recadastrar para a âncora `FIM_COMPETENCIA` (achado E-08). |
@@ -174,6 +177,56 @@ A migration também cria `empresa` — o CNPJ do **prestador**, que o cadastro n
 
 ---
 
+## Estado das pendências
+
+Sete das treze pendências do cap. 23 estão **resolvidas**; duas **encaminhadas**; quatro **não são resolvíveis por engenharia** — dependem de conferência documental, decisão jurídica ou alocação de pessoas. O detalhe está em [`docs/PENDENCIAS.md`](docs/PENDENCIAS.md).
+
+| | Pendências |
+|---|---|
+| **Resolvidas** | A02, A03, A04, A07, A08, A09, A13 |
+| **Encaminhadas** — falta insumo externo | A05 (sistema de folha), A12 (RIPD) |
+| **Fora do alcance de engenharia** | A01 (checklists ausentes), A06 (fundamento contratual), A10 (sustentação), A11 (norma) |
+
+### O que bloqueia o quê
+
+| Quer fazer | Precisa de |
+|---|---|
+| Fase 1a completa | Nada. **Liberada.** |
+| Fase 1b (conciliação de valores) | **A05** |
+| Entrar em produção | **A12** e **A11** |
+| Ativar a fase 3 | **A10** |
+
+### Stack (A13)
+
+**Java 21 + Spring Boot** — [`ADR-001`](docs/adr/ADR-001-stack.md). A escolha foi puxada pela extração de PDF **com posições**, que a história F1-02 exige e onde PDFBox é a opção mais madura.
+
+A prova de que a decisão não invalidou o construído: a função de prazo foi portada para Java e passa nos **mesmos 32 casos** da suíte agnóstica.
+
+```bash
+python3 especificacao/prazo/verificar.py --comando 'java especificacao/prazo/java/Prazo.java'
+```
+
+### Carga real (A03/A04)
+
+A matriz do Anexo 1 está carregada, desdobrada por contrato-serviço:
+
+| | |
+|---|---|
+| Contratos-serviço | 12, todos inativos até o CNPJ real do prestador ser cadastrado |
+| Regras de exigibilidade | 303 (176 linhas replicadas por contrato-serviço) |
+| Prazos corrigidos por E-08 | 16, com âncora `FIM_COMPETENCIA` |
+| Regras de conciliação | 12, em modo alerta até as tolerâncias serem preenchidas |
+
+Cada contrato-serviço recebe sua **própria** cópia das regras do cliente. É o cenário conservador de R-04: consolidar depois é barato; descobrir tarde que BNB-OUT e BNB-SUS divergem custaria migração e, no intervalo, exigências não cobradas.
+
+### Retenção (A08)
+
+A decisão foi retenção **sem tempo determinado**, implementada como `LEGAL_HOLD`: protege indefinidamente e é reversível por papel autorizado. `COMPLIANCE` — irreversível, nem a conta raiz reduz — existe mas não é o padrão.
+
+**Fica registrada uma ressalva para o DPO:** guardar dado pessoal sem termo final tensiona os arts. 6º III, 16 e 18 da LGPD, e os books contêm CPF, remuneração e dado de saúde. `LEGAL_HOLD` mantém a decisão reversível enquanto a tabela de temporalidade não existir — o que `COMPLIANCE` não faria. Ver [`INVENTARIO-DADOS-PESSOAIS.md`](docs/INVENTARIO-DADOS-PESSOAIS.md), seção 4.
+
+---
+
 ## Ordem de leitura sugerida
 
 1. **README** (este arquivo) — mapa do pacote.
@@ -212,22 +265,6 @@ A migration também cria `empresa` — o CNPJ do **prestador**, que o cadastro n
 
 Segregação de funções imposta no serviço: **quem solicita exceção não aprova a própria exceção**; `ADMIN_SISTEMA` configura mas não vê conteúdo de documento de escopo profissional.
 
----
-
-## Antes do kickoff — o que precisa ir na frente
-
-Estas pendências destravam o resto; as demais correm em paralelo ao desenvolvimento.
-
-| ID | Pendência | Bloqueia | Responsável |
-|---|---|---|---|
-| **A03** | BNB e TJCE usam a mesma matriz nas duas modalidades? | Fase 0 — verificação prévia urgente (≈30 min de checagem; risco de responsabilidade subsidiária) | Gestão de Contratos |
-| **A04** | Os 3 contratos-serviço da CAIXA são idênticos? | Carga da matriz — junto com A03, é o que destrava `contrato_servico` e `regra_exigibilidade` | Gestão de Contratos |
-| **A13** | Stack de desenvolvimento e infraestrutura alocada | Sprint 0 | TI |
-| **A05** | Sistema de folha e layout de extração | Início da fase 1b (único bloqueio real) | TI e AP |
-| **E-05** | Confirmar `escopo` e `sigilo` dos 51 tipos no CSV de complemento | Materialização por CNPJ e tarjamento (F2-07) | Gestão de Contratos + DAF |
-| **Tolerâncias** | 11 regras de conciliação aguardam tolerância para poder bloquear | Que a conciliação saia do modo alerta | Área demandante |
-
-A lista completa das 13 pendências está no cap. 23 da documentação; as 10 inconsistências estão na [errata](docs/ERRATA-V1.md), e o patch para o documento normativo em [`CORRECOES-V1.1.md`](docs/CORRECOES-V1.1.md).
 
 ---
 
@@ -238,7 +275,11 @@ Os arquivos em `dados/` são derivados. Ao receber uma nova versão do `.xlsx`, 
 
 ```bash
 pip install openpyxl
-python3 tools/exportar_anexo1.py
+python3 tools/exportar_anexo1.py         # xlsx -> dados/*.csv
+python3 tools/gerar_carga_inicial.py     # catálogo, aliases, regras de conciliação
+python3 tools/gerar_matriz.py            # contratos-serviço e 303 regras
+python3 tools/gerar_feriados.py          # calendário
+python3 tools/gerar_inventario_lgpd.py   # inventário de dados pessoais
 ```
 
 O diff dos CSV mostra exatamente o que mudou no catálogo e na matriz entre as versões — que é o controle de mudança da carga inicial exigido pelo cap. 17 (*seed* como migration de dados auditável).
