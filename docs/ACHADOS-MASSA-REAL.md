@@ -909,3 +909,44 @@ Quando o redator existir, ele marcará `tarjado = true` e a recusa deixará de a
 ### Registro no banco e objeto no bucket são dois sistemas
 
 Não há transação distribuída. A ordem escolhida é **publicar no bucket primeiro, registrar depois**: se a segunda falhar, existe um book no bucket sem linha no banco — visível e recuperável. A ordem inversa produziria uma linha afirmando um book que não existe, que é o erro que ninguém percebe.
+
+---
+
+## 29. F2-06 e F2-07 — o mascaramento e a tarja
+
+### A falha clássica que o redator existe para não cometer
+
+Desenhar um retângulo preto sobre o texto **não é tarjar**: o texto continua na camada de conteúdo e sai inteiro em qualquer copiar-e-colar. Documentos públicos já vazaram exatamente assim, e um sistema que faz isso entrega ao cliente um arquivo que *parece* tarjado.
+
+Aqui a tarja **remove os glifos do fluxo de conteúdo**. O que some, some do arquivo. E o único teste que prova alguma coisa é: extrair o texto do PDF tarjado e verificar que o CPF não está mais lá.
+
+### Sobre os documentos reais
+
+| Documento | CPFs | Tarjados | Restantes |
+|---|---|---|---|
+| `RELATORIO_GUIA_DO_FGTS` | 160 | **160** | — |
+| `CONTRACHEQUE` (8 páginas, 2 vias) | 16 | 16 | — |
+| `C2_CONTRACHEQUE` | 12 | 12 | — |
+| `RELACAO_VA_VR_062026` | 7 | 7 | — |
+| `DCTFWEB_COMPLETA` | 2 reais | 2 | `13781031900` |
+| **Book do cliente completo** | **180** | **178** | 2 (o mesmo fragmento) |
+
+### A26 — o redator e o extrator discordam sobre o que é contíguo
+
+O que resta na DCTFWeb **não é um CPF**: é um fragmento do número do documento `07.16.26196.1378103-1` que, colado pelo extrator, forma onze dígitos com DV válido por coincidência.
+
+A causa é estrutural e vale registrar: **o redator trabalha sobre o fluxo de conteúdo e quem copia do PDF recebe a ordem de leitura**. O extrator insere espaços onde há lacuna entre glifos, e esses espaços criam fronteiras de onze dígitos que não existem no fluxo. Nesse caso a diferença protege — o redator não apaga dígitos de um número de documento. Mas o contrário também é possível.
+
+Por isso **o redator confere o próprio trabalho pelo mesmo caminho que um vazamento tomaria**: extrai o texto do resultado e lista o que ainda sai com forma de CPF e DV válido. O que restar não é necessariamente falha — mas **fica na lista**, porque decidir que uma sequência com DV válido não é CPF é juízo, e juízo silencioso é o que faz um vazamento passar.
+
+### Máscara parcial, e por que não esconder tudo
+
+`***.190.471-**` — os seis do meio ficam. Quem opera precisa distinguir dois colaboradores numa lista de pendências; esconder tudo tornaria a tela inútil e **levaria alguém a consultar o CPF em claro em outro lugar**, que é como o controle vira teatro. É a mesma forma que os documentos bancários reais já usam (achado A7).
+
+### Só mascara o que tem DV válido
+
+Um número de protocolo com onze dígitos casa com o padrão de CPF. Mascará-lo esconderia informação que a mensagem precisa ter — o oposto do que se quer. É a exigência da seção 6, agora virada em código nos dois lados: na máscara de tela e no redator de PDF.
+
+### O que isto destravou
+
+A história F1-08 recusava publicar o book do cliente enquanto houvesse peça `PESSOAL` sem tarja. **Com o preparador, o book do cliente é montado e publicado** — sete peças, três tarjadas, com a pendência da DCTFWeb visível para quem publica.
