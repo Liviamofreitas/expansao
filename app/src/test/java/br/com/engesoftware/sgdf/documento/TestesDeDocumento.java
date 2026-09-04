@@ -31,6 +31,10 @@ public final class TestesDeDocumento {
         loteSemRodapeNaoConfere();
         loteComRodapeQueNaoBate();
         matriculaSaiDoNumeroDoCliente();
+        folhaSaiDosContracheques();
+        duasViasNaoDobramAFolha();
+        contrachequeQueNaoFechaEAcusado();
+        insumosDasConciliacoes();
 
         System.out.println();
         falhas.forEach(f -> System.out.println("  FALHA " + f));
@@ -113,6 +117,77 @@ public final class TestesDeDocumento {
                         BigDecimal.ONE).matricula() == null);
     }
 
+    /**
+     * A05: o lado esperado das conciliacoes sai do contracheque, que ja esta no
+     * repositorio, enquanto o sistema de folha nao e nomeado.
+     */
+    static void folhaSaiDosContracheques() throws Exception {
+        FolhaDeCompetencia f = lerFolha(true);
+
+        ok("Folha . a competencia sai da referencia por extenso",
+                f.competencia().equals("06/2026"));
+        ok("Folha . um item por colaborador", f.itens().size() == 2);
+
+        ItemDaFolha i = f.porMatricula("000101862").orElseThrow();
+        ok("Folha . matricula, nome e CPF saem do cabecalho do recibo",
+                i.nome().equals("ADRIANO LIN SOARES PERRUOLO")
+                        && i.cpf().equals("052.190.471-40"));
+        ok("Folha . rubrica com quantidade traz a quantidade",
+                i.proventos().get(0).quantidade().compareTo(new BigDecimal("30.00")) == 0);
+        ok("Folha . rubrica sem quantidade nao inventa uma",
+                i.proventos().get(1).quantidade() == null);
+
+        // O caso do leitor de tabela, agora no dominio: a rubrica que aparece
+        // sozinha na metade da direita nao pode virar provento.
+        ok("Folha . desconto sozinho na linha nao vira provento",
+                i.proventos().size() == 2 && i.descontos().size() == 4);
+        ok("Folha . e o vale alimentacao esta entre os descontos",
+                i.desconto("VALE ALIMENTACAO").orElseThrow()
+                        .valor().compareTo(new BigDecimal("64.89")) == 0);
+        ok("Folha . o item fecha com os totais impressos", i.fecha());
+    }
+
+    /**
+     * Achado A17: cada pagina traz o recibo duas vezes. Somar sem deduplicar
+     * dobra o liquido de toda a folha.
+     */
+    static void duasViasNaoDobramAFolha() throws Exception {
+        FolhaDeCompetencia f = lerFolha(true);
+        ok("A17 . as duas vias da pagina viram um item so", f.itens().size() == 2);
+        ok("A17 . e o liquido nao dobra",
+                f.somaDosLiquidos().compareTo(new BigDecimal("9619.67")) == 0);
+    }
+
+    /**
+     * O contracheque carrega a propria conferencia. Uma extracao que perde uma
+     * rubrica precisa dizer isso, nao entregar uma folha plausivel.
+     */
+    static void contrachequeQueNaoFechaEAcusado() throws Exception {
+        FolhaDeCompetencia f = lerFolha(false);
+        ItemDaFolha i = f.porMatricula("000101862").orElseThrow();
+
+        ok("Folha . item com total impresso divergente nao fecha", !i.fecha());
+        ok("Folha . e a inconsistencia mostra os dois numeros",
+                i.inconsistencias().get(0).contains("7300.79"));
+        ok("Folha . a folha nomeia o colaborador da inconsistencia",
+                f.inconsistencias().get(0).startsWith("000101862"));
+    }
+
+    /** O que as regras de conciliacao consomem. */
+    static void insumosDasConciliacoes() throws Exception {
+        FolhaDeCompetencia f = lerFolha(true);
+
+        ok("R05 . as matriculas da competencia saem da folha",
+                f.matriculas().equals(List.of("000101862", "000101864")));
+        ok("R08 . quem tem desconto de vale alimentacao sai por CPF",
+                f.comDescontoDe("VALE ALIMENTACAO").keySet()
+                        .equals(java.util.Set.of("052.190.471-40", "054.721.901-69")));
+        ok("R09 . a soma das bases de FGTS e o insumo da conciliacao com a guia",
+                f.somaDasBasesFgts().compareTo(new BigDecimal("11876.28")) == 0);
+        ok("R10 . a soma das bases de INSS tambem",
+                f.somaDasBasesInss().compareTo(new BigDecimal("11876.28")) == 0);
+    }
+
     // -------------------------------------------------------------------------
 
     static ComprovanteEmLote lerLote(String rodape) throws Exception {
@@ -175,6 +250,94 @@ public final class TestesDeDocumento {
         escrever(f, 369.0f, y, "06/07/2026");
         escrever(f, 462.0f, y, "CC");
         escrever(f, 518.0f, y, valor);
+    }
+
+    static FolhaDeCompetencia lerFolha(boolean totaisCoerentes) throws Exception {
+        TextoExtraido t = new ExtratorPdfBox().extrair(contracheques(totaisCoerentes));
+        return new LeitorDeContracheque().ler(t);
+    }
+
+    /**
+     * Geometria medida em CONTRACHEQUE.pdf: proventos a esquerda de x=272,
+     * descontos a direita, valores alinhados a direita, e duas vias por pagina.
+     */
+    static byte[] contracheques(boolean totaisCoerentes) throws IOException {
+        try (PDDocument doc = new PDDocument()) {
+            for (String[] pessoa : new String[][] {
+                    {"000101862", "ADRIANO LIN SOARES PERRUOLO", "052.190.471-40"},
+                    {"000101864", "JAQUELINE DI CARLO ARAUJO DUARTE", "054.721.901-69"}}) {
+                PDPage pagina = new PDPage(PDRectangle.A4);
+                doc.addPage(pagina);
+                try (PDPageContentStream f = new PDPageContentStream(doc, pagina)) {
+                    f.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 7);
+                    // Achado A17: o mesmo recibo, duas vezes na pagina.
+                    via(f, 740f, pessoa, totaisCoerentes);
+                    via(f, 366f, pessoa, totaisCoerentes);
+                }
+            }
+            ByteArrayOutputStream saida = new ByteArrayOutputStream();
+            doc.save(saida);
+            return saida.toByteArray();
+        }
+    }
+
+    static void via(PDPageContentStream f, float topo, String[] pessoa, boolean coerente)
+            throws IOException {
+        boolean primeiro = pessoa[0].equals("000101862");
+        escrever(f, 270.8f, topo - 12f, "Recibo de Pagamento");
+        escrever(f, 272.0f, topo - 23f, "JUNHO/2026 MENSAL 1/1");
+        escrever(f, 38.0f, topo - 50f, "Matrícula Nome");
+        escrever(f, 38.0f, topo - 59f, pessoa[0] + " " + pessoa[1]);
+        escrever(f, 38.0f, topo - 75f, "CPF Cargo/Nível");
+        escrever(f, 38.0f, topo - 84f, pessoa[2] + " TESTADOR - PLENO /");
+        // Os seis rotulos nas posicoes medidas no documento real: e a distancia
+        // entre o primeiro e o segundo "Descrição" que divide as metades.
+        escrever(f, 38.0f, topo - 132f, "Descrição");
+        escrever(f, 179.0f, topo - 132f, "Qtde");
+        escrever(f, 242.0f, topo - 132f, "Valor");
+        escrever(f, 272.0f, topo - 132f, "Descrição");
+        escrever(f, 413.0f, topo - 132f, "Qtde");
+        escrever(f, 473.0f, topo - 132f, "Valor");
+
+        // Linha 1: provento com quantidade a esquerda, desconto a direita.
+        escrever(f, 38.0f, topo - 143f, "SALARIO");
+        escrever(f, 169.0f, topo - 143f, "30,00");
+        escrever(f, 218.0f, topo - 143f, primeiro ? "6.452,92" : "4.575,49");
+        escrever(f, 272.0f, topo - 143f, "INSS MES");
+        escrever(f, 458.0f, topo - 143f, primeiro ? "823,61" : "442,07");
+
+        if (primeiro) {
+            // Provento sem quantidade.
+            escrever(f, 38.0f, topo - 154f, "DIF SALARIO MENSAL");
+            escrever(f, 227.0f, topo - 154f, "847,87");
+            escrever(f, 272.0f, topo - 154f, "IRRF MES");
+            escrever(f, 458.0f, topo - 154f, "865,93");
+            // Descontos sozinhos na metade da direita.
+            escrever(f, 272.0f, topo - 165f, "TIT ASS ODT BRADESCO");
+            escrever(f, 463.0f, topo - 165f, "11,49");
+        }
+        escrever(f, 272.0f, topo - 176f, "VALE ALIMENTACAO");
+        escrever(f, 463.0f, topo - 176f, primeiro ? "64,89" : "48,62");
+
+        escrever(f, 38.0f, topo - 272f, "TOTAL DE PROVENTOS");
+        escrever(f, 218.0f, topo - 272f,
+                primeiro ? (coerente ? "7.300,79" : "7.999,99") : "4.575,49");
+        escrever(f, 272.0f, topo - 272f, "TOTAL DE DESCONTOS");
+        escrever(f, 448.0f, topo - 272f, primeiro ? "1.765,92" : "490,69");
+
+        escrever(f, 272.0f, topo - 298f, "LÍQUIDO A RECEBER");
+        escrever(f, 450.0f, topo - 298f, primeiro ? "5.534,87" : "4.084,80");
+
+        escrever(f, 38.0f, topo - 313f, "Salário Contratual");
+        escrever(f, 132.0f, topo - 313f, "Sal. Contrib. INSS");
+        escrever(f, 225.0f, topo - 313f, "Base Cálc. FGTS");
+        escrever(f, 319.0f, topo - 313f, "FGTS Mês");
+        escrever(f, 412.0f, topo - 313f, "Base Cálc. IRRF");
+        escrever(f, 57.2f, topo - 322f, primeiro ? "6.452,92" : "4.575,49");
+        escrever(f, 151.0f, topo - 322f, primeiro ? "7.300,79" : "4.575,49");
+        escrever(f, 244.0f, topo - 322f, primeiro ? "7.300,79" : "4.575,49");
+        escrever(f, 348.0f, topo - 322f, primeiro ? "584,06" : "366,04");
+        escrever(f, 432.0f, topo - 322f, primeiro ? "6.477,18" : "3.968,29");
     }
 
     static void escrever(PDPageContentStream f, float x, float y, String texto)

@@ -393,3 +393,43 @@ Comparar desconto contra crédito acusaria divergência em **todos** os registro
 ### Deduplicação obrigatória (achado A17, confirmado)
 
 As 8 páginas do contracheque contêm **16 recibos** — duas vias por página, idênticas. A extração deduplica por matrícula. Sem isso, a folha reportaria 16 colaboradores e o líquido dobraria.
+
+---
+
+## 9. A05 destravado — a folha estruturada sai do contracheque
+
+A pendência A05 registrava que a fase 1b estava parada por falta do **lado esperado** das conciliações: sem folha estruturada, R05, R07, R08, R09 e R10 não têm com o que comparar. A pendência dizia, corretamente, que "nenhuma linha de código a mais fecha isto".
+
+Isso continua verdade sobre a **pergunta** — qual é o sistema de folha e se ele exporta o layout do cap. 14.3 segue sendo decisão de TI e da área demandante, e um export estruturado continua sendo melhor que reler PDF. O que mudou é o **bloqueio**: o contracheque já está no repositório, é fonte verificável, e o leitor de tabela já sabe lê-lo.
+
+### Por que a leitura não é por coluna
+
+O contracheque tem seis colunas — descrição, quantidade, valor, duas vezes — mas **a coluna de quantidade dos descontos fica vazia na maioria das folhas**. A projeção acha cinco separações numa competência e seis em outra, e uma lista fixa de nomes quebra na segunda.
+
+A leitura é por **forma do conteúdo** dentro de cada metade: o último número com centavos é o valor, um número com centavos antes dele é a quantidade, e o que sobra é a descrição. É imune à contagem de colunas. A divisão entre as metades vem do cabeçalho — o segundo rótulo `Descrição` marca onde começam os descontos, e o rótulo é confiável *para isso*, ainda que não sirva para deduzir a fronteira das colunas de valor, que são alinhadas à direita.
+
+### A conferência que o próprio documento carrega
+
+Cada recibo imprime `TOTAL DE PROVENTOS`, `TOTAL DE DESCONTOS` e `LÍQUIDO A RECEBER`. Uma extração correta reproduz os três:
+
+- Σ rubricas de provento = total de proventos impresso
+- Σ rubricas de desconto = total de descontos impresso
+- total de proventos − total de descontos = líquido impresso
+
+**Nos 8 contracheques reais de 06/2026, os 8 fecham.** Um item que não fecha é acusado com os dois números, não somado.
+
+### O que a folha entrega às regras de conciliação
+
+| Regra | Insumo | Valor em 06/2026 |
+|---|---|---|
+| R05 | matrículas da competência | 8 |
+| R08 | CPFs com desconto de `VALE ALIMENTACAO` | 8 |
+| R09 | Σ base de cálculo do FGTS | R$ 49.693,18 |
+| R10 | Σ salário de contribuição do INSS | R$ 49.693,18 |
+| — | Σ líquidos | R$ 37.574,47 |
+
+**R09 já é computável e o resultado é instrutivo:** 8% de R$ 49.693,18 = R$ 3.975,45; a soma do `FGTS Mês` impresso nos 8 recibos é R$ 3.975,44. **Delta de R$ 0,01**, produzido pelo arredondamento por colaborador. A tolerância de ±0,5% da R09 absorve; uma tolerância de R$ 0,01 sobre o total não absorveria. É evidência concreta de que a tolerância da R09 precisa ser **percentual, não absoluta** — e o cadastro atual (a decidir pela AP) deve refletir isso.
+
+### Deduplicação obrigatória
+
+Cada página traz o recibo **duas vezes**. Sem deduplicar por matrícula, a folha reportaria 16 colaboradores e o líquido dobraria para R$ 75.148,94.

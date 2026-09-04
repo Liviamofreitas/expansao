@@ -36,7 +36,7 @@ A finalidade aqui tem termo natural: a prescrição quinquenal do art. 7º, XXIX
 
 | ID | Pendência | O que já está pronto | O que falta, e de quem |
 |---|---|---|---|
-| **A05** | Sistema de folha e layout | O **contrato de dados** está especificado (cap. 14.3) e a fase 1a foi construída sem depender dele (D-10): as regras que precisam de folha ficam `NAO_APLICAVEL` com motivo, nunca reprovadas. As 7 regras de conciliação de fase 1B estão cadastradas e inertes. | Qual é o sistema de folha e se ele exporta o layout mínimo. **TI e AP.** Nenhuma linha de código a mais fecha isto — depende de um sistema que ainda não foi nomeado. |
+| **A05** | Sistema de folha e layout | **Deixou de bloquear.** O contrato de dados está especificado (cap. 14.3) e a fase 1a não dependia dele (D-10). O que faltava era o lado *esperado* das conciliações — e ele agora sai do **contracheque em PDF**, que já está no repositório: `LeitorDeContracheque` produz matrícula, CPF, nome, rubricas, totais, líquido e as bases de FGTS/INSS/IRRF, deduplicando as duas vias (A17). Nos 8 contracheques reais de 06/2026, **os 8 fecham** contra os próprios totais impressos. | Qual é o sistema de folha e se ele exporta o layout mínimo. **TI e AP.** Continua em aberto e continua sendo a solução melhor — reler PDF é fonte de segunda escolha. Mas a fase 1b não espera mais por ela. |
 | **A12** | RIPD e inventário de dados pessoais | O **inventário está gerado**: 23 dos 51 tipos tratam dado pessoal, 4 deles sensível; onde cada dado vive e com que proteção. É a parte factual e volumosa do RIPD. | A avaliação de risco, a base legal por finalidade e a aprovação. **DPO e jurídico.** | 
 
 ---
@@ -78,7 +78,7 @@ Estado dos 10 achados de [`ERRATA-V1.md`](ERRATA-V1.md):
 | Quer fazer | Precisa de |
 |---|---|
 | Fase 1a completa (varredura, reconhecimento, book) | Nada. **Liberada.** |
-| Fase 1b (conciliação de valores) | **A05** |
+| Fase 1b (conciliação de valores) | ~~A05~~ — **liberada** pela folha derivada do contracheque. Falta o cadastro de tolerâncias das 11 regras (decisão da AP). |
 | Selar book com prazo irreversível | **A08** — hoje sela em `LEGAL_HOLD`, o que é suficiente para operar |
 | Entrar em produção | **A12** (RIPD) e **A11** (norma) |
 | Ativar a fase 3 | **A10** |
