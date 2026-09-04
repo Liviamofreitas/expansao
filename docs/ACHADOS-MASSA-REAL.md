@@ -1,6 +1,6 @@
 # Achados do primeiro contato com documentos reais
 
-**Massa analisada:** 19 documentos do OwnCloud da Engesoftware, competência 06/2026, extraídos com o `ExtratorPdfBox` da história F1-02.
+**Massa analisada:** 20 documentos do OwnCloud da Engesoftware, competência 06/2026, extraídos com o `ExtratorPdfBox` da história F1-02.
 
 > **Os documentos não estão no repositório.** São fiscais e reais; histórico de git é praticamente irreversível, e o cap. 19 manda massa de teste ficar em ambiente controlado. Foram usados para derivar os achados abaixo; o que se versiona são as correções, os testes com conteúdo sintético e este registro.
 
@@ -236,6 +236,60 @@ CNPJ 32.223.020. 0001-18        (a barra virou ". ")
 O padrão `\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}` não casa. O CNPJ da própria Engesoftware, no mesmo documento, saiu correto — a falha é do glifo da barra naquela fonte.
 
 Somado aos achados **A6** (CNPJ truncado na raiz) e **A7** (CNPJ mascarado), fecha o quadro: **o reconhecimento de CNPJ não pode ser um regex único**. Precisa tolerar separador variante, truncamento e máscara, comparando por raiz e posição a posição.
+
+### A17 — o contracheque é a peça-chave, e exige leitura por coordenada
+
+O contracheque real (`FOL.CONTRACHEQUE`) extrai limpo e é o documento que liga profissional a benefício — exatamente a cadeia pedida. Estrutura por colaborador:
+
+| Campo | Exemplo |
+|---|---|
+| Matrícula | `000101862` (com zeros à esquerda) |
+| Nome, CPF, Cargo/Nível, Data de Admissão | — |
+| Referência | `JUNHO/2026` — **por extenso**, não `06/2026` |
+| Proventos / Descontos | duas colunas lado a lado |
+| Totais | `TOTAL DE PROVENTOS`, `TOTAL DE DESCONTOS`, `LÍQUIDO A RECEBER` |
+| Bases | `Salário Contratual`, `Sal. Contrib. INSS`, `Base Cálc. FGTS`, `FGTS Mês`, `Base Cálc. IRRF` |
+
+**As rubricas de benefício aparecem como desconto**, com nomenclatura estável: `VALE ALIMENTACAO`, `VALE TRANSPORTE`, `TIT ASST MED HAPVIDA`, `DEP ASST MED HAPVIDA`, `TIT ASS ODT BRADESCO`, `DEP ODONT BRADESCO`, `ASSIST MED UNIMED`, `CO-PART ASST MED TIT`. O prefixo `TIT`/`DEP` distingue titular de dependente — essencial para a regra de cobertura, que precisa contar dependentes.
+
+**Por que a leitura linear não serve.** Uma linha com desconto e sem provento sai assim:
+
+```
+SALARIO  30,00     6.452,92 INSS MES       823,61
+TIT ASS ODT BRADESCO        11,49
+```
+
+A segunda linha tem apenas um desconto, mas parece começar na coluna de proventos. Lida assim, um desconto de benefício vira provento e o líquido deixa de fechar.
+
+**Resolvido** pelo `LeitorDeTabela`, que agrupa glifos por coordenada. Verificado contra o contracheque real: `TIT ASS ODT BRADESCO` e `VALE ALIMENTACAO` caem corretamente em desconto, com provento vazio.
+
+**Duas armadilhas a mais neste documento:**
+
+1. **Cada contracheque aparece duplicado** — é o layout de duas vias (empregado e empregador) na mesma página, encerrado por `Recebi em: __/__/____`. Somar sem deduplicar **dobra o líquido**, e a regra de conciliação contra os comprovantes reprovaria um pagamento correto.
+2. **`Feliz Aniversário!!!`** aparece dentro da área da tabela. Texto decorativo no meio dos dados precisa ser descartado por posição, não por conteúdo — não há como listar todas as mensagens que o gerador de folha pode inserir.
+
+### A18 — o comprovante em lote não é separável por coordenada
+
+Ao contrário do contracheque, o comprovante de pagamento em lote **não** cede a nenhum dos dois métodos de detecção de coluna:
+
+| Método | Resultado |
+|---|---|
+| Projeção vertical das linhas de dados | Acha só 3 separações para 6 colunas: os nomes longos atravessam as faixas dos números, e não sobra lacuna consistente |
+| Fronteiras deduzidas do cabeçalho | Erra por 1 a 3 caracteres: os rótulos são muito mais largos que os dados, e a distribuição espacial do cabeçalho não corresponde à das linhas |
+
+A causa é o achado **A13**: o nome ocupa duas linhas e invade a faixa dos números em algumas delas.
+
+**A estratégia correta para este layout é outra** — reconhecer os campos pelo **formato do conteúdo** dentro da linha, que aqui é distintivo:
+
+| Campo | Formato |
+|---|---|
+| Número do pagamento | 9 dígitos iniciados por `9000` |
+| Número do cliente | 20 dígitos (matrícula + `ddMMyyyy`, achado A14) |
+| Data | `dd/MM/yyyy` |
+| Valor | decimal com vírgula |
+| Nome | o que sobra, mais as linhas órfãs adjacentes |
+
+Isso não é leitura de tabela; é extração por padrão posicional, e fica registrado como trabalho separado. **Não foi implementado** — a calibração por tentativa não convergia, e insistir teria custado mais do que entregar o leitor que já funciona.
 
 ---
 
