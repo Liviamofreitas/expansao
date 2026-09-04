@@ -1,6 +1,6 @@
 # Achados do primeiro contato com documentos reais
 
-**Massa analisada:** 10 documentos do OwnCloud da Engesoftware, competência 06/2026, extraídos com o `ExtratorPdfBox` da história F1-02.
+**Massa analisada:** 13 documentos do OwnCloud da Engesoftware, competência 06/2026, extraídos com o `ExtratorPdfBox` da história F1-02.
 
 > **Os documentos não estão no repositório.** São fiscais e reais; histórico de git é praticamente irreversível, e o cap. 19 manda massa de teste ficar em ambiente controlado. Foram usados para derivar os achados abaixo; o que se versiona são as correções, os testes com conteúdo sintético e este registro.
 
@@ -20,10 +20,24 @@
 | `FGT.GUIA` | GFDGUIA_DO_FGTS | 1 | nativa |
 | `FGT.RELATORIO_DIGITAL` | RELATORIO_GUIA_DO_FGTS | 9 | nativa |
 | `FGT.COMPROVANTE_PG` | COMPROVANTE_PG_FGTS | 1 | nativa |
+| `CER.SICAF` | SICAF | 1 | nativa |
+| `CER.CND_CIVEL_CRIMINAL` | CND cível e criminal (TJDFT) | 1 | nativa |
+| `CER.CND_FALENCIA` | CND falências e recuperações (TJDFT) | 1 | nativa |
 
-**Os 10 extraem com texto nativo.** Nenhum exigiu OCR — a contingência do cap. 8.2 não é o caminho comum, ao menos para o bloco corporativo.
+**Os 13 extraem com texto nativo.** Nenhum exigiu OCR — a contingência do cap. 8.2 não é o caminho comum, ao menos para o bloco corporativo.
 
-**Faltam para fechar o critério da F1-03:** `CER.SICAF`, `CER.CND_CIVEL_CRIMINAL`, `CER.CND_FALENCIA`, e mais duas competências fechadas.
+**Os 10 tipos do critério de aceite da F1-03 estão cobertos.** Falta apenas repetir a coleta em mais duas competências fechadas, para a medição de precisão do cap. 19.
+
+### Nomes de arquivo, como vieram do OwnCloud
+
+```
+27.09.2026__CERTIDA_O_NEGATIVA_DE_DISTRIBUIC_A_O_ESPECIAL__AC_O_ES_CI_VEIS_E_CRIMINAIS.pdf.pdf
+22.09.2026__SISTEMA_DE_CADASTRAMENTO_UNIFICADO_DE_FORNECEDORES__SICAF.pdf
+COMPROVANTE_PG_IRRF                                    (sem extensão)
+GFDGUIA_DO_FGTS.pdf
+```
+
+Prefixo de data, acentos substituídos por underscore, extensão duplicada, extensão ausente. É a confirmação empírica de **D-07**: o nome do arquivo não é chave confiável, e o peso dele no score do cap. 8.3 tem de ser baixo. Note também que o nome do arquivo cível/criminal diz `NEGATIVA` e o documento é **positiva** — ver o achado A10.
 
 ---
 
@@ -42,6 +56,11 @@ Todas verificadas contra o texto real, já normalizado (sem acento, minúsculas,
 | `FGT.GUIA` | `gfd - guia do fgts digital` | `Pagar este documento até`, `Identificador`, `Total da Guia` |
 | `FGT.RELATORIO_DIGITAL` | `detalhe da guia a ser emitida` + `relacao de trabalhadores` | `Vencimento da Guia`, `Total da Guia (FGTS)`, `Qtd. Trabalhadores FGTS` |
 | `FGT.COMPROVANTE_PG` | (sem título fixo — identificado por pareamento) | `Valor:`, `Data:`, `ID Transação:` |
+| `CER.SICAF` | `sistema de cadastramento unificado de fornecedores` | `CNPJ:`, `Situação do Fornecedor:`, `Data de Vencimento do Cadastro:`, `Impedimento de Licitar:` |
+| `CER.CND_CIVEL_CRIMINAL` | `distribuicao (especial - acoes civeis e criminais)` | `CERTIFICAMOS que`, `CONSTA`/`NADA CONSTA`, data da consulta |
+| `CER.CND_FALENCIA` | `distribuicao (acoes de falencias e recuperacoes judiciais)` | idem |
+
+As duas últimas vêm do mesmo emissor (TJDFT) e compartilham quase todo o texto. **A âncora que as distingue é o parêntese do título** — `(ESPECIAL - AÇÕES CÍVEIS E CRIMINAIS)` contra `(AÇÕES DE FALÊNCIAS E RECUPERAÇÕES JUDICIAIS)`. Sem ele, as duas colidiriam, do mesmo modo que as guias do FGTS no achado E-02.
 
 ---
 
@@ -83,6 +102,46 @@ As âncoras de título não têm interseção. **E-02 pode ser fechado.**
 | **A9** | A validade do CRF é de **30 dias** (11/07 a 09/08) | A janela é curta: a régua precisa considerar que este documento vence dentro da própria competência |
 
 **A6 e A7 juntos são o achado mais consequente em aberto.** Dois dos documentos centrais do bloco corporativo não expõem o CNPJ em formato completo. A validação de titularidade precisa comparar por **raiz do CNPJ** e aceitar máscara, comparando posição a posição com coringa — não igualdade de string. Sem isso, V3 reprova documento válido, que é o falso positivo que o risco P01 descreve.
+
+### A10 — a natureza da certidão tem TRÊS valores, não dois
+
+A premissa **R-01** diz: *"Certidão positiva com efeito de negativa = regular"*, e a validação **V5** do cap. 8.4 aceita `natureza ∈ {negativa, positiva c/ efeito de negativa}`. A massa real mostra um terceiro estado:
+
+| Documento | Título | Situação |
+|---|---|---|
+| CND RFB | `CERTIDÃO POSITIVA COM EFEITOS DE NEGATIVA` | regular por R-01 |
+| CND GDF | `CERTIDÃO NEGATIVA DE DÉBITOS` | regular |
+| CNDT | `CERTIDÃO NEGATIVA DE DÉBITOS TRABALHISTAS` | regular |
+| CND falências | `CERTIDÃO NEGATIVA DE DISTRIBUIÇÃO` — "NADA CONSTA" | regular |
+| **CND cível e criminal** | **`CERTIDÃO POSITIVA DE DISTRIBUIÇÃO`** — "**CONSTA**" uma execução de título extrajudicial | **fora das duas categorias** |
+
+**O problema.** Sob V5 como está escrita, essa certidão é **reprovada** — e ela está no OwnCloud, sendo usada no faturamento. Uma execução de título extrajudicial não impede contratar; a exigência contratual costuma ser *apresentar* a certidão, não que ela seja negativa.
+
+Se o sistema reprovar automaticamente, trava o faturamento de um contrato regular. Se aprovar em silêncio, esconde um fato que alguém deveria ver.
+
+**Proposta, para decisão da área demandante e do jurídico.** Extrair `natureza` com três valores — `NEGATIVA`, `POSITIVA_COM_EFEITO_NEGATIVA`, `POSITIVA` — e deixar o cadastro decidir, **por tipo documental**, se `POSITIVA` é aceitável. O padrão conservador seria: documento válido (existe, é do CNPJ certo, está vigente), exigência **atendida com ressalva**, e decisão humana registrada.
+
+Isso segue o princípio 7 do cap. 1: *"o sistema confere completude e coerência documental; o ateste técnico permanece humano"*. Julgar se uma execução judicial impede faturar é juízo jurídico, não conferência documental.
+
+**Também:** o nome do arquivo dessa certidão diz `CERTIDA_O_NEGATIVA`, e o documento é positiva. Mais uma razão para o nome ter peso baixo no score.
+
+### A11 — o SICAF é um documento agregador
+
+O SICAF traz, ele próprio, as validades de outras certidões:
+
+```
+Receita Federal e PGFN   Validade: 24/10/2026   Automática
+FGTS                     Validade: 28/09/2026   Automática
+Trabalhista              Validade: 27/02/2027   Automática
+Receita Estadual/Distrital Validade: 04/11/2026
+```
+
+Duas consequências:
+
+1. **Fonte de conferência cruzada.** As validades declaradas no SICAF podem ser confrontadas com as das certidões efetivamente anexadas — uma divergência indica documento desatualizado no book.
+2. **`Ocorrência: Consta`** aparece no SICAF desta competência, mesmo com `Impedimento de Licitar: Nada Consta`. É outro campo de situação que a regra de reconhecimento deve extrair, e que cai no mesmo debate do achado A10.
+
+O SICAF também traz `Data de Vencimento do Cadastro`, que é a validade do próprio documento — distinta das validades que ele lista.
 
 ---
 
