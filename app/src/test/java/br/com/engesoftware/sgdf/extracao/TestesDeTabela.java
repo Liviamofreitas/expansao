@@ -30,6 +30,8 @@ public final class TestesDeTabela {
         linhaSoComDesconto();
         descricaoMaisLargaQueORotulo();
         reconstrucaoDeEspacos();
+        blocosPorLacunaVertical();
+        leituraPorBloco();
 
         System.out.println();
         falhas.forEach(f -> System.out.println("  FALHA " + f));
@@ -131,6 +133,60 @@ public final class TestesDeTabela {
                 linhas.get(4).texto().contains("VALE ALIMENTACAO"));
     }
 
+    /**
+     * A relacao de beneficios da Flash nao tem uma linha por registro: cada
+     * beneficiario ocupa seis linhas visuais, e o que separa um do proximo e a
+     * lacuna vertical — 39 pontos entre blocos, 3 a 7 dentro do bloco.
+     */
+    static void blocosPorLacunaVertical() throws Exception {
+        List<LinhaVisual> linhas = linhasDaRelacao();
+        List<List<LinhaVisual>> blocos = LeitorDeTabela.agruparEmBlocos(linhas, 20f);
+
+        ok("Bloco . a lacuna vertical separa os dois beneficiarios",
+                blocos.size() == 2);
+        ok("Bloco . e cada beneficiario mantem suas seis linhas",
+                blocos.get(0).size() == 6 && blocos.get(1).size() == 6);
+        ok("Bloco . as linhas do primeiro bloco vem de cima para baixo",
+                blocos.get(0).get(0).y() > blocos.get(0).get(5).y());
+
+        // Se a lacuna exigida passar da distancia entre blocos, os dois
+        // registros se fundem — e um CPF acabaria colado no nome do outro.
+        List<List<LinhaVisual>> fundidos = LeitorDeTabela.agruparEmBlocos(linhas, 45f);
+        ok("Bloco . lacuna maior que a distancia real funde os registros",
+                fundidos.size() == 1);
+    }
+
+    /**
+     * O caso que motivou a leitura por bloco. Na relacao real o CPF
+     * "052.190.471-40" esta partido em duas linhas visuais, com o valor do
+     * beneficio no meio; e o nome "JAQUELINE DI CARLO ARAUJO DUARTE" tambem
+     * quebra. Lido linha a linha, nenhum dos dois se forma — e a chave de
+     * juncao com a folha nunca aparece.
+     */
+    static void leituraPorBloco() throws Exception {
+        List<LinhaVisual> linhas = linhasDaRelacao();
+        List<Coluna> colunas = LeitorDeTabela.colunasPorProjecao(
+                linhas, 10, List.of("nome", "cpf", "grupo", "valor", "total"));
+        ok("Bloco . a projecao acha as cinco colunas da relacao",
+                colunas.size() == 5);
+
+        List<List<LinhaVisual>> blocos = LeitorDeTabela.agruparEmBlocos(linhas, 20f);
+        Map<String, String> primeiro = LeitorDeTabela.lerBloco(blocos.get(0), colunas);
+        Map<String, String> segundo = LeitorDeTabela.lerBloco(blocos.get(1), colunas);
+
+        ok("Bloco . o CPF partido em duas linhas e reconstituido",
+                primeiro.get("cpf").replace(" ", "").equals("052.190.471-40"));
+        ok("Bloco . o nome de uma linha so nao ganha pedaco do vizinho",
+                primeiro.get("nome").equals("ADRIANO LIN SOARES PERRUOLO"));
+        ok("Bloco . o nome quebrado em duas linhas e reunido com espaco",
+                segundo.get("nome").equals("JAQUELINE DI CARLO ARAUJO DUARTE"));
+        ok("Bloco . e o CPF do segundo beneficiario e o dele",
+                segundo.get("cpf").replace(" ", "").equals("054.721.901-69"));
+        ok("Bloco . o valor total fica na coluna da direita",
+                primeiro.get("total").equals("R$ 865,19")
+                        && segundo.get("total").equals("R$ 865,19"));
+    }
+
     // -------------------------------------------------------------------------
 
     /** Layout de duas colunas, como o contracheque: proventos | descontos. */
@@ -161,6 +217,57 @@ public final class TestesDeTabela {
 
                 escrever(f, 300, 640, "VALE ALIMENTACAO");
                 escrever(f, 430, 640, "64,89");
+            }
+            ByteArrayOutputStream saida = new ByteArrayOutputStream();
+            doc.save(saida);
+            return saida.toByteArray();
+        }
+    }
+
+    /**
+     * Reproduz a geometria da relacao de beneficios da Flash, com as
+     * coordenadas medidas no documento real de 06/2026: o CPF na faixa
+     * x 219..275 partido entre duas linhas, o nome a esquerda de 219, e 39
+     * pontos de lacuna entre um beneficiario e o proximo.
+     */
+    static List<LinhaVisual> linhasDaRelacao() throws Exception {
+        byte[] pdf = relacaoDeBeneficios();
+        PaginaExtraida pg = new ExtratorPdfBox().extrair(pdf).paginas().get(0);
+        return LeitorDeTabela.agruparEmLinhas(pg);
+    }
+
+    static byte[] relacaoDeBeneficios() throws IOException {
+        try (PDDocument doc = new PDDocument()) {
+            PDPage pagina = new PDPage(PDRectangle.A4);
+            doc.addPage(pagina);
+            try (PDPageContentStream f = new PDPageContentStream(doc, pagina)) {
+                f.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 6);
+
+                // Beneficiario 1: nome inteiro numa linha, CPF partido em duas.
+                escrever(f, 457.1f, 617.4f, "Beneficio");
+                escrever(f, 219.6f, 610.7f, "052.190.471-");
+                escrever(f, 357.6f, 610.7f, "Refeicao e");
+                escrever(f, 454.2f, 610.7f, "de R$ 865,19)");
+                escrever(f, 47.7f, 604.7f, "ADRIANO LIN SOARES PERRUOLO");
+                escrever(f, 515.0f, 604.7f, "R$ 865,19");
+                escrever(f, 448.1f, 601.7f, "Custo de conta");
+                escrever(f, 242.7f, 598.7f, "40");
+                escrever(f, 352.7f, 598.7f, "Alimentacao");
+                escrever(f, 459.3f, 592.7f, "R$ 0,00");
+
+                // 39 pontos de lacuna, e o beneficiario 2 — com o nome tambem
+                // quebrado em duas linhas.
+                escrever(f, 457.1f, 553.7f, "Beneficio");
+                escrever(f, 56.6f, 546.9f, "JAQUELINE DI CARLO ARAUJO");
+                escrever(f, 219.6f, 546.9f, "054.721.901-");
+                escrever(f, 357.6f, 546.9f, "Refeicao e");
+                escrever(f, 454.2f, 546.9f, "de R$ 865,19)");
+                escrever(f, 515.0f, 540.9f, "R$ 865,19");
+                escrever(f, 448.1f, 537.9f, "Custo de conta");
+                escrever(f, 104.1f, 534.9f, "DUARTE");
+                escrever(f, 242.7f, 534.9f, "69");
+                escrever(f, 352.7f, 534.9f, "Alimentacao");
+                escrever(f, 459.3f, 528.9f, "R$ 0,00");
             }
             ByteArrayOutputStream saida = new ByteArrayOutputStream();
             doc.save(saida);

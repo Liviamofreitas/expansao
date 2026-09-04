@@ -317,3 +317,69 @@ Sem evidência (não analisados): `CER.SICAF`, `CER.CND_CIVEL_CRIMINAL`, `CER.CN
 O padrão `\d{3}\.\d{3}\.\d{3}-\d{2}` sozinho é insuficiente: números de código de barras e de autenticação produzem sequências com o mesmo formato. Todos os 162 casamentos desta massa tinham **DV válido**, mas isso é sorte da amostra, não garantia.
 
 **Exigido na F1-03:** todo campo de CPF e CNPJ valida o dígito verificador antes de ser aceito. Um falso positivo de CPF num documento classificado como sem dado pessoal é uma falha de privacidade silenciosa.
+
+---
+
+## 7. A19 — a chave de junção partida entre duas linhas visuais
+
+Na relação de benefícios da Flash (06/2026), cada beneficiário ocupa **seis linhas visuais**, e o CPF fica partido entre a segunda e a quinta, com o valor do benefício no meio:
+
+```
+y=617.4  x=457.1  Benefício
+y=610.7  x=219.6  052.190.471-        Refeição e      de R$ 865,19)
+y=604.7  x=47.7   ADRIANO LIN SOARES PERRUOLO         R$ 865,19
+y=601.7  x=448.1  Custo de conta
+y=598.7  x=242.7  40                  Alimentação
+y=592.7  x=459.3  R$ 0,00
+```
+
+Não é o achado A13 (título que quebra linha) numa variação inofensiva: aqui quem quebra é **a chave de junção com a folha**. Lida linha a linha, a extração devolve zero CPFs — e a conciliação de cobertura responde "nenhum beneficiário", que é falso e parece verdadeiro.
+
+Duas tentativas de reconstrução falharam, e o motivo de cada uma vale registrar:
+
+| Tentativa | Por que falhou |
+|---|---|
+| Regex `(\d{3}\.\d{3}\.\d{3}-)\D*?(\d{2})` sobre o texto do bloco | O `\D*?` não atravessa o `865,19` que está entre os dois pedaços |
+| Faixa de coluna fixa `x < 130` | Os dois fragmentos estão em **x diferentes** (219,6 e 242,7): a célula é centralizada, e o pedaço curto `40` fica mais à direita que o longo `052.190.471-` |
+
+**O que funciona** é a combinação de três coisas já observáveis no documento, sem calibração por tentativa:
+
+1. **Bloco por lacuna vertical** — 39 pontos entre beneficiários, 3 a 7 dentro do bloco (`agruparEmBlocos`);
+2. **Colunas por projeção vertical** das linhas de dados, que acha as cinco faixas sem depender do cabeçalho — as fronteiras saem em x = 211,6 / 315,1 / 426,6 / 505,1, e a faixa do CPF acomoda os dois fragmentos;
+3. **Leitura por bloco** (`lerBloco`), que junta por coluna o que está em linhas diferentes.
+
+O mesmo mecanismo resolve o nome quebrado: `JAQUELINE DI CARLO ARAUJO` + `DUARTE` se reúnem porque ambos os pedaços estão na faixa do nome.
+
+**Regra de junção:** os pedaços são unidos por **um espaço, nunca colados**. Colar produziria `ARAUJODUARTE`. Quem espera campo sem espaço interno — CPF, CNPJ, matrícula — retira o espaço no padrão do campo, onde a decisão é explícita.
+
+---
+
+## 8. Primeira conciliação real ponta a ponta — cadeia VA/VR de 06/2026
+
+Documentos: `CONTRACHEQUE.pdf` (8 páginas), `RELACAO_VA_VR_062026.pdf`, `COMPROVANTE_PG_ALIMENTACAO.pdf`.
+
+| Etapa | Resultado |
+|---|---|
+| **R07-a** — soma da relação × comprovante de pagamento | R$ 6.056,33 × R$ 6.056,33 → **CONFORME** |
+| **R07-b** — cobertura: quem tem desconto na folha × quem consta na relação | 8 × 7 → **DIVERGENTE** |
+
+A divergência: **`049.263.571-43` — ESTAFANY RIBEIRO AUGUSTO**, matrícula `000101683`, tem desconto `VALE ALIMENTACAO` de R$ 48,62 no contracheque de junho/2026 e **não aparece** na relação da Flash da mesma competência.
+
+Isto **não é conclusão de erro** — é o que o sistema existe para produzir: uma pergunta com evidência anexada. As hipóteses a confirmar com a área demandante:
+
+- crédito lançado em outra relação (outro lote, outro cartão, outra data de disponibilização);
+- desconto indevido na folha;
+- beneficiário omitido da remessa à Flash.
+
+### O que esta conciliação corrigiu no desenho da regra R07
+
+O desconto na folha (R$ 48,62 / 64,89 / 97,33) é a **coparticipação do empregado**; o crédito na relação é R$ 865,19 para todos. São grandezas diferentes e **não se comparam entre si**. A R07 concilia:
+
+- **valor** — soma da relação contra o comprovante de pagamento (a única igualdade legítima);
+- **cobertura** — o conjunto de CPFs de um lado contra o do outro.
+
+Comparar desconto contra crédito acusaria divergência em **todos** os registros. Fica registrado como correção à matriz de regras: a R07 precisa declarar qual das duas comparações executa.
+
+### Deduplicação obrigatória (achado A17, confirmado)
+
+As 8 páginas do contracheque contêm **16 recibos** — duas vias por página, idênticas. A extração deduplica por matrícula. Sem isso, a folha reportaria 16 colaboradores e o líquido dobraria.

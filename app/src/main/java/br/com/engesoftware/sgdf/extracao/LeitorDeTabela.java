@@ -305,6 +305,95 @@ public final class LeitorDeTabela {
         return colunas;
     }
 
+    /**
+     * Agrupa linhas em BLOCOS separados por lacuna vertical.
+     *
+     * <p>Nem toda tabela tem uma linha por registro. Na relação de benefícios da
+     * Flash, cada beneficiário ocupa seis linhas visuais, e o CPF fica partido
+     * entre a segunda e a quinta:
+     *
+     * <pre>
+     *   y=610.7  052.190.471- Refeição e de R$ 865,19)
+     *   y=604.7  ADRIANO LIN SOARES PERRUOLO R$ 865,19
+     *   y=601.7  Custo de conta
+     *   y=598.7  40 Alimentação
+     * </pre>
+     *
+     * <p>A célula quebrou linha. Lida linha a linha, a chave de junção do
+     * registro — o CPF — nunca se forma. Dentro do bloco, porém, o campo pode
+     * ser reconstituído, porque não há risco de misturar registros.
+     *
+     * <p>O que separa um bloco do seguinte é a lacuna: ali era de 39 pontos,
+     * contra 3 a 7 dentro do bloco.
+     *
+     * @param lacunaMinima distância vertical, em pontos, que inicia um novo bloco
+     */
+    public static List<List<LinhaVisual>> agruparEmBlocos(List<LinhaVisual> linhas,
+                                                          float lacunaMinima) {
+        List<List<LinhaVisual>> blocos = new ArrayList<>();
+        List<LinhaVisual> atual = new ArrayList<>();
+        Float anterior = null;
+
+        for (LinhaVisual l : linhas) {
+            if (anterior != null && anterior - l.y() >= lacunaMinima && !atual.isEmpty()) {
+                blocos.add(List.copyOf(atual));
+                atual = new ArrayList<>();
+            }
+            atual.add(l);
+            anterior = l.y();
+        }
+        if (!atual.isEmpty()) {
+            blocos.add(List.copyOf(atual));
+        }
+        return blocos;
+    }
+
+    /**
+     * Recorta um BLOCO nas colunas dadas, juntando o que cada coluna tem em
+     * todas as linhas do bloco.
+     *
+     * <p>É a leitura por registro, e não por linha: quando a célula quebra
+     * linha, só a coluna reúne os pedaços sem misturar registros vizinhos. Na
+     * relação da Flash o nome "JAQUELINE DI CARLO ARAUJO DUARTE" ocupa duas
+     * linhas e o CPF "052.190.471-40" ocupa duas outras, intercaladas com o
+     * valor do benefício — lida linha a linha, nenhuma das duas se forma.
+     *
+     * <p>Os pedaços são unidos por UM ESPAÇO, nunca colados: colar produziria
+     * nomes falsos ("ARAUJODUARTE") e valores falsos. Quem espera um campo sem
+     * espaço interno — CPF, CNPJ, matrícula — precisa retirá-lo depois, no
+     * padrão do campo, onde a decisão é explícita e verificável.
+     */
+    public static Map<String, String> lerBloco(List<LinhaVisual> bloco, List<Coluna> colunas) {
+        Map<String, String> celulas = new LinkedHashMap<>();
+        for (Coluna c : colunas) {
+            StringBuilder sb = new StringBuilder();
+            for (LinhaVisual l : bloco) {
+                String pedaco = l.textoEntre(c.xInicio(), c.xFim());
+                if (pedaco.isBlank()) {
+                    continue;
+                }
+                if (sb.length() > 0) {
+                    sb.append(' ');
+                }
+                sb.append(pedaco);
+            }
+            celulas.put(c.rotulo(), sb.toString());
+        }
+        return celulas;
+    }
+
+    /** Todo o texto de um bloco, na ordem de leitura, para reconstituir campos partidos. */
+    public static String textoDoBloco(List<LinhaVisual> bloco) {
+        StringBuilder sb = new StringBuilder();
+        for (LinhaVisual l : bloco) {
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            sb.append(l.texto());
+        }
+        return sb.toString();
+    }
+
     /** Índice da primeira linha que contém {@code marca}, ou -1. */
     public static int indiceDaLinhaCom(List<LinhaVisual> linhas, String marca) {
         for (int i = 0; i < linhas.size(); i++) {
