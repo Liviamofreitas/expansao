@@ -41,6 +41,12 @@ java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" br.com.engesoftware.sgdf.documento.Te
 echo "→ validações unitárias (V8)"
 java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" br.com.engesoftware.sgdf.validacao.TestesDeValidacao | filtrar
 
+# A persistência precisa de banco. Sem SGDF_JDBC os testes se auto-pulam e
+# dizem isso — silêncio seria pior, porque esconderia que a rede não rodou.
+echo "→ persistência"
+java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.persistencia.TestesDePersistencia | filtrar
+
 echo "→ conciliação (fase 1b)"
 java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.conciliacao.TestesDeConciliacao | filtrar

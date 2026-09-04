@@ -42,6 +42,17 @@
       <artifactId>pdfbox</artifactId>
       <version>3.0.3</version>
     </dependency>
+
+    <!-- Persistência. JDBC direto, sem ORM, e a escolha é deliberada: o esquema
+         impõe regras de negócio em CHECK, RULE e índice parcial (V001..V008), e
+         um mapeador que gerasse DDL a partir de anotações desfaria isso na
+         primeira migração automática. O banco é a fonte da verdade estrutural;
+         o código o consome. Ver ADR-002. -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>42.7.4</version>
+    </dependency>
   </dependencies>
 
   <build>

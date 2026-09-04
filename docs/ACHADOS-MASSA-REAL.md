@@ -823,3 +823,38 @@ O cap. 8.4 define V1–V7; V8 foi acrescentada pelo achado A12. Todas as oito ex
 **R03 é V5 elevada ao conjunto**, e o conjunto tem uma propriedade que nenhuma certidão sozinha tem: **a primeira a vencer manda**. Um book com seis certidões vigentes e uma vencendo em três dias não está confortável — está a três dias de não poder ser reemitido. R03 devolve qual vence primeiro.
 
 **R04 é V6 elevada ao ciclo**, e a mudança de altitude muda para que a resposta serve. V6 diz que *esta* exigência está parcial; R04 diz que *o ciclo* não pode ser publicado e quantas exigências faltam — separando bloqueantes de não bloqueantes. Quem lê a primeira é quem entrega o documento; quem lê a segunda é quem decide fechar a competência.
+
+---
+
+## 27. Persistência — o que já funcionava parava de existir ao fim do processo
+
+Até aqui o domínio lia documentos e produzia vereditos, e **nada gravava**. O esquema tinha 26 tabelas com restrições que funcionam, o domínio tinha 67 classes testadas, e não havia uma linha ligando os dois. Não era encanamento: `validacao_documento`, `conciliacao` e `log_auditoria` existem exatamente para tornar as decisões auditáveis (cap. 16).
+
+### JDBC direto, e por quê (ADR-002)
+
+O esquema **impõe regras de negócio**, não só forma: a `RULE` que torna a auditoria append-only, o `CHECK` que impede reprovação sem motivo, o que força modo ALERTA sem tolerância, o que impede aprovador igual a solicitante, uma função `IMMUTABLE` usada em `CHECK`, índices parciais e `UNIQUE NULLS NOT DISTINCT`.
+
+Nada disso é expressável em anotações de mapeamento, e um ORM com geração de esquema desfaria parte na primeira execução, em silêncio. **O banco é a fonte da verdade estrutural; o código a consome** — a mesma razão pela qual as restrições foram escritas no banco em vez de só no serviço.
+
+### O defeito que o teste pegou: transação que não aninha
+
+`emTransacao` abria a transação, fazia o trabalho e comitava. Quando um repositório é chamado **de dentro** de outra unidade de trabalho, a transação interna comitava o trabalho da externa — e o rollback externo não tinha mais o que desfazer.
+
+O teste era exatamente esse: gravar um documento dentro de um bloco que falha em seguida, e conferir que nada ficou. Falhou. `emTransacao` passou a **participar** da transação existente quando já está dentro de uma, em vez de abrir e comitar a própria.
+
+É a diferença entre *"tudo ou nada"* e *"quase tudo"*, e a segunda não sustenta a auditoria: um campo extraído apontando para um documento que não existe quebra o rastro exatamente onde ele é mais necessário.
+
+### O que os testes verificam, contra o PostgreSQL real
+
+Não contra banco em memória: o que interessa testar são as restrições do esquema, e um H2 não as teria. Testar contra um banco sem as garantias seria testar outra coisa.
+
+| Verificação | Por que importa |
+|---|---|
+| Documento é idempotente por hash | A varredura é recursiva e passa várias vezes por dia; duplicar faria V7 ver dois registros onde há um arquivo |
+| Campos guardam a região de origem | Critério de aceite da F1-02 e base do cap. 16 |
+| Reprocessar substitui o campo, não duplica | Regra nova dá valor novo, não dois valores |
+| Reprovação sem motivo é recusada **pelo banco** | Rede de segurança para o caso de um caminho de código esquecer |
+| Histórico não é substituído | Regra nova não apaga por que a regra antiga recusou |
+| Conciliação **conforme** também é gravada | Cap. 9: um "está tudo certo" sem os números não permite conferir |
+| Caractere de controle é escapado | Achado A15: PostgreSQL recusa NUL em `text` e em `jsonb` |
+| Transação desfaz tudo ou nada | O defeito acima |
