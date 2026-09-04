@@ -1,6 +1,6 @@
 # Achados do primeiro contato com documentos reais
 
-**Massa analisada:** 16 documentos do OwnCloud da Engesoftware, competência 06/2026, extraídos com o `ExtratorPdfBox` da história F1-02.
+**Massa analisada:** 19 documentos do OwnCloud da Engesoftware, competência 06/2026, extraídos com o `ExtratorPdfBox` da história F1-02.
 
 > **Os documentos não estão no repositório.** São fiscais e reais; histórico de git é praticamente irreversível, e o cap. 19 manda massa de teste ficar em ambiente controlado. Foram usados para derivar os achados abaixo; o que se versiona são as correções, os testes com conteúdo sintético e este registro.
 
@@ -203,6 +203,39 @@ Confrontado com as matrículas do relatório do FGTS Digital: **11 de 11 casaram
 **Consequência de desenho.** A conciliação por profissional deve usar **matrícula como chave de junção**, não o nome. Nome é chave ruim: há homônimos, grafias divergentes entre sistemas, abreviações, e ordem de nome trocada. A matrícula é estável, e está disponível nos dois lados.
 
 O nome continua útil como **conferência secundária** — uma matrícula que casa mas com nome muito diferente é sinal de erro de cadastro, não de fraude, e merece alerta.
+
+### A15 — CRÍTICO · a fonte perde caracteres, e o NUL quebra o banco
+
+O relatório de VA/VR traz **caractere NUL no texto extraído**, no lugar de ligaduras que a fonte não mapeia para Unicode:
+
+| Extraído | Deveria ser |
+|---|---|
+| `[NUL]nalidade` | `finalidade` |
+| `[NUL]scal` | `fiscal` |
+| `bene[NUL]ciários` | `beneficiários` |
+
+**Dois estragos independentes.**
+
+1. **O NUL quebra o PostgreSQL.** Coluna `text` recusa `0x00` — o `INSERT` em `campo_extraido` falharia com *invalid byte sequence*. Bug de produção garantido, e que só apareceria com esse tipo de documento.
+2. **O "fi" some.** Uma âncora com "fi" nunca casaria — e "fi" é frequente no vocabulário fiscal: *certi**fi**cado*, *identi**fi**cação*, *noti**fi**cação*, ***fi**scal*. A âncora de `CER.CRF_FGTS` é justamente `Certificado de Regularidade`.
+
+E o documento **parece perfeitamente legível**: tem texto de sobra, não exige OCR, nada denuncia a perda.
+
+**Corrigido:** a extração descarta caracteres de controle — o caractere **e o glifo**, para o alinhamento continuar válido — e conta a perda. `TextoExtraido.extracaoDegradada()` sinaliza. Na massa de 19 documentos, apenas este acusa perda: 3 caracteres.
+
+**Exigido de quem consome:** documento degradado vai a **triagem**, não a reprovação. O conteúdo existe; só não foi lido inteiro.
+
+### A16 — o separador do CNPJ nem sempre é a barra
+
+No mesmo relatório, o CNPJ do fornecedor de benefícios saiu assim:
+
+```
+CNPJ 32.223.020. 0001-18        (a barra virou ". ")
+```
+
+O padrão `\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}` não casa. O CNPJ da própria Engesoftware, no mesmo documento, saiu correto — a falha é do glifo da barra naquela fonte.
+
+Somado aos achados **A6** (CNPJ truncado na raiz) e **A7** (CNPJ mascarado), fecha o quadro: **o reconhecimento de CNPJ não pode ser um regex único**. Precisa tolerar separador variante, truncamento e máscara, comparando por raiz e posição a posição.
 
 ---
 

@@ -55,4 +55,28 @@ public record TextoExtraido(List<PaginaExtraida> paginas, Origem origem,
     public int totalDePaginas() {
         return paginas.size();
     }
+
+    /**
+     * A extração perdeu caracteres que o PDF não soube mapear para Unicode.
+     *
+     * <p>Aconteceu num relatório de benefícios real: a fonte trazia ligaduras
+     * sem mapeamento, e "finalidade", "fiscal" e "beneficiários" saíram como
+     * "\u0000nalidade", "\u0000scal" e "bene\u0000ciários". Os caracteres nulos
+     * foram removidos na sanitização — mas o "fi" continua faltando.
+     *
+     * <p>Isso importa por dois motivos. Uma âncora com "fi" nunca casaria, e
+     * "fi" é frequente no vocabulário fiscal ("certificado", "identificação",
+     * "notificação"). E o documento parece perfeitamente legível: tem texto de
+     * sobra, não exige OCR, e nada denunciaria a perda.
+     *
+     * <p>Quem consome deve mandar o documento a triagem, não reprová-lo: o
+     * conteúdo existe, só não foi lido inteiro.
+     */
+    public boolean extracaoDegradada() {
+        return paginas.stream().anyMatch(p -> p.caracteresDescartados() > 0);
+    }
+
+    public int caracteresDescartados() {
+        return paginas.stream().mapToInt(PaginaExtraida::caracteresDescartados).sum();
+    }
 }

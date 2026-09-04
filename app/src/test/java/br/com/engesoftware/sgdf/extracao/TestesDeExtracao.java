@@ -47,6 +47,9 @@ public final class TestesDeExtracao {
         ligaduraTipografica();
         ancoraAtravessandoQuebraDeLinha();
         arquivoSemExtensao();
+        extracaoDegradadaPorFonte();
+        alinhamentoAposDescarte();
+        pdfNormalNaoEDegradado();
 
         System.out.println();
         falhas.forEach(f -> System.out.println("  FALHA " + f));
@@ -343,6 +346,61 @@ public final class TestesDeExtracao {
         ok("Cap. 8.2 . extensao presente e divergente continua rejeitada",
                 codigoDeErro(() -> DetectorDeMime.conferir(pdf, "planilha.xlsx"))
                         .equals("MIME_DIVERGENTE"));
+    }
+
+    /**
+     * Um relatorio de beneficios real trouxe caractere NUL no texto extraido, no
+     * lugar de ligaduras que a fonte nao mapeia: "finalidade" saiu como
+     * "\u0000nalidade" e "beneficiarios" como "bene\u0000ciarios".
+     *
+     * <p>Dois estragos. NUL em coluna text faz o INSERT falhar no PostgreSQL, e
+     * o "fi" perdido faz qualquer ancora com "fi" nao casar — num vocabulario
+     * onde "certificado", "identificacao" e "fiscal" sao comuns.
+     */
+    static void extracaoDegradadaPorFonte() {
+        // O descarte acontece na coleta; aqui verifica-se o contrato que a
+        // sinalizacao usa, que e o que a triagem consulta.
+        PaginaExtraida limpa = new PaginaExtraida(1, "abc",
+                List.of(glifo('a'), glifo('b'), glifo('c')), 0);
+        PaginaExtraida perdida = new PaginaExtraida(2, "abc",
+                List.of(glifo('a'), glifo('b'), glifo('c')), 3);
+
+        TextoExtraido semPerda = new TextoExtraido(List.of(limpa),
+                TextoExtraido.Origem.PDF_NATIVO, List.of(), List.of());
+        TextoExtraido comPerda = new TextoExtraido(List.of(limpa, perdida),
+                TextoExtraido.Origem.PDF_NATIVO, List.of(), List.of());
+
+        ok("Real . extracao sem perda nao e degradada", !semPerda.extracaoDegradada());
+        ok("Real . uma pagina com caractere descartado degrada o documento",
+                comPerda.extracaoDegradada() && comPerda.caracteresDescartados() == 3);
+    }
+
+    /**
+     * O alinhamento texto/glifos e a invariante que sustenta todas as regioes.
+     * Descartar o caractere sem descartar o glifo deslocaria tudo depois dele.
+     */
+    static void alinhamentoAposDescarte() {
+        ok("Real . texto e glifos desalinhados sao recusados no construtor",
+                codigoDeErro(() -> new PaginaExtraida(1, "abcd",
+                        List.of(glifo('a'), glifo('b'), glifo('c')), 1))
+                        .equals("IllegalStateException"));
+    }
+
+    /** Nenhum PDF bem formado deve ser marcado como degradado. */
+    static void pdfNormalNaoEDegradado() throws Exception {
+        byte[] pdf = pdfComLinhas(80, 750, 11,
+                "CERTIFICADO DE REGULARIDADE - identificacao fiscal do beneficiario",
+                "Texto suficiente para a pagina passar do minimo de caracteres.");
+        TextoExtraido t = new ExtratorPdfBox().extrair(pdf);
+        ok("Real . PDF com fonte sa nao e marcado como degradado",
+                !t.extracaoDegradada() && t.caracteresDescartados() == 0);
+        ok("Real . e as palavras com 'fi' saem inteiras",
+                t.textoCompleto().contains("CERTIFICADO")
+                        && t.textoCompleto().contains("identificacao"));
+    }
+
+    static Glifo glifo(char c) {
+        return new Glifo(c, 1, 0, 0, 1, 1);
     }
 
     // =========================================================================

@@ -137,6 +137,7 @@ public final class ExtratorPdfBox implements ExtratorDeTexto {
         private final int numeroDaPagina;
         private final StringBuilder texto = new StringBuilder();
         private final List<Glifo> glifos = new ArrayList<>();
+        private int descartados;
 
         ColetorDeGlifos(int numeroDaPagina) throws IOException {
             this.numeroDaPagina = numeroDaPagina;
@@ -147,9 +148,19 @@ public final class ExtratorPdfBox implements ExtratorDeTexto {
             for (TextPosition p : posicoes) {
                 String unicode = p.getUnicode();
                 for (int i = 0; i < unicode.length(); i++) {
-                    texto.append(unicode.charAt(i));
+                    char c = unicode.charAt(i);
+                    // Caractere de controle no texto extraído não é conteúdo: é
+                    // falha de mapeamento da fonte. Um NUL aqui faria o INSERT
+                    // em campo_extraido falhar no PostgreSQL, que recusa 0x00 em
+                    // coluna text. Descarta-se o caractere E o glifo, para o
+                    // alinhamento continuar válido, e conta-se a perda.
+                    if (c < 0x20 && c != '\n' && c != '\t') {
+                        descartados++;
+                        continue;
+                    }
+                    texto.append(c);
                     glifos.add(new Glifo(
-                            unicode.charAt(i), numeroDaPagina,
+                            c, numeroDaPagina,
                             p.getXDirAdj(),
                             // PDFBox devolve Y a partir do TOPO; o PDF conta a
                             // partir da BASE. Converter aqui evita que a tela
@@ -187,7 +198,7 @@ public final class ExtratorPdfBox implements ExtratorDeTexto {
         }
 
         PaginaExtraida pagina() {
-            return new PaginaExtraida(numeroDaPagina, texto.toString(), glifos);
+            return new PaginaExtraida(numeroDaPagina, texto.toString(), glifos, descartados);
         }
     }
 }
