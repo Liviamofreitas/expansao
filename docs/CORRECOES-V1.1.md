@@ -145,3 +145,57 @@ Contagem manual em critério de aceite falha na primeira execução por erro do 
 | **E-05** | Revisão de [`dados/complemento_tipo_documental.csv`](../dados/complemento_tipo_documental.csv): `escopo` e `sigilo` das 51 linhas, todas com `CONFIRMADO=NAO` |
 | **C-01 obs. 3** | Decisão sobre a sobreposição entre a canônica R10 e a validação V4 |
 | Tolerâncias | As 11 regras em `regra_conciliacao_a_parametrizar` |
+
+---
+
+## C-11 · Acrescentar a validação V8 ao cap. 8.4
+
+**Origem:** achado A12 de [`ACHADOS-MASSA-REAL.md`](ACHADOS-MASSA-REAL.md).
+
+**O que falta no texto atual.** As sete validações do cap. 8.4 cobrem segurança, legibilidade, titularidade, competência, vigência, completude de formatos e unicidade. **Nenhuma pergunta se o documento tem conteúdo.**
+
+Dois comprovantes reais do Itaú (SISPAG SALÁRIOS) trazem 603 caracteres de texto nativo que são apenas os rótulos — `Nome da empresa:`, `Agência:`, `Conta corrente:`, `Nome:`, `Valor:` — e nenhum valor. Eles:
+
+| Validação | Resultado |
+|---|---|
+| V1 antivírus, MIME, tamanho | passa |
+| V2 legibilidade por contagem de caracteres | passa |
+| V3 CNPJ | não se aplica (o documento não traz CNPJ) |
+| V4 competência | não se aplica |
+| V5 vigência | não se aplica |
+| V6 formatos exigidos | passa |
+| V7 hash inédito | passa |
+
+Seriam anexados a uma exigência como prova de pagamento e entrariam no book.
+
+**Texto a acrescentar na tabela do cap. 8.4:**
+
+> | V8 | Campos essenciais presentes e com o formato declarado | REJEITADO (incompleto) |
+
+**Definição de campo essencial**, para o cap. 8.5: é o campo que alguma outra validação ou regra de conciliação **consome** — não "todo campo que a regra extrai". Sem ele, o documento não pode ser validado nem conciliado, o que o torna, para efeito do portão documental, equivalente a não ter sido entregue. A derivação:
+
+| Consumidor | Campo | Torna essencial em |
+|---|---|---|
+| V3 | `cnpj` | tipos de escopo corporativo |
+| V4 | `competencia` | tipos com defasagem por competência |
+| V5 | `validade`, `natureza` | certidões |
+| R01, R02 | `valor` | guias e comprovantes |
+
+**Limite deliberado.** V8 **não** confere se o valor está certo — isso é conciliação e depende de outro documento. V8 confere se o valor **existe e tem forma de valor**. É a diferença entre *"este comprovante não bate com a guia"* e *"este arquivo não é um comprovante"*.
+
+**Tipo sem campos essenciais declarados não é reprovado**, e sim registrado como `NAO_APLICAVEL` com motivo — cap. 1, princípio 1. Mas o registro é obrigatório: sem ele ninguém descobre que um tipo está passando sem ser conferido.
+
+---
+
+## C-12 · Registrar o veredito das validações unitárias
+
+**Lacuna encontrada ao implementar V8.** A máquina de estados do cap. 6.1 leva `RECEBIDO → REJEITADO` "por falha unitária", mas **o modelo de dados não tinha onde gravar qual validação falhou e por quê**. O motivo existia apenas na mensagem de notificação, que não é registro auditável.
+
+O cap. 16 exige que toda decisão automática seja reproduzível a partir de documento (hash) + versão da regra. Sem esse registro, uma reprovação não é reproduzível: ninguém consegue dizer, seis meses depois, por que aquele documento foi recusado — e é exatamente essa a pergunta que um cliente faz quando questiona uma pendência.
+
+**Acrescentar ao cap. 5 (modelo de dados):** tabela `validacao_documento` (implementada em `db/migracoes/V007`), com `documento_id`, `codigo` (V1..V8), `resultado`, `motivo`, `detalhe`, `regra_recon_id` e `executada_em`. Histórico: reprocessar **acrescenta** linha, nunca substitui — regra nova não apaga por que a regra antiga recusou. A view `validacao_vigente` devolve a última execução de cada validação.
+
+Duas restrições no banco, e não só no serviço:
+
+- reprovar sem motivo não é gravável;
+- `NAO_APLICAVEL` também exige motivo — "não se aplica" é uma decisão, não a ausência de uma.

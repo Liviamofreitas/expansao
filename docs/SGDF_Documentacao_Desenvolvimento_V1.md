@@ -236,6 +236,7 @@ A confirmação em triagem grava um tipo_alias novo (origem=TRIAGEM) com o padr�
 | V5 | Certidões: validade ≥ data prevista da NF; natureza ∈ {negativa, positiva c/ efeito de negativa} | REJEITADO (vigência) |
 | V6 | Todos os formatos exigidos presentes e coerentes entre si | exigência permanece parcial (formatos_pendentes) |
 | V7 | Hash inédito para a exigência (evita contar duas vezes o mesmo arquivo renomeado) | ignorado com registro |
+| **V8** | **Campos essenciais presentes e bem formados** (acrescentada — ver `CORRECOES-V1.1.md` e o achado A12) | **REJEITADO (incompleto)** |
 
 
 ## 8.5 Regras de reconhecimento — carga inicial (bloco corporativo)

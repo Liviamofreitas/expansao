@@ -37,3 +37,6 @@ java -cp "$ALVO:$CP" br.com.engesoftware.sgdf.extracao.TestesDeTabela | filtrar
 
 echo "→ leitores de documento (A18)"
 java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" br.com.engesoftware.sgdf.documento.TestesDeDocumento | filtrar
+
+echo "→ validações unitárias (V8)"
+java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" br.com.engesoftware.sgdf.validacao.TestesDeValidacao | filtrar
