@@ -1,5 +1,12 @@
+# Python — geradores e implementações de referência
 __pycache__/
 *.pyc
 .venv/
+
+# Java — saída de build do Maven
+target/
+*.class
+
+# Sistema operacional e temporários do Office
 ~$*
 .DS_Store
