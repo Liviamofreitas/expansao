@@ -34,6 +34,10 @@ public final class TestesDePersistencia {
 
     static final String MARCA = "teste-persistencia";
 
+    /** Cada fixture de ciclo precisa de cliente e contrato proprios: o CNPJ e o
+     *  numero do contrato sao unicos no banco. */
+    static int sequenciaDoFixture = 0;
+
     static int passaram = 0;
     static final List<String> falhas = new ArrayList<>();
 
@@ -63,6 +67,7 @@ public final class TestesDePersistencia {
                 executar("caractereDeControleNaoDerrubaAGravacao",
                         () -> caractereDeControleNaoDerrubaAGravacao(sgdf));
                 executar("transacaoDesfazTudoOuNada", () -> transacaoDesfazTudoOuNada(sgdf));
+                executar("bookEVersionado", () -> bookEVersionado(sgdf));
             } finally {
                 limpar(conexao);
             }
@@ -239,6 +244,41 @@ public final class TestesDePersistencia {
         ok("Persistência . e nada fica gravado pela metade", contar(sgdf, "documento") == antes);
     }
 
+    /**
+     * Republicar grava v(N+1); a linha da versao anterior fica. A tabela e
+     * append-only por desenho: UNIQUE (ciclo_id, versao) e nenhuma atualizacao.
+     */
+    static void bookEVersionado(Sgdf sgdf) {
+        UUID cicloId = umCiclo(sgdf);
+        RepositorioDeBook repo = new RepositorioDeBook(sgdf);
+
+        ok("F1-08 . o primeiro book do ciclo é a versão 1", repo.proximaVersao(cicloId) == 1);
+
+        var pecas = List.of(new br.com.engesoftware.sgdf.book.Peca(1, "CER.CND_RFB",
+                br.com.engesoftware.sgdf.book.Sigilo.PUBLICO_CLIENTE, "01_CER.CND_RFB.pdf",
+                "a".repeat(64), "owncloud://x", java.time.OffsetDateTime.now(), false));
+        var v1 = new br.com.engesoftware.sgdf.book.Book("CT-PERSIST", "2026-07", 1,
+                java.time.OffsetDateTime.now(), MARCA, "1.0", "b".repeat(64), pecas,
+                "books/CT-PERSIST/2026-07/v1/");
+
+        repo.registrar(cicloId, v1, "{}", br.com.engesoftware.sgdf.book
+                .ArmazenamentoImutavel.Retencao.semPrazo());
+        ok("F1-08 . depois de publicar, a próxima é a 2", repo.proximaVersao(cicloId) == 2);
+
+        boolean recusou = false;
+        try {
+            repo.registrar(cicloId, v1, "{}", br.com.engesoftware.sgdf.book
+                    .ArmazenamentoImutavel.Retencao.semPrazo());
+        } catch (Sgdf.FalhaDePersistencia e) {
+            recusou = true;
+        }
+        ok("F1-08 . e a mesma versão não é gravada duas vezes", recusou);
+
+        String modo = escalar(sgdf, "SELECT retencao_modo FROM book WHERE ciclo_id = '"
+                + cicloId + "'");
+        ok("A08 . o modo de retenção fica registrado", "LEGAL_HOLD".equals(modo));
+    }
+
     // -------------------------------------------------------------------------
 
     static Documento documento(String semente) {
@@ -254,23 +294,25 @@ public final class TestesDePersistencia {
     }
 
     static UUID umCiclo(Sgdf sgdf) {
+        String n = String.format("%02d", ++sequenciaDoFixture);
         return uuid(sgdf, "WITH c AS ("
                 + "  INSERT INTO cliente (nome, cnpj, esfera, ativo, criado_por)"
-                + "  VALUES ('Teste Persistencia', '00000000000191', 'PRIVADA', false, '"
-                + MARCA + "')"
+                + "  VALUES ('Teste Persistencia " + n + "', '000000000001" + n + "',"
+                + "          'PRIVADA', false, '" + MARCA + "')"
                 + "  RETURNING id),"
                 // A modalidade tem código de enum fechado no banco: reusa a
                 // que existe em vez de inventar uma que a restrição recusaria.
                 + " m AS (SELECT id FROM modalidade WHERE codigo = 'OUTSOURCING' LIMIT 1),"
                 + " v AS ("
                 + "  INSERT INTO versao_matriz (numero, publicada_por, motivo)"
-                + "  VALUES ('0.0-persist', '" + MARCA + "', 'fixture de teste') RETURNING id),"
+                + "  VALUES ('0.0-persist-" + n + "', '" + MARCA
+                + "', 'fixture de teste') RETURNING id),"
                 + " cs AS ("
                 + "  INSERT INTO contrato_servico (cliente_id, numero, servico, modalidade_id,"
                 + "                                vigencia_ini, pasta_origem,"
                 + "                                data_contratual_faturamento, calendario_uf,"
                 + "                                ativo, criado_por)"
-                + "  SELECT c.id, 'CT-PERSIST', 'Teste', m.id, DATE '2026-01-01',"
+                + "  SELECT c.id, 'CT-PERSIST-" + n + "', 'Teste', m.id, DATE '2026-01-01',"
                 + "         '/teste',"
                 + "         '{\"ancora\": \"ATESTE\", \"offset\": 3,"
                 + "           \"tipo_dia\": \"CORRIDO\"}'::jsonb, 'DF', false, '"
@@ -316,6 +358,8 @@ public final class TestesDePersistencia {
     /** Remove tudo o que os testes criaram, na ordem das dependencias. */
     static void limpar(Connection conexao) throws SQLException {
         String[] comandos = {
+            "DELETE FROM book WHERE ciclo_id IN "
+                    + "(SELECT id FROM ciclo WHERE criado_por = '" + MARCA + "')",
             "DELETE FROM conciliacao WHERE ciclo_id IN "
                     + "(SELECT id FROM ciclo WHERE criado_por = '" + MARCA + "')",
             "DELETE FROM documento WHERE criado_por = '" + MARCA + "'",

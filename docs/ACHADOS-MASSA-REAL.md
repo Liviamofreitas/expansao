@@ -858,3 +858,54 @@ Não contra banco em memória: o que interessa testar são as restrições do es
 | Conciliação **conforme** também é gravada | Cap. 9: um "está tudo certo" sem os números não permite conferir |
 | Caractere de controle é escapado | Achado A15: PostgreSQL recusa NUL em `text` e em `jsonb` |
 | Transação desfaz tudo ou nada | O defeito acima |
+
+---
+
+## 28. F1-08 — a publicação do book
+
+Critério de aceite do cap. 18: *"objeto imutável (delete negado); hash confere; índice legível"*. Os três estão verificados, e o terceiro é verificado **lendo o PDF gerado com o extrator do próprio sistema** — gerar um PDF que abre não prova que ele tem o conteúdo certo.
+
+### A recusa que a LGPD exige e que ninguém tinha construído
+
+O cap. 10 manda que tipos com sigilo `PESSOAL` ou `PESSOAL_SENSIVEL` passem pelo redator antes da cópia para o book do cliente. **O redator é a história F2-07 e ainda não existe.**
+
+Diante disso há três caminhos, e dois são inaceitáveis:
+
+| Caminho | Consequência |
+|---|---|
+| Publicar o original no book do cliente | **Vaza dado pessoal.** A massa real tem um relatório do FGTS com 160 CPFs, nomes e remuneração individual |
+| Omitir a peça em silêncio | Entrega um book incompleto que **parece completo** |
+| **Recusar e dizer qual peça exige tarjamento** | O que o montador faz |
+
+Executado sobre os documentos reais do bloco corporativo:
+
+```
+== book do cliente, sem tarjar
+   RECUSOU: [FGT.RELATORIO_DIGITAL (PESSOAL), INS.DCTFWEB (PESSOAL)]
+
+== book interno, original íntegro
+   001 CER.CNDT               PUBLICO_CLIENTE   af5ed90fec72
+   002 CER.CND_RFB            PUBLICO_CLIENTE   5d9809aafac8
+   003 CER.CRF_FGTS           PUBLICO_CLIENTE   0a9e3d8ae00c
+   004 INS.DCTFWEB            PESSOAL           930ae83c9e73
+   005 FGT.GUIA               INTERNO           dfb7e89a433a
+   006 FGT.RELATORIO_DIGITAL  PESSOAL           0894ebf8ed85
+```
+
+A `INS.DCTFWEB` só está entre as pessoais porque a **seção 5** deste documento corrigiu a classificação dela: o recibo de transmissão carrega o CPF do responsável. Sem aquela correção, ela iria para o book do cliente sem tarja.
+
+Quando o redator existir, ele marcará `tarjado = true` e a recusa deixará de acontecer sozinha. Até lá, **ela é a diferença entre um sistema que respeita a LGPD e um que a menciona na documentação**.
+
+### Quatro decisões de desenho, e por quê
+
+**A interface do armazenamento não tem método de remover.** Uma interface com um método de apagar e um comentário dizendo "não use" é um convite; uma sem ele é uma garantia estrutural. Há um teste que verifica a ausência por reflexão — porque a garantia é estrutural e uma refatoração poderia desfazê-la sem que ninguém notasse.
+
+**O hash do conjunto é o hash dos hashes, na ordem.** A definição está num lugar só porque o cliente precisa reproduzi-la com o book na mão, e *"de algum jeito somamos os hashes"* não é reproduzível. Depende da ordem de propósito: duas publicações com as mesmas peças em ordem diferente são books diferentes, porque a numeração é parte do que se entrega.
+
+**Família desconhecida vai para o fim, não para o começo.** Uma família nova aparecendo antes das certidões mudaria a numeração de todo o book — e o índice de um book já entregue remete a números que deixariam de corresponder.
+
+**O manifesto é gravado por último.** Ele declara o conjunto completo; gravá-lo antes das peças criaria, por um instante, um book que se declara completo e não está — e num bucket imutável esse instante não se corrige, só se versiona.
+
+### Registro no banco e objeto no bucket são dois sistemas
+
+Não há transação distribuída. A ordem escolhida é **publicar no bucket primeiro, registrar depois**: se a segunda falhar, existe um book no bucket sem linha no banco — visível e recuperável. A ordem inversa produziria uma linha afirmando um book que não existe, que é o erro que ninguém percebe.
