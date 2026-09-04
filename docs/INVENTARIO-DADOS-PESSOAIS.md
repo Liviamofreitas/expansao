@@ -17,9 +17,9 @@ DPO e do jurídico, e são o que falta para fechar A12.
 | | |
 |---|---|
 | Tipos documentais no catálogo | 51 |
-| Que tratam dado pessoal | **23** |
+| Que tratam dado pessoal | **26** |
 | Dos quais, dado **sensível** (saúde) | **4** |
-| Sem dado pessoal (pessoa jurídica) | 28 |
+| Sem dado pessoal (pessoa jurídica) | 25 |
 
 **Titulares:** colaboradores alocados nos contratos de prestação de serviço
 (±890 pessoas, conforme a volumetria do cap. 16) e seus dependentes, quando
@@ -70,6 +70,9 @@ cifragem em repouso.
 | `FOL.COMPROVANTE_PG` | Comprovante de pagamento da folha | Contrato | Nome, CPF, matrícula, remuneração, descontos |
 | `FOL.CONTRACHEQUE` | Contracheque / recibo de pagamento | Profissional | Nome, CPF, matrícula, remuneração, descontos |
 | `FOL.FOPAG` | Folha de pagamento analítica | Contrato | Nome, CPF, matrícula, remuneração, descontos |
+| `INS.COMPROVANTE_PG` | Comprovante de pagamento do INSS | Corporativo | Nome, matrícula |
+| `INS.COMPROVANTE_PG_IRRF` | Comprovante de pagamento do IRRF | Corporativo | Nome, matrícula |
+| `INS.DCTFWEB` | DCTFWeb completa | Corporativo | Nome, matrícula |
 | `OPE.FOLHA_PONTO` | Folha de ponto / ponto eletrônico | Profissional | Nome, matrícula, jornada |
 | `RES.AVISO_PREVIO` | Aviso prévio | Profissional | Nome, CPF, datas de vínculo, verbas rescisórias |
 | `RES.COMPROVANTE_PG` | Comprovante de pagamento da rescisão | Profissional | Nome, CPF, datas de vínculo, verbas rescisórias |

@@ -52,7 +52,9 @@ O cap. 5.1 define `tipo_alias.texto_normalizado` com normalização "sem acento,
 
 **Efeito prático.** Empate de score na família FGTS — a de maior volume mensal e a que alimenta R01/R02 em qualquer das duas numerações. O resultado provável é queda permanente para a fila de triagem (bom) ou vínculo automático no tipo errado se outro sinal desempatar (ruim, e silencioso). Fere o princípio 3 do cap. 1 (decisão automática determinística) e ameaça a meta de precisão ≥ 95% da história **F1-03**.
 
-**Ação recomendada:** decidir a qual tipo o alias pertence e remover do outro; se ambos os documentos realmente circulam com esse nome, a desambiguação tem de vir de âncora de conteúdo, não de alias — e a regra de reconhecimento dos dois tipos precisa declarar âncoras mutuamente exclusivas. **Exigido:** a carga inicial deve rejeitar alias normalizado duplicado entre tipos distintos (restrição de unicidade em `tipo_alias.texto_normalizado`), para que o problema não se repita por cadastro.
+**Ação recomendada:** decidir a qual tipo o alias pertence e remover do outro; se ambos os documentos realmente circulam com esse nome, a desambiguação tem de vir de âncora de conteúdo, não de alias — e a regra de reconhecimento dos dois tipos precisa declarar âncoras mutuamente exclusivas.
+
+> **ENCERRADO.** A pendência técnica que restava — âncoras mutuamente exclusivas para os dois tipos — foi resolvida com documentos reais. `FGT.GUIA` tem o título `GFD - Guia do FGTS Digital` e a seção `Composição do Documento`; `FGT.RELATORIO_DIGITAL` tem `Detalhe da Guia a Ser Emitida` e `Relação de Trabalhadores`. Sem interseção. Ver [`ACHADOS-MASSA-REAL.md`](ACHADOS-MASSA-REAL.md), seção 3. **Exigido:** a carga inicial deve rejeitar alias normalizado duplicado entre tipos distintos (restrição de unicidade em `tipo_alias.texto_normalizado`), para que o problema não se repita por cadastro.
 
 ---
 
@@ -241,10 +243,10 @@ Casos `MAT-08` (interseção) e `MAT-09` (sem alocado, gera alerta) na suíte.
 | ID | Tratamento no código | Ainda pendente |
 |---|---|---|
 | E-01 | `regra_conciliacao` existe no esquema mas **não é semeada**. A restrição `regra_conc_sem_tolerancia_nao_bloqueia` impõe o cap. 9 (sem tolerância ⇒ modo ALERTA). | A numeração canônica |
-| E-02 | `tipo_alias_normalizado_unico` é uma restrição **global**, e o gerador emite o alias em colisão **comentado**, com as duas opções lado a lado. A carga entra com 59 aliases; o 60º espera decisão. | A qual tipo o alias pertence |
+| E-02 | Alias descartado dos dois tipos; âncoras de conteúdo mutuamente exclusivas identificadas em documento real | **Nada** — encerrado |
 | E-03 | — | Redação do critério de aceite da F0-03. O número correto hoje é **59** aliases carregáveis (60 menos a colisão) |
 | E-04 | `contrato_servico` e `regra_exigibilidade` **não são semeadas**: a coluna `CONTRATO` do anexo é cliente. Os 8 clientes entram inativos (`ativo=false`), com CNPJ marcador a substituir no cadastro. | A03 e A04 |
-| E-05 | Valores derivados isolados em `dados/complemento_tipo_documental.csv`, todos com `CONFIRMADO=NAO` | Revisão da área demandante |
+| E-05 | Valores derivados isolados em `dados/complemento_tipo_documental.csv`, todos com `CONFIRMADO=NAO`. A massa real corrigiu 3 derivações e confirmou 1 — ver [`ACHADOS-MASSA-REAL.md`](ACHADOS-MASSA-REAL.md), seção 5 | Revisão da área demandante nos 47 tipos restantes |
 | E-06 | Leitura que satisfaz os dois exemplos do documento, fixada nos casos `DOC-01`/`DOC-02` da suíte | Confirmação e registro no cap. 7.3 |
 | E-07 | Facultativos marcados com `[FACULTATIVO]` no calendário, removíveis por cadastro; par de casos mede a diferença | Decisão da DAF + feriados municipais |
 | E-08 | Ajuste para o último dia do período com aviso `AJUSTE_FIM_DE_PERIODO`; 5 casos na suíte | Confirmar o ajuste ou criar âncora `FIM_COMPETENCIA` |

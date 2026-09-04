@@ -18,6 +18,7 @@ Automatiza a conferência documental do faturamento por medição na **Engesoftw
 | [`docs/anexos/Anexo2_SGDF_Layout_Prototipo.html`](docs/anexos/Anexo2_SGDF_Layout_Prototipo.html) | **Anexo 2** — protótipo navegável das 5 telas e tokens de design da identidade Engesoftware. Abrir direto no navegador. |
 | [`docs/ERRATA-V1.md`](docs/ERRATA-V1.md) | **Ler antes de codificar.** 10 inconsistências verificadas entre o documento, o Anexo 1 e o próprio modelo. Quatro já decididas e implementadas. |
 | [`docs/CORRECOES-V1.1.md`](docs/CORRECOES-V1.1.md) | O patch a aplicar no documento normativo, seção por seção. Enquanto não for aplicado, código e documento divergem — e o código está de acordo com as decisões. |
+| [`docs/ACHADOS-MASSA-REAL.md`](docs/ACHADOS-MASSA-REAL.md) | O que 10 documentos reais do OwnCloud revelaram: âncoras por tipo, 5 defeitos corrigidos, 4 em aberto que afetam as validações, e a correção de sigilo de 3 tipos. |
 | [`docs/PENDENCIAS.md`](docs/PENDENCIAS.md) | **Estado definitivo de A01–A13.** Substitui o cap. 23. Sete resolvidas, duas encaminhadas, quatro que engenharia não fecha. |
 | [`docs/INVENTARIO-DADOS-PESSOAIS.md`](docs/INVENTARIO-DADOS-PESSOAIS.md) | Gerado. A parte factual do RIPD (A12): 23 dos 51 tipos tratam dado pessoal, 4 deles sensível. |
 | [`docs/adr/`](docs/adr/) | Decisões de arquitetura. ADR-001: Java 21 + Spring Boot (A13). |
