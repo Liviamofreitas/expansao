@@ -1,6 +1,6 @@
 # Achados do primeiro contato com documentos reais
 
-**Massa analisada:** 13 documentos do OwnCloud da Engesoftware, competência 06/2026, extraídos com o `ExtratorPdfBox` da história F1-02.
+**Massa analisada:** 16 documentos do OwnCloud da Engesoftware, competência 06/2026, extraídos com o `ExtratorPdfBox` da história F1-02.
 
 > **Os documentos não estão no repositório.** São fiscais e reais; histórico de git é praticamente irreversível, e o cap. 19 manda massa de teste ficar em ambiente controlado. Foram usados para derivar os achados abaixo; o que se versiona são as correções, os testes com conteúdo sintético e este registro.
 
@@ -142,6 +142,67 @@ Duas consequências:
 2. **`Ocorrência: Consta`** aparece no SICAF desta competência, mesmo com `Impedimento de Licitar: Nada Consta`. É outro campo de situação que a regra de reconhecimento deve extrair, e que cai no mesmo debate do achado A10.
 
 O SICAF também traz `Data de Vencimento do Cadastro`, que é a validade do próprio documento — distinta das validades que ele lista.
+
+### A12 — CRÍTICO · um documento pode ser legível e não conter dado algum
+
+Dois dos três comprovantes de pagamento de folha (Itaú SISPAG) trazem **apenas os rótulos**:
+
+```
+SISPAG SALARIOS
+Nome da empresa:
+Agência:  Conta corrente:
+Nome:
+Agência:  Conta corrente:
+Valor:
+Informações fornecidas pelo pagador:
+0BDD36626EF6D436B3E13B41525B3F7A7E9C01AE
+```
+
+603 caracteres no total. Sem nome de empresa, sem nome de funcionário, **sem valor**, sem agência, sem conta, sem data. Verificado: não há AcroForm, não há anotações, e a única imagem tem 5 915 pixels — é o logotipo, não uma digitalização.
+
+**Por que isso é grave.** O documento passa em tudo que hoje se verifica:
+
+| Verificação | Resultado |
+|---|---|
+| Antivírus, MIME, integridade (V1) | passa |
+| Legibilidade (V2) — 603 caracteres, muito acima do mínimo de 50 | **passa** |
+| Precisa de OCR? | **não** — tem camada de texto |
+
+E se a regra de reconhecimento casar pelo título `SISPAG SALARIOS`, ele é **aceito como comprovante de pagamento** — satisfazendo uma exigência bloqueante com um documento que não prova pagamento nenhum. É exatamente o modo de falha que o sistema existe para evitar.
+
+**Correção de desenho necessária: validação de completude de campos.** A regra de reconhecimento precisa declarar quais campos são **essenciais** para o tipo, e um documento reconhecido cujos campos essenciais não extraem **não satisfaz a exigência** — vai para triagem com o motivo "reconhecido, mas sem os dados que provam o fato".
+
+Isso não existe hoje. V2 cobre legibilidade, V3 titularidade, V4 competência; nenhuma cobre "o documento tem o que precisa ter". Proposta de código: **V8 — completude de campos essenciais**.
+
+### A13 — a extração de tabela quebra a associação entre linha e valor
+
+Nos comprovantes em lote, o nome do funcionário ocupa duas linhas e o texto sai intercalado com a linha de dados:
+
+```
+[11] DOUGLAS VINISIOS
+[12] 900059648 00000010225306072026 06/07/2026 CC 2.232,21
+[13] NUNES SOUZA
+[14] 900059649 00000010196806072026 RONI DA SILVA ROSA 06/07/2026 CC 5.935,22
+```
+
+Uma leitura linha a linha associa `DOUGLAS VINISIOS` a nenhum valor e `NUNES SOUZA` ao pagamento seguinte. Numa conciliação por profissional, isso **atribui o pagamento de uma pessoa a outra**.
+
+A extração de tabela tem de agrupar glifos por **coluna (coordenada x)** e por **faixa de linha (coordenada y)**, não pela ordem de leitura. As posições já estão disponíveis desde a história F1-02 — falta o leitor que as use.
+
+### A14 — a matrícula está embutida no número do cliente
+
+O campo `Número do Cliente` do comprovante em lote tem 20 dígitos, e a estrutura é **matrícula à direita de 12 dígitos + `ddMMyyyy`**:
+
+```
+00000010225306072026  ->  matrícula 102253 + data 06072026
+00000010196806072026  ->  matrícula 101968 + data 06072026
+```
+
+Confrontado com as matrículas do relatório do FGTS Digital: **11 de 11 casaram (100%)**.
+
+**Consequência de desenho.** A conciliação por profissional deve usar **matrícula como chave de junção**, não o nome. Nome é chave ruim: há homônimos, grafias divergentes entre sistemas, abreviações, e ordem de nome trocada. A matrícula é estável, e está disponível nos dois lados.
+
+O nome continua útil como **conferência secundária** — uma matrícula que casa mas com nome muito diferente é sinal de erro de cadastro, não de fraude, e merece alerta.
 
 ---
 
