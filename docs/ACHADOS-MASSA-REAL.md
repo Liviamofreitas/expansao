@@ -950,3 +950,98 @@ Um número de protocolo com onze dígitos casa com o padrão de CPF. Mascará-lo
 ### O que isto destravou
 
 A história F1-08 recusava publicar o book do cliente enquanto houvesse peça `PESSOAL` sem tarja. **Com o preparador, o book do cliente é montado e publicado** — sete peças, três tarjadas, com a pendência da DCTFWeb visível para quem publica.
+
+---
+
+## 30. F0-01 — a fronteira HTTP, e o recorte que o cliente desligava sozinho
+
+A história F0-01 tem um critério de aceite curto: *"papel errado recebe 403 em
+endpoint protegido"*. Implementá-lo expôs três coisas que os testes de
+`Autorizador` não podiam pegar, porque não é o autorizador que erra nelas.
+
+### 30.1 O alvo da decisão vinha de quem estava sendo julgado
+
+O painel nasceu assim:
+
+```java
+public Painel painel(@PathVariable UUID cicloId,
+                     @RequestParam(required = false) UUID contrato) {
+    Ator ator = exigir(Permissao.VER_PAINEL, Autorizador.Alvo.doContrato(contrato));
+```
+
+O recorte por contrato do cap. 15.1 é real — `Autorizador` o aplica e há teste
+para ele. Mas o `contrato` chegava **do próprio cliente**, e era opcional. Um
+`PUBLICADOR_FIN` do contrato A pedindo o painel de um ciclo do contrato B só
+precisava **omitir o parâmetro**: com `contrato == null`, a comparação de escopo
+não tem contra o que comparar e a decisão passa.
+
+Não é um defeito do autorizador. É a diferença entre autorizar sobre o alvo
+declarado e autorizar sobre o alvo real. O contrato passou a vir do dado —
+`ConsultaDoPainel.contratoDoCiclo(cicloId)`, a coluna `ciclo.contrato_servico_id`
+— e o parâmetro deixou de existir. Ler essa coluna antes de decidir não revela
+nada: o identificador do contrato vai para o `Autorizador` e nunca para a
+resposta.
+
+**Generalização, para o resto das telas:** *todo `Alvo` tem de ser resolvido a
+partir do identificador do recurso, nunca recebido pronto.* Onde o alvo é
+parâmetro de entrada, o recorte é uma sugestão.
+
+### 30.2 Ciclo inexistente responde igual a ciclo alheio
+
+Resolvido o contrato pelo ciclo, apareceu a pergunta seguinte: e se o ciclo não
+existe? A resposta natural seria 404. Ela conta a quem não pode ver o ciclo que
+**ele existe** — que é metade do que se está protegendo, e o suficiente para
+enumerar ciclos de contratos alheios um UUID por vez. Ciclo inexistente e ciclo
+alheio devolvem o mesmo 403, com motivos diferentes **no log**.
+
+### 30.3 Negar depois de consultar já é ter lido
+
+O terceiro é de ordem, e é o que motivou a forma dos testes. Um controlador que
+consulta e só então decide devolve o 403 correto — e já leu o dado que ia negar,
+deixando na trilha do cap. 16 uma leitura que não devia ter acontecido.
+
+Um banco de mentira que devolvesse vazio passaria nos dois casos. Por isso
+`ConexaoDeMentira` **explode** em qualquer consulta que o teste não registrou:
+
+```
+AssertionError: consulta ao banco que este teste não esperava —
+a decisão de autorização deveria ter vindo antes: SELECT d.id, d.nome_arquivo, ...
+```
+
+Verificado por quebra deliberada: neutralizando o `throw new AcessoNegado` em
+`PainelController.exigir`, **6 dos 14 testes falham** — e falham com essa
+mensagem, não com "esperava 403". O teste está medindo a ordem, não só o
+resultado.
+
+### 30.4 O que ficou coberto
+
+28 asserções em `TestesDeWeb`, sem subir o Spring: JWT de verdade traduzido em
+`Ator`, o controlador de verdade, um banco que acusa se for tocado cedo demais.
+
+| Verifica | Por quê |
+|---|---|
+| Grupo do diretório sem papel correspondente → 403 | O caso realista: alguém entra num grupo novo do AD e ninguém mapeou o papel. Omissão não vira leitura. |
+| Requisição sem token → 403 | |
+| `GESTOR_CONTRATO` em `/triagem` → 403; `PUBLICADOR_FIN` passa | O critério de aceite, literal |
+| Ciclo de contrato alheio → 403 | § 30.1 |
+| Ciclo inexistente → 403, não 404 | § 30.2 |
+| Negar não consulta o banco | § 30.3 |
+| Do ciclo negado lê-se só o contrato, nunca o conteúdo | § 30.3 |
+| Barra segmentada e motivo de bloqueio (F1-07) | Exigência bloqueante **e** conciliação divergente — quem resolve cada uma é outra pessoa |
+| `PUBLICADOR_FIN` vê o contracheque na fila, não o conteúdo | Cap. 15.1: ver que a exigência existe é uma coisa; abrir é outra |
+| CPF no nome de arquivo e no caminho sai mascarado | SEC-02 — a massa real mostrou nome digitado por gente |
+| Contrato mal formado no token é descartado e não abre o recorte | |
+| `AcessoNegado` é 403 e **não** carrega `reason` | O motivo no corpo confirmaria a existência do contrato a quem não pode vê-lo |
+
+### 30.5 Resíduo assumido — a fila de triagem não tem recorte por contrato
+
+`documento` não tem coluna de contrato, e não pode ter: o arquivo é varrido
+antes de ser classificado, e é a exigência que o liga a um contrato. Enquanto
+está na fila de triagem ele não pertence a contrato nenhum, então não há por
+onde recortar.
+
+O que contém o risco hoje: o conteúdo é vedado por sigilo (§ 30.4) e nome e
+caminho saem mascarados. O que fica exposto a quem tem `TRIAR` é **a existência
+de um arquivo ainda não classificado**, de qualquer contrato. Aceitável na fase
+1a; a recortar quando a triagem ganhar escrita (F1-06), porque aí a confirmação
+já cria o vínculo. Registrado em `PENDENCIAS.md`.

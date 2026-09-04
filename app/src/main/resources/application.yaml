@@ -1,0 +1,33 @@
+# Configuração do serviço. Nada de segredo aqui: credenciais são referência de
+# cofre (cap. 15), e o que estiver neste arquivo vai para o repositório.
+server:
+  port: ${SGDF_PORTA:8080}
+  error:
+    include-message: never      # o motivo do 403 vai para o log, não para o cliente
+    include-stacktrace: never
+
+spring:
+  application:
+    name: sgdf
+  datasource:
+    url: ${SGDF_JDBC_URL}
+    username: ${SGDF_JDBC_USUARIO}
+    password: ${SGDF_JDBC_SENHA}
+    hikari:
+      maximum-pool-size: ${SGDF_POOL:10}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # O provedor de identidade da organização. A autenticação com MFA é
+          # dele; a autorização é do Autorizador (cap. 15.1).
+          issuer-uri: ${SGDF_OIDC_ISSUER}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

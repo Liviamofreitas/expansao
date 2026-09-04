@@ -58,6 +58,13 @@ echo "→ conciliação (fase 1b)"
 java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.conciliacao.TestesDeConciliacao | filtrar
 
+echo "→ autorização (F0-01)"
+java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.seguranca.TestesDeAutorizacao | filtrar
+
+echo "→ fronteira HTTP (F0-01, F1-07, F1-10)"
+java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" br.com.engesoftware.sgdf.web.TestesDeWeb | filtrar
+
 echo "→ classificação (F1-03)"
 java -Dfile.encoding=UTF-8 -Dsgdf.raiz="$RAIZ" -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.classificacao.TestesDeClassificacao | filtrar

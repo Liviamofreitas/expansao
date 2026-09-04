@@ -100,3 +100,13 @@ Estado dos 10 achados de [`ERRATA-V1.md`](ERRATA-V1.md):
 | Ativar a fase 3 | **A10** |
 | Carregar os 3 contratos faltantes | **A01** |
 | Defender uma exigência perante o cliente | **A06** |
+| Recortar a fila de triagem por contrato | **F1-06** — ver RA-01 |
+
+---
+
+## Riscos aceitos com prazo — engenharia
+
+| # | Risco | Contenção hoje | Some quando |
+|---|---|---|---|
+| **RA-01** | A fila de triagem e o painel de desconhecidos não têm recorte por contrato: quem tem `TRIAR` vê a **existência** de arquivos ainda não classificados de qualquer contrato. `documento` não tem coluna de contrato porque o arquivo é varrido antes de ser classificado — é a exigência que o vincula. | Conteúdo vedado por sigilo (`PUBLICADOR_FIN` não abre escopo profissional); nome de arquivo e caminho mascarados na fronteira (SEC-02). Exposto: o nome mascarado e a existência. | **F1-06** (triagem com escrita) — a confirmação cria o vínculo, e a fila passa a poder ser recortada pelo contrato da exigência resultante. Ver achados § 30.5. |
+| **RA-02** | Resíduo de tarjamento no book do cliente: `13781031900`, fragmento de número de DARF com DV de CPF coincidentemente válido. 178/180 tarjados. | Reportado como pendência em vez de aceito em silêncio. | Decisão da área demandante sobre o resíduo — ver achado A26. |

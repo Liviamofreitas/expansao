@@ -27,6 +27,13 @@
       6. spring-boot-starter-oauth2-resource-server (OIDC — história F0-01).
   -->
 
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.3.4</version>
+    <relativePath/>
+  </parent>
+
   <properties>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -52,6 +59,30 @@
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
       <version>42.7.4</version>
+    </dependency>
+
+    <!-- História F0-01 e telas do Anexo 2. O domínio segue sem conhecer o
+         framework: os pacotes extracao, documento, validacao, classificacao,
+         conciliacao, book, privacidade e seguranca não importam nada do Spring.
+         A camada web chama o domínio; nunca o contrário. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+
+    <!-- Só pelo DataSource com pool. Os repositórios continuam em JDBC direto,
+         pelas razões do ADR-002. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+
+    <!-- OIDC: a autenticação é do provedor de identidade; a AUTORIZAÇÃO é do
+         Autorizador, no domínio, onde a coluna "não pode" do cap. 15.1 fica
+         legível e testável sem subir um IdP. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
     </dependency>
   </dependencies>
 
