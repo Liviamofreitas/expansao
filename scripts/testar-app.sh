@@ -40,3 +40,7 @@ java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" br.com.engesoftware.sgdf.documento.Te
 
 echo "→ validações unitárias (V8)"
 java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" br.com.engesoftware.sgdf.validacao.TestesDeValidacao | filtrar
+
+echo "→ classificação (F1-03)"
+java -Dfile.encoding=UTF-8 -Dsgdf.raiz="$RAIZ" -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.classificacao.TestesDeClassificacao | filtrar

@@ -36,14 +36,14 @@ public final class TestesDeValidacao {
                     "sem data nao se verifica se o pagamento ocorreu ate o vencimento"));
 
     public static void main(String[] args) throws Exception {
-        formatoRecusaCasamentoParcial();
-        documentoCompletoAprova();
-        campoAusenteReprova();
-        campoMalFormadoReprova();
-        semCadastroNaoReprova();
-        motivoEObrigatorio();
-        comprovanteVazioReal();
-        comprovantePreenchidoReal();
+        executar("formatoRecusaCasamentoParcial", TestesDeValidacao::formatoRecusaCasamentoParcial);
+        executar("documentoCompletoAprova", TestesDeValidacao::documentoCompletoAprova);
+        executar("campoAusenteReprova", TestesDeValidacao::campoAusenteReprova);
+        executar("campoMalFormadoReprova", TestesDeValidacao::campoMalFormadoReprova);
+        executar("semCadastroNaoReprova", TestesDeValidacao::semCadastroNaoReprova);
+        executar("motivoEObrigatorio", TestesDeValidacao::motivoEObrigatorio);
+        executar("comprovanteVazioReal", TestesDeValidacao::comprovanteVazioReal);
+        executar("comprovantePreenchidoReal", TestesDeValidacao::comprovantePreenchidoReal);
 
         System.out.println();
         falhas.forEach(f -> System.out.println("  FALHA " + f));
@@ -209,6 +209,26 @@ public final class TestesDeValidacao {
             return false;
         } catch (IllegalArgumentException e) {
             return true;
+        }
+    }
+
+    /**
+     * Roda um teste isolando a sua falha.
+     *
+     * <p>Sem isto, uma excecao dentro de um teste derruba a suite inteira e
+     * esconde o resultado de todos os outros — que foi exatamente o que
+     * aconteceu ao verificar a trava de divergencia entre a carga e o seed.
+     */
+    interface Teste {
+        void executar() throws Exception;
+    }
+
+    static void executar(String nome, Teste teste) {
+        try {
+            teste.executar();
+        } catch (Exception | AssertionError e) {
+            falhas.add(nome + " lancou " + e.getClass().getSimpleName()
+                    + (e.getMessage() == null ? "" : ": " + e.getMessage()));
         }
     }
 

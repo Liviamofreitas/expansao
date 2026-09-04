@@ -47,6 +47,49 @@ public record FormatoDeCampo(String nome, Pattern expressao, String descricao) {
             de("valor", "\\d{1,3}(?:\\.\\d{3})*,\\d{2}|\\d+,\\d{2}", "valor decimal com centavos");
 
     public static final FormatoDeCampo NOME_DE_PESSOA =
-            de("nome", "[A-ZÁÂÃÀÉÊÍÓÔÕÚÜÇ][A-ZÁÂÃÀÉÊÍÓÔÕÚÜÇ '.]{4,}",
+            de("nome", "[A-ZÁÂÃÀÉÊÍÓÔÕÚÜÇ][A-ZÁÂÃÀÉÊÍÓÔÕÚÜÇ \'.]{4,}",
                     "nome em maiúsculas com ao menos cinco caracteres");
+
+    /**
+     * Natureza da certidão, na forma em que sai do texto normalizado.
+     *
+     * <p>V5 só aceita estas duas. "Positiva" pura não passa, e é por isso que a
+     * forma completa "positiva com efeitos de negativa" precisa estar aqui: a
+     * certidão real da Receita Federal desta empresa é dessa espécie, e uma
+     * lista que só aceitasse "negativa" recusaria o documento válido.
+     */
+    public static final FormatoDeCampo NATUREZA =
+            de("natureza", "negativa|positiva com efeitos de negativa",
+                    "negativa ou positiva com efeitos de negativa");
+
+    public static final FormatoDeCampo INTEIRO =
+            de("inteiro", "\\d+", "número inteiro");
+
+    /** Qualquer texto não vazio. Só confere presença — usar quando não há forma. */
+    public static final FormatoDeCampo TEXTO =
+            de("texto", "\\S.*", "texto não vazio");
+
+    /**
+     * Resolve pelo nome usado no cadastro ({@code campos_essenciais.formato}).
+     *
+     * <p>Um formato desconhecido é erro, nunca "aceita qualquer coisa": um
+     * cadastro com erro de digitação passaria a aprovar tudo em silêncio, que é
+     * o oposto do que V8 existe para fazer.
+     */
+    public static FormatoDeCampo porNome(String nome) {
+        for (FormatoDeCampo f : CATALOGO) {
+            if (f.nome().equals(nome)) {
+                return f;
+            }
+        }
+        throw new IllegalArgumentException("formato desconhecido no cadastro: '" + nome
+                + "'. Conhecidos: " + nomesConhecidos());
+    }
+
+    public static java.util.List<String> nomesConhecidos() {
+        return CATALOGO.stream().map(FormatoDeCampo::nome).toList();
+    }
+
+    private static final java.util.List<FormatoDeCampo> CATALOGO = java.util.List.of(
+            CPF, CNPJ, DATA, COMPETENCIA, VALOR, NOME_DE_PESSOA, NATUREZA, INTEIRO, TEXTO);
 }

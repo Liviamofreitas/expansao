@@ -26,15 +26,15 @@ public final class TestesDeDocumento {
     static final List<String> falhas = new ArrayList<>();
 
     public static void main(String[] args) throws Exception {
-        loteCompleto();
-        loteComNomeEmTresLinhas();
-        loteSemRodapeNaoConfere();
-        loteComRodapeQueNaoBate();
-        matriculaSaiDoNumeroDoCliente();
-        folhaSaiDosContracheques();
-        duasViasNaoDobramAFolha();
-        contrachequeQueNaoFechaEAcusado();
-        insumosDasConciliacoes();
+        executar("loteCompleto", TestesDeDocumento::loteCompleto);
+        executar("loteComNomeEmTresLinhas", TestesDeDocumento::loteComNomeEmTresLinhas);
+        executar("loteSemRodapeNaoConfere", TestesDeDocumento::loteSemRodapeNaoConfere);
+        executar("loteComRodapeQueNaoBate", TestesDeDocumento::loteComRodapeQueNaoBate);
+        executar("matriculaSaiDoNumeroDoCliente", TestesDeDocumento::matriculaSaiDoNumeroDoCliente);
+        executar("folhaSaiDosContracheques", TestesDeDocumento::folhaSaiDosContracheques);
+        executar("duasViasNaoDobramAFolha", TestesDeDocumento::duasViasNaoDobramAFolha);
+        executar("contrachequeQueNaoFechaEAcusado", TestesDeDocumento::contrachequeQueNaoFechaEAcusado);
+        executar("insumosDasConciliacoes", TestesDeDocumento::insumosDasConciliacoes);
 
         System.out.println();
         falhas.forEach(f -> System.out.println("  FALHA " + f));
@@ -346,6 +346,26 @@ public final class TestesDeDocumento {
         f.newLineAtOffset(x, y);
         f.showText(texto);
         f.endText();
+    }
+
+    /**
+     * Roda um teste isolando a sua falha.
+     *
+     * <p>Sem isto, uma excecao dentro de um teste derruba a suite inteira e
+     * esconde o resultado de todos os outros — que foi exatamente o que
+     * aconteceu ao verificar a trava de divergencia entre a carga e o seed.
+     */
+    interface Teste {
+        void executar() throws Exception;
+    }
+
+    static void executar(String nome, Teste teste) {
+        try {
+            teste.executar();
+        } catch (Exception | AssertionError e) {
+            falhas.add(nome + " lancou " + e.getClass().getSimpleName()
+                    + (e.getMessage() == null ? "" : ": " + e.getMessage()));
+        }
     }
 
     static void ok(String descricao, boolean condicao) {

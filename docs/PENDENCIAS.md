@@ -60,6 +60,22 @@ A diferença de 3 corresponde, muito provavelmente, aos três clientes de **A01*
 
 ---
 
+## F1-03 · estado do critério de aceite
+
+O motor de classificação está construído, cadastrado (`db/seed/V103`) e medido: **20 de 20 automáticas certas** sobre os 22 documentos reais de 06 e 07/2026, com os 2 restantes corretamente marcados como desconhecidos (são os documentos vazios do achado A12).
+
+**O critério de aceite não está cumprido**, e a distinção importa: ele pede as certidões, DCTFWeb, DARF e guia FGTS de **três competências fechadas** com precisão ≥ 95%. Há uma competência, parcialmente duas — e as âncoras foram escritas lendo estes documentos, então o número mede o ajuste, não a generalização.
+
+| O que falta | De quem depende |
+|---|---|
+| Massa de mais duas competências fechadas | **Área demandante.** Nenhuma linha de código substitui. |
+| Um DARF avulso (o tipo `INS.DARF` nunca foi exercitado) | Área demandante. |
+| Documentos que não sejam de nenhum tipo, para medir falso positivo | Área demandante. |
+| Pareamento família → tipo dos comprovantes bancários (R01/R02) | Engenharia — fase 1b. Ver a seção 10 dos achados. |
+| Extração por coordenada ligada ao cadastro, para os campos tabulares | Engenharia. Ver o achado A20. |
+
+---
+
 ## Achados da errata
 
 Estado dos 10 achados de [`ERRATA-V1.md`](ERRATA-V1.md):

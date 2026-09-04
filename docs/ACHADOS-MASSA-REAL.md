@@ -433,3 +433,68 @@ Cada recibo imprime `TOTAL DE PROVENTOS`, `TOTAL DE DESCONTOS` e `LÍQUIDO A REC
 ### Deduplicação obrigatória
 
 Cada página traz o recibo **duas vezes**. Sem deduplicar por matrícula, a folha reportaria 16 colaboradores e o líquido dobraria para R$ 75.148,94.
+
+---
+
+## 10. F1-03 medida contra a massa real
+
+O motor classifica por âncoras ponderadas, exatamente como o cap. 8.3 descreve. Três decisões que o texto do capítulo não fixa e que a massa exigiu:
+
+| Decisão | Por quê |
+|---|---|
+| **O bônus nunca resgata** | Pasta e nome de arquivo somam, mas um documento cujo *conteúdo* não alcança o limiar de triagem é desconhecido mesmo com o nome perfeito. Sem isso, renomear um arquivo o classificaria — e o sistema existe para não depender do nome. O bônus é limitado a 0,20 no cadastro. |
+| **Margem sobre o segundo colocado** | Score alto não basta se outro tipo marcou quase o mesmo. Dúvida vai para triagem, não para o book. Margem mínima 0,10. |
+| **Âncora discriminante** | Quando existe, a sua ausência **elimina** o tipo em vez de descontar peso. Sem ela a certidão de falências e a de ações cíveis se classificam uma como a outra: compartilham o cabeçalho inteiro — mesmo tribunal, mesma fórmula, mesmas instâncias. |
+
+### Resultado sobre 22 documentos reais de 06 e 07/2026
+
+```
+automáticas certas = 20    erradas = 0    triagem = 0    desconhecidos = 2
+```
+
+Os 2 desconhecidos são `COMPROVANTE_PG_FOLHA_6` e `_7` — os documentos vazios do achado A12. Não serem reconhecidos é o resultado certo: não há conteúdo para reconhecer. **Duas redes independentes pegam o mesmo problema** — o classificador porque nada casa, e V8 porque nenhum campo essencial aparece.
+
+### A ressalva que este número exige
+
+**As âncoras foram escritas lendo estes documentos.** Medir a precisão sobre eles mede o *ajuste*, não a *generalização*. O critério de aceite da F1-03 pede **três competências fechadas**; há uma, parcialmente duas. O número honesto a reportar é: *o motor e o cadastro estão prontos e a medição de aceite ainda não pode ser feita*.
+
+Duas outras limitações, declaradas:
+
+- **`INS.DARF` isolado não foi testado** — não há DARF avulso na massa.
+- **Nenhum falso positivo foi medido**, porque não há na massa um documento que *não* seja de nenhum dos tipos. A margem e o limiar de triagem existem para isso, mas não foram exercitados contra ruído real.
+
+### Duas correções que a massa impôs ao cap. 8.5
+
+**1. A certidão da RFB é POSITIVA COM EFEITOS DE NEGATIVA.** Uma âncora que exigisse "negativa" no título recusaria a certidão válida que a empresa de fato tem.
+
+**2. O comprovante bancário reproduz o DARF inteiro dentro dele.** O comprovante do Santander contém `composicao do documento de arrecadacao`, `documento de arrecadacao de receitas federais`, `periodo de apuracao` e `valor total do documento` — tudo o que a DCTFWeb contém. Com um discriminante tirado da composição, **os dois marcavam 1,00** e o comprovante ia para triagem como se fosse a declaração.
+
+O que só existe na DCTFWeb é o **recibo de transmissão** — que é exatamente o que o cap. 8.5 já declarava como âncora do tipo. O capítulo estava certo; a primeira versão da regra é que tinha adivinhado.
+
+### Comprovantes bancários: família, não tipo
+
+O cap. 8.5 já registrava *"sem âncora fixa — identificado pelo pareamento"*. A massa confirma e agrava: **os comprovantes de INSS e de IRRF do Santander são textualmente indistinguíveis** — mesmo cabeçalho, mesma expressão, e o código de receita que os separaria não está impresso no comprovante.
+
+Por isso as regras de comprovante identificam a **família** (`CMP.DARF`, `CMP.TRANSFERENCIA`, `CMP.BOLETO`, `CMP.LOTE_SALARIOS`), e ficam **fora do seed** de `regra_reconhecimento` de propósito. Quem decide qual obrigação o comprovante paga é o pareamento (R01/R02): valor, data e identificador contra a guia.
+
+Uma regra que fingisse distinguir os dois classificaria metade deles errado **com score 1,00** — o pior resultado possível, porque não pediria triagem. **Falta construir o pareamento família → tipo**, que é trabalho de fase 1b.
+
+---
+
+## 11. A20 — campo rotulado em layout tabular não se extrai por regex de vizinhança
+
+Ao cadastrar os campos de extração, metade dos padrões escritos como `rótulo[^0-9]{0,30}(valor)` não casou. O motivo é o mesmo dos achados A18 e A19, agora nos campos em vez das linhas:
+
+```
+gfd - guia do fgts digital
+pagar este documento ate | cpf/cnpj do empregador | nome/razao social do empregador
+20/07/2026               | 00.681.946             | engesoftware tecnologia s/a
+```
+
+No texto linear isso vira `... pagar este documento ate cpf/cnpj do empregador nome/razao social do empregador 20/07/2026 00.681.946 engesoftware ...`. **Os rótulos vêm todos primeiro e os valores todos depois.** Nenhuma janela de vizinhança alcança o valor sem atravessar os outros rótulos, e alargá-la faz o padrão capturar o campo errado.
+
+Casam por vizinhança apenas os campos cujo rótulo é seguido imediatamente do valor **na mesma linha física** — `cnpj: 00.681.946/0001-60`, `validade: 25/11/2026`, `valor total do documento 2.505.979,03`.
+
+**Consequência aplicada no cadastro (`db/seed/V103`):** só foram declarados como `campos` os padrões **verificados contra o documento real**, e só esses podem ser `campos_essenciais`. Declarar essencial um campo que a regra não consegue extrair reprovaria **todo** documento do tipo — o modo de falha contra o qual a própria migração V007 adverte, e que a restrição `regra_recon_essenciais_validos` impede no banco.
+
+**Fica em aberto:** os campos de layout tabular (competência da DCTFWeb, vencimento e identificador da guia do FGTS, validade da CND estadual) precisam de extração por coordenada, com `LeitorDeTabela`, e não por regex. O mecanismo existe e está testado; falta ligá-lo ao cadastro, que hoje só sabe expressar padrão de texto.

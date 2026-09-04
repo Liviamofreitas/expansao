@@ -136,4 +136,66 @@ BEGIN
     PERFORM teste_ok('V8 · a view vigente devolve a última execução de cada validação');
 END $$;
 
+-- ---------------------------------------------------------------------------
+-- Coerência da carga F1-03/V8. Num banco sem carga, o bloco se auto-pula.
+--
+-- O banco não conhece a lista de formatos — ela vive no validador. Sem esta
+-- rede, um erro de digitação no cadastro ("valorr") faria V8 explodir em
+-- produção, ou pior, aprovar em silêncio se o validador fosse permissivo.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+    n          integer;
+    -- Só a carga: as regras de fixture dos testes acima nascem incompletas de
+    -- propósito, para exercitar as restrições.
+    CARGA      constant text := 'carga-inicial-f1-03';
+    conhecidos text[] := ARRAY['cpf', 'cnpj', 'data', 'competencia', 'valor',
+                               'nome', 'natureza', 'inteiro', 'texto'];
+BEGIN
+    SELECT count(*) INTO n FROM regra_reconhecimento WHERE criado_por = CARGA;
+    IF n = 0 THEN
+        RAISE NOTICE 'PASSOU: banco sem carga — coerência de F1-03 pulada';
+        RETURN;
+    END IF;
+
+    SELECT count(*) INTO n
+      FROM regra_reconhecimento r, jsonb_array_elements(r.campos_essenciais) e
+     WHERE r.criado_por = CARGA AND NOT (e->>'formato' = ANY (conhecidos));
+    IF n > 0 THEN
+        PERFORM teste_falhou(format(
+            '%s campo(s) essencial(is) com formato que o validador não conhece', n));
+    END IF;
+    PERFORM teste_ok('V8 · todo formato do cadastro é um formato que o validador conhece');
+
+    -- Regra sem âncora classificaria pelo nome do arquivo.
+    SELECT count(*) INTO n FROM regra_reconhecimento
+     WHERE criado_por = CARGA AND jsonb_array_length(ancoras) = 0;
+    IF n > 0 THEN
+        PERFORM teste_falhou(format('%s regra(s) de reconhecimento sem âncora', n));
+    END IF;
+    PERFORM teste_ok('F1-03 · nenhuma regra de reconhecimento fica sem âncora');
+
+    -- Toda regra precisa de ao menos um discriminante, ou empata com a vizinha.
+    SELECT count(*) INTO n FROM regra_reconhecimento r
+     WHERE r.criado_por = CARGA AND NOT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(r.ancoras) a
+         WHERE (a->>'discriminante')::boolean IS TRUE);
+    IF n > 0 THEN
+        PERFORM teste_falhou(format(
+            '%s regra(s) sem âncora discriminante — empatariam com tipos parecidos', n));
+    END IF;
+    PERFORM teste_ok('F1-03 · toda regra tem a âncora que a separa das parecidas');
+
+    -- Duas regras com o MESMO discriminante se confundiriam sempre.
+    SELECT count(*) INTO n FROM (
+        SELECT a->>'expressao' AS exp
+          FROM regra_reconhecimento r, jsonb_array_elements(r.ancoras) a
+         WHERE r.criado_por = CARGA AND (a->>'discriminante')::boolean IS TRUE
+         GROUP BY 1 HAVING count(*) > 1) d;
+    IF n > 0 THEN
+        PERFORM teste_falhou(format('%s discriminante(s) repetido(s) entre tipos', n));
+    END IF;
+    PERFORM teste_ok('F1-03 · nenhum discriminante serve a dois tipos ao mesmo tempo');
+END $$;
+
 ROLLBACK;
