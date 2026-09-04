@@ -1162,3 +1162,112 @@ desfeita, ou decisão gravada sem trilha.
 12 em `T005`, 5 novas na fronteira HTTP — a escrita é autorizada pelo contrato **da
 candidatura**, porque ler a fila recortada não protege a escrita: quem soubesse o
 UUID confirmaria pela URL.
+
+---
+
+## 32. F1-09 — a restrição que declarava uma garantia que não dava
+
+Critério de aceite: *"régua registra o que enviaria, nada é enviado"*.
+
+### 32.1 A unicidade diária permitia três e-mails
+
+A V001 criou, com o comentário *"cap. 11.2: máximo 1 e-mail por área por ciclo
+por dia. A consolidação é forçada pelo banco, não confiada ao agendador"*:
+
+```sql
+UNIQUE (ciclo_id, tipo, destinatario, data_referencia)
+```
+
+Com `tipo` na chave, a mesma pessoa podia receber no mesmo dia e no mesmo ciclo
+uma PREVENTIVA (algo vence em 48 h), uma COBRANCA (algo venceu hoje) e um
+ESCALONAMENTO (algo venceu há dois dias) — **três e-mails**, e o banco aceitaria
+os três. A regra do capítulo é por área e por dia, sem qualificar por tipo.
+
+O comentário afirmava uma garantia que a restrição não dava, que é a forma mais
+cara de erro deste tipo: quem lê o esquema para conferir a regra encontra a
+afirmação e **para de procurar**.
+
+A V010 corrige para `(ciclo_id, destinatario, data_referencia)`. Verificado por
+quebra deliberada: repondo a restrição da V001, `T006` falha com
+*"a mesma pessoa recebeu DOIS e-mails no mesmo dia"*.
+
+**Consequência de projeto, e é a parte que importa:** a consolidação não é por
+momento da régua, é por **pessoa**. Um aviso diário por destinatário, com o que
+vence, o que venceu e o que escalou, tudo junto. O `tipo` da linha passou a ser o
+momento mais grave presente — informação, não chave.
+
+### 32.2 "Nada é enviado" não pode ser um booleano
+
+O modo sombra do cap. 11.2 é descrito como estado da PRD, e existe a coluna
+`notificacao.modo_sombra`. A leitura fácil seria: um `if` antes do envio.
+
+Um `if` é exatamente o que não sustenta a promessa. Alguém o inverte — numa
+configuração, num merge, num deploy — e o sistema começa a cobrar as áreas sem
+que ninguém tenha decidido isso. Então, como no `ArmazenamentoImutavel` da F1-08:
+**não existe transporte no código.** Nenhuma classe do pacote `notificacao` nem o
+`RepositorioDeNotificacao` importa rede, correio ou HTTP, e nenhum expõe método de
+envio. O teste lê os fontes para provar que continua assim, porque um teste de
+comportamento só mostraria que naquele caminho nada saiu — o que se quer garantir
+é que não existe caminho.
+
+Daí decorre a decisão que fecha o laço: **se alguém desligar
+`notificacao.modo_sombra` antes de existir transporte, a execução falha.** Gravar
+as linhas como enviadas seria registrar um envio que não aconteceu — a área não
+recebe, o sistema jura que mandou, e a discussão seguinte não tem como ser
+resolvida.
+
+O parâmetro nasce **ligado**, e ausente também conta como ligado: um sistema
+recém-instalado, sem ninguém ter decidido nada, não pode começar cobrando.
+
+### 32.3 O marco é exato, e o silêncio depois do D+5 é declarado
+
+`D-2`, `D+0`, `D+2`, `D+5`. Exatos, não "a partir de": com "a partir de", uma
+pendência vencida há dez dias produziria dez cobranças acumuladas por dia, e a
+consolidação do cap. 11.2 existiria para conter um problema que a própria régua
+criou.
+
+O custo disso é real e está registrado: **depois do D+5 a régua fica em
+silêncio.** O capítulo não define marco seguinte. A pendência continua visível no
+painel, mas ninguém é lembrado. Inventar aqui um "repete a cada N dias" seria
+criar régua que ninguém aprovou — está em `PENDENCIAS.md` como decisão da área
+demandante.
+
+### 32.4 Falta de cadastro não é silêncio
+
+Uma pendência cujo titular não está cadastrado simplesmente não seria cobrada. O
+painel a mostraria pendente e a área juraria não ter sido avisada — **as duas
+versões certas**, e ninguém saberia por quê.
+
+Por isso a régua devolve duas listas: os avisos e as pendências que ficaram sem
+dono. Uma execução "sem erro" que cobrou 12 pessoas e deixou 4 pendências órfãs
+parece bem-sucedida e não é.
+
+### 32.5 Duas pessoas no mesmo papel é uma pergunta sem resposta
+
+A régua pergunta *"quem é o titular da família X do contrato Y no dia D"*. Com
+vigências sobrepostas há duas respostas, e a consulta escolheria uma pela ordem
+física das linhas — cobrando silenciosamente a pessoa errada, e escalando para o
+gestor de quem nunca foi avisado. `destinatario` usa uma restrição de exclusão
+(`daterange` com `&&`) que recusa a sobreposição no cadastro, que é onde o erro é
+barato de corrigir.
+
+### 32.6 O que o aviso não tem onde carregar
+
+Exigência de escopo PROFISSIONAL é uma por trabalhador. Um aviso que as listasse
+nominalmente mandaria nome de gente para a caixa de uma área — e a caixa de uma
+área não é destinatário de dado pessoal individual.
+
+`Aviso.Item` carrega **quantidade**, e `PendenciaAberta` não tem campo de
+profissional. Não há o que vazar. O teste fixa a lista exata de campos do
+registro: acrescentar um quebra a compilação do teste e força a decisão a ser
+tomada de novo, em vez de passar numa revisão distraída.
+
+Duas restrições no cadastro de templates seguem a mesma linha: um corpo que fale
+em anexo é recusado (cap. 11.2 manda link autenticado), e o template de
+FECHAMENTO sem o rodapé de não-substituição do ateste também — sem ele o e-mail
+sugere que o sistema atesta a medição.
+
+### 32.7 Cobertura
+
+42 asserções em `TestesDeNotificacao` (30 sem banco, 12 contra o PostgreSQL
+real) e 14 em `T006`.

@@ -66,6 +66,10 @@ echo "→ triagem (F1-06)"
 java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.triagem.TestesDeTriagem | filtrar
 
+echo "→ notificação (F1-09)"
+java -Dfile.encoding=UTF-8 -Dsgdf.raiz="$RAIZ" -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.notificacao.TestesDeNotificacao | filtrar
+
 echo "→ fronteira HTTP (F0-01, F1-07, F1-10)"
 java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" br.com.engesoftware.sgdf.web.TestesDeWeb | filtrar
 
