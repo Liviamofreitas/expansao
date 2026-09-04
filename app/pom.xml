@@ -11,25 +11,38 @@
   <name>SGDF — Sistema de Gestão Documental do Faturamento</name>
 
   <!--
-    ADR-001 fixou Java 21 + Spring Boot. Este POM ainda NÃO declara Spring nem
-    JUnit: o ambiente sem internet (D-06) exige um espelho Maven interno, que é
-    item da sprint 0. Até lá, o módulo de coleta compila com o JDK puro e os
-    testes rodam pelo executor próprio em src/test — ver ../scripts/testar-app.sh.
+    ADR-001 fixou Java 21 + Spring Boot.
 
-    Quando o espelho existir, acrescentar nesta ordem:
+    Toda dependência entra com versão FIXADA — nunca faixa nem SNAPSHOT — porque
+    o gate SEC-07 exige SCA reprodutível e o ambiente-alvo é offline (D-06): o
+    espelho Maven interno precisa saber exatamente o que espelhar.
+
+    Ainda não declarados, na ordem em que devem entrar:
       1. spring-boot-starter-parent como <parent>, com a versão fixada;
-      2. junit-jupiter (escopo test) e migrar TestesDeColeta para @Test;
-      3. pdfbox (extração com posições — história F1-02);
-      4. tess4j ou wrapper equivalente para Tesseract (contingência de OCR);
+      2. junit-jupiter e surefire, migrando os executores próprios de src/test;
+      3. tess4j ou wrapper equivalente para Tesseract (contingência de OCR do
+         cap. 8.2 — a porta ExtratorDeTexto já prevê o encaixe);
+      4. poi-ooxml para planilhas (cap. 8.2: leitura direta de células);
       5. flyway-core, substituindo db/aplicar.sh;
       6. spring-boot-starter-oauth2-resource-server (OIDC — história F0-01).
-    Toda dependência entra com versão fixada e passa pelo SCA do gate SEC-07.
   -->
 
   <properties>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
+
+  <dependencies>
+    <!-- História F1-02: extração de texto COM POSIÇÕES. PDFBox é a razão
+         técnica da escolha de stack registrada em ADR-001: writeString entrega
+         a lista de TextPosition por glifo, que é o que sustenta o critério de
+         aceite ("campos extraídos exibem a região de origem"). -->
+    <dependency>
+      <groupId>org.apache.pdfbox</groupId>
+      <artifactId>pdfbox</artifactId>
+      <version>3.0.3</version>
+    </dependency>
+  </dependencies>
 
   <build>
     <sourceDirectory>src/main/java</sourceDirectory>

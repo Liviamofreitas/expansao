@@ -27,7 +27,7 @@ Automatiza a conferência documental do faturamento por medição na **Engesoftw
 | [`db/`](db/) | Esquema, carga inicial e testes de aceite. Ver abaixo. |
 | [`tools/`](tools/) | Geradores. Nada aqui é executado em produção. |
 | [`especificacao/`](especificacao/) | Suítes de conformidade **normativas** + implementações de referência: [`prazo/`](especificacao/prazo/) e [`materializacao/`](especificacao/materializacao/). Ver abaixo. |
-| [`app/`](app/) | Aplicação Java 21. Hoje: o módulo de coleta (F1-01). |
+| [`app/`](app/) | Aplicação Java 21. Hoje: coleta (F1-01) e extração (F1-02). |
 
 ---
 
@@ -180,7 +180,9 @@ A migration também cria `empresa` — o CNPJ do **prestador**, que o cadastro n
 
 ## Aplicação Java (`app/`)
 
-Estrutura Maven real, mas o `pom.xml` **ainda não declara dependências**: o ambiente sem internet (D-06) exige um espelho Maven interno, que é item da sprint 0. Até lá o módulo compila com o JDK puro.
+Estrutura Maven real. O `pom.xml` declara PDFBox 3.0.3 com **versão fixada** — nunca faixa nem SNAPSHOT, porque o gate SEC-07 exige SCA reprodutível e o ambiente-alvo é offline (D-06): o espelho Maven interno precisa saber exatamente o que espelhar.
+
+JUnit e surefire ainda não foram adotados; os testes rodam por executores próprios, migráveis sem mudar o que verificam.
 
 ```bash
 ./scripts/testar-app.sh        # compila e roda os testes
@@ -208,9 +210,29 @@ Conector WebDAV somente-leitura, com delta por ETag e antivírus antes de qualqu
 
 **O href do PROPFIND é entrada hostil.** Canonicalização com `..` colapsado, decodificação percentual **uma única vez** (decodificar em laço faria `%252e` virar `..` num segundo passe), rejeição de caractere de controle, e descarte de qualquer entrada fora da raiz do contrato. O parser XML roda com DOCTYPE e entidades externas desligados — um multistatus é XML de terceiro, e sem isso uma resposta forjada lê arquivos do worker (XXE).
 
+### Módulo de extração — história F1-02
+
+Extração de PDF **com posições**, que é a razão técnica da escolha de stack em ADR-001.
+
+| Classe | Papel |
+|---|---|
+| `ExtratorPdfBox` | Texto com a posição de cada glifo, via `PDFTextStripper.writeString` |
+| `TextoNormalizado` | Normaliza **sem perder a origem** de cada caractere |
+| `LocalizadorDeCampos` | Aplica os padrões da regra de reconhecimento e devolve o valor **com a região** |
+| `RegiaoNoDocumento` | Onde o valor foi lido — serializa para `campo_extraido.posicao` |
+| `DetectorDeMime` | Tipo real por assinatura binária; divergência com a extensão rejeita |
+
+**O detalhe que decide o critério de aceite.** O cap. 8.3 casa âncoras contra texto sem acento e em minúsculas. Normalizar e depois procurar seria o caminho óbvio — e está errado: a normalização muda o comprimento (`ção` tem 3 caracteres, a forma decomposta tem 4), e o deslocamento do casamento deixa de apontar para o glifo certo. `TextoNormalizado` guarda de qual índice original veio cada caractere normalizado. Sem isso o campo aponta para a região errada, que é **pior do que não apontar para nenhuma**: o auditor confere o trecho e conclui que o sistema leu errado.
+
+**Outras duas escolhas.** A região é uma *lista* de retângulos, não um só — um valor que quebra linha ocupa dois trechos distantes, e a envolvente cobriria meia página destacando texto que não é o valor. E o Y é convertido de topo (PDFBox) para base (PDF) na extração, senão a tela desenha o destaque espelhado.
+
+**Página digitalizada no meio de nativas.** Basta *uma* página sem camada de texto para o documento inteiro ir a OCR e triagem. Um documento de 40 páginas com a 3ª digitalizada perderia justamente aquela página em silêncio se a decisão fosse por maioria.
+
+34 testes, com PDFs construídos em coordenadas conhecidas — as asserções conferem a região contra onde o texto foi de fato desenhado, não apenas que "alguma" região voltou.
+
 ### Cobertura
 
-41 testes, com servidor WebDAV e clamd simulados. O critério de aceite — *"varredura de pasta real; arquivo infectado (EICAR) rejeitado e logado"* — é verificado de ponta a ponta: numa pasta com 6 arquivos, 2 são coletados, 1 EICAR é rejeitado com a assinatura preservada, 3 são ignorados com motivo, e nenhum desaparece da contagem.
+**F1-01:** 41 testes, com servidor WebDAV e clamd simulados. O critério de aceite — *"varredura de pasta real; arquivo infectado (EICAR) rejeitado e logado"* — é verificado de ponta a ponta: numa pasta com 6 arquivos, 2 são coletados, 1 EICAR é rejeitado com a assinatura preservada, 3 são ignorados com motivo, e nenhum desaparece da contagem.
 
 ---
 
