@@ -162,27 +162,48 @@ VALUES
 ON CONFLICT (texto_normalizado) DO NOTHING;
 
 -- ---------------------------------------------------------------------
--- ALIASES EM COLISÃO — NÃO CARREGADOS (achado E-02)
+-- ALIASES DESCARTADOS POR COLISÃO (achado E-02, decidido)
 --
--- Cada um aponta para mais de um tipo canônico. Sob a normalização do
--- cap. 5.1 eles colapsam na mesma chave, e a restrição
--- tipo_alias_normalizado_unico rejeita a segunda linha.
+-- Cada um destes nomes aparecia como alias de mais de um tipo canônico.
+-- Decisão: não pertencem a nenhum. Um nome que serve a dois documentos
+-- não é sinal confiável, e o cap. 8.3 já identifica pelo conteúdo — o
+-- nome é apenas reforço. Atribuí-lo a um dos dois daria bônus de score
+-- ao tipo errado metade das vezes.
 --
--- Não são resolvidos aqui por desempate automático: escolher qual tipo
--- fica com o alias é decisão da área demandante. Descomente a linha
--- correta depois da decisão e regenere.
+-- A desambiguação tem de vir das âncoras de conteúdo dos tipos
+-- envolvidos, que precisam ser mutuamente exclusivas (cap. 8.5).
 -- ---------------------------------------------------------------------
--- colisão em 'gfd_guia_do_fgts':
---   INSERT INTO tipo_alias (tipo_id, texto_original, texto_normalizado, origem, criado_por)
---   VALUES ((SELECT id FROM tipo_documental WHERE codigo = 'FGT.GUIA'), 'GFD-GUIA_DO_FGTS', 'gfd_guia_do_fgts', 'LEGADO', 'carga-inicial-anexo1');
---   INSERT INTO tipo_alias (tipo_id, texto_original, texto_normalizado, origem, criado_por)
---   VALUES ((SELECT id FROM tipo_documental WHERE codigo = 'FGT.GUIA'), 'GFD_GUIA_DO_FGTS', 'gfd_guia_do_fgts', 'LEGADO', 'carga-inicial-anexo1');
---   INSERT INTO tipo_alias (tipo_id, texto_original, texto_normalizado, origem, criado_por)
---   VALUES ((SELECT id FROM tipo_documental WHERE codigo = 'FGT.RELATORIO_DIGITAL'), 'GFD_GUIA_DO_FGTS', 'gfd_guia_do_fgts', 'LEGADO', 'carga-inicial-anexo1');
+--   'gfd_guia_do_fgts' aparecia em: FGT.GUIA, FGT.RELATORIO_DIGITAL
+
+-- --- regras de conciliação (12) ------------------------------
+-- Numeração canônica do Anexo 1, aba REGRAS_CONCILIACAO (decisão sobre E-01).
+--
+-- Todas entram em modo ALERTA: a coluna 'Tolerância (preencher)' do anexo
+-- está vazia, e o cap. 9 determina que regra sem tolerância cadastrada opera
+-- em alerta. A restrição regra_conc_sem_tolerancia_nao_bloqueia (V001) impõe
+-- isso no banco. A severidade que o anexo PRETENDE fica em modo_pretendido;
+-- a view regra_conciliacao_a_parametrizar lista o que falta parametrizar.
+INSERT INTO regra_conciliacao
+    (codigo, nome, tipos_envolvidos, logica, tolerancia, modo, modo_pretendido,
+     fase, criado_por)
+VALUES
+    ('R01', 'Cobertura do plano de saúde', '[]'::jsonb, 'Profissional na relação sem desconto em folha, ou desconto sem cobertura | fontes: BEN.RELACAO_PLANO_SAUDE x rubrica de desconto na FOL.FOPAG x BEN.COMPROVANTE_PLANO_SAUDE', NULL, 'ALERTA', 'BLOQUEIO', '1B', 'carga-inicial-anexo1'),
+    ('R02', 'Cobertura do FGTS', '[]'::jsonb, 'Recolhimento sem individualização por trabalhador; base divergente | fontes: FOL.FOPAG (base) x FGT.GUIA x FGT.EXTRATO x FGT.COMPROVANTE_PG', NULL, 'ALERTA', 'BLOQUEIO', '1B', 'carga-inicial-anexo1'),
+    ('R03', 'Cobertura do INSS', '[]'::jsonb, 'Guia paga em valor diferente do apurado na folha | fontes: FOL.FOPAG x INS.DCTFWEB x INS.DARF x INS.COMPROVANTE_PG', NULL, 'ALERTA', 'BLOQUEIO', '1B', 'carga-inicial-anexo1'),
+    ('R04', 'Completude da equipe', '[]'::jsonb, 'Profissional faturado sem evidência de vínculo ou pagamento | fontes: OPE.RELACAO_ALOCADOS x FOL.FOPAG x FOL.CONTRACHEQUE (por profissional)', NULL, 'ALERTA', 'BLOQUEIO', '1B', 'carga-inicial-anexo1'),
+    ('R05', 'Aderência da medição', '[]'::jsonb, 'Horas/postos faturados sem lastro de medição | fontes: OPE.RELATORIO_MEDICAO x OPE.FOLHA_PONTO x OPE.PLANILHA_MEDICAO', NULL, 'ALERTA', 'BLOQUEIO', '1A', 'carga-inicial-anexo1'),
+    ('R06', 'Vigência das certidões', '[]'::jsonb, 'Certidão vencida no momento do ateste ou da emissão | fontes: CER.* com data de validade na data de emissão da NF', NULL, 'ALERTA', 'BLOQUEIO', '1A', 'carga-inicial-anexo1'),
+    ('R07', 'Cobertura de VA/VR e VT', '[]'::jsonb, 'Benefício pago sem relação, ou relação sem comprovante | fontes: BEN.RELACAO_* x desconto/crédito na folha x comprovante x termo de não adesão', NULL, 'ALERTA', 'BLOQUEIO', '1B', 'carga-inicial-anexo1'),
+    ('R08', 'Fechamento de eventos de rescisão', '[]'::jsonb, 'Rescisão no período sem conjunto documental completo | fontes: RES.TRCT x RES.COMPROVANTE_PG x FGT.GUIA_RESCISORIA x RES.ASO_DEMISSIONAL', NULL, 'ALERTA', 'BLOQUEIO', '1B', 'carga-inicial-anexo1'),
+    ('R09', 'Fechamento de férias', '[]'::jsonb, 'Férias concedidas sem recibo ou sem comprovante de pagamento | fontes: FER.AVISO x FER.RECIBO x FER.COMPROVANTE_PG x FOL.FOPAG', NULL, 'ALERTA', 'BLOQUEIO', '1B', 'carga-inicial-anexo1'),
+    ('R10', 'Defasagem de competência', '[]'::jsonb, 'Documento anexado da competência errada | fontes: Todo documento de FGTS/INSS/IRRF deve referir-se a M-1', NULL, 'ALERTA', 'BLOQUEIO', '1A', 'carga-inicial-anexo1'),
+    ('R11', 'Vinculação ao empenho', '[]'::jsonb, 'Faturamento acima do saldo de empenho | fontes: OPE.EMPENHO x valor da OPE.PLANILHA_MEDICAO x FIS.NOTA_FISCAL', NULL, 'ALERTA', 'BLOQUEIO', '1A', 'carga-inicial-anexo1'),
+    ('R12', 'Relógio D+3', '[]'::jsonb, 'Descumprimento da meta institucional de emissão em D+3 | fontes: OPE.ATESTE_RECEBIMENTO (data) x FIS.NOTA_FISCAL (data de emissão)', NULL, 'ALERTA', 'ALERTA', '1A', 'carga-inicial-anexo1')
+ON CONFLICT (codigo, versao) DO NOTHING;
 
 -- --- registro da própria carga na trilha (cap. 5.2) -----------------------
 INSERT INTO log_auditoria (ator, papel, acao, objeto_tipo, resultado, detalhe)
 VALUES ('carga-inicial-anexo1', 'MIGRACAO', 'CARGA_INICIAL', 'catalogo', 'SUCESSO',
-        '{"tipos": 51, "aliases": 59, "aliases_em_colisao": 1, "clientes": 8, "fonte": "Anexo 1 v1"}'::jsonb);
+        '{"tipos": 51, "aliases": 59, "aliases_descartados": 1, "clientes": 8, "regras_conciliacao": 12, "fonte": "Anexo 1 v1"}'::jsonb);
 
 COMMIT;

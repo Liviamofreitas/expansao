@@ -84,7 +84,7 @@
       "avisos": ["AJUSTE_FIM_DE_PERIODO"] },
 
     { "id": "E-08-01",
-      "descricao": "Linha real L051 (CEF, INS.COMPROVANTE_PG, 'ENTRE DIA 20 A 30') em fevereiro: o dia 30 não existe. Ajusta para o último dia e avisa, em vez de travar a abertura do ciclo (cap. 1, princípio 1).",
+      "descricao": "Rede de segurança para cadastro antigo: offset ordinal 30 em fevereiro ajusta e avisa, em vez de travar a abertura do ciclo (cap. 1, princípio 1). Com o recadastro para FIM_COMPETENCIA (caso FIM-01) este aviso deixa de aparecer na operação normal.",
       "calendario": "NACIONAL",
       "prazo": { "ancora": "INICIO_COMPETENCIA", "tipo_dia": "CORRIDO", "offset": 30 },
       "contexto": { "competencia": "2026-02" },
@@ -171,6 +171,41 @@
       "contexto": { "competencia": "2026-02" },
       "esperado": "2026-02-18" },
 
+    { "id": "FIM-01",
+      "descricao": "Decisão sobre E-08: a linha real L026 (CEF, 'ENTRE DIA 30 A 31') recadastrada como FIM_COMPETENCIA resolve fevereiro sem ajuste e sem aviso — compare com E-08-01, que é o mesmo prazo no cadastro antigo.",
+      "calendario": "NACIONAL",
+      "prazo": { "ancora": "FIM_COMPETENCIA", "tipo_dia": "CORRIDO", "offset": 0 },
+      "contexto": { "competencia": "2026-02" },
+      "esperado": "2026-02-28" },
+
+    { "id": "FIM-02",
+      "descricao": "'Último dia útil' rola para TRÁS: 31/05/2026 é domingo, 30/05 sábado. Rolar para frente cairia em junho e mudaria a competência do prazo — é o inverso do que fazem as âncoras de evento, e é intencional.",
+      "calendario": "NACIONAL",
+      "prazo": { "ancora": "FIM_COMPETENCIA", "tipo_dia": "UTIL", "offset": 0 },
+      "contexto": { "competencia": "2026-05" },
+      "esperado": "2026-05-29" },
+
+    { "id": "FIM-03",
+      "descricao": "Com offset, FIM_COMPETENCIA é aditiva para frente e pode atravessar o mês: cinco dias corridos após o fim de abril.",
+      "calendario": "NACIONAL",
+      "prazo": { "ancora": "FIM_COMPETENCIA", "tipo_dia": "CORRIDO", "offset": 5 },
+      "contexto": { "competencia": "2026-04" },
+      "esperado": "2026-05-05" },
+
+    { "id": "FIM-04",
+      "descricao": "Offset 0 é válido em FIM_COMPETENCIA (significa 'o próprio fim do mês'), ao contrário de INICIO_COMPETENCIA, onde não existe 'dia zero'. Ver ERRO-01.",
+      "calendario": "NACIONAL",
+      "prazo": { "ancora": "FIM_COMPETENCIA", "tipo_dia": "CORRIDO", "offset": 0 },
+      "contexto": { "competencia": "2026-04" },
+      "esperado": "2026-04-30" },
+
+    { "id": "FIM-05",
+      "descricao": "Último dia útil de abril de 2026: 30/04 é quinta-feira útil, então não há deslocamento.",
+      "calendario": "NACIONAL",
+      "prazo": { "ancora": "FIM_COMPETENCIA", "tipo_dia": "UTIL", "offset": 0 },
+      "contexto": { "competencia": "2026-04" },
+      "esperado": "2026-04-30" },
+
     { "id": "ERRO-01",
       "descricao": "Offset ordinal 0 não tem significado: não existe 'dia zero do mês'. Mapear para o dia 1 esconderia erro de cadastro.",
       "calendario": "NACIONAL",
@@ -193,9 +228,9 @@
       "erro": "ANCORA_SEM_EVENTO" },
 
     { "id": "ERRO-04",
-      "descricao": "Âncora fora do domínio do cap. 7.3.",
+      "descricao": "Âncora fora do domínio do cap. 7.3. (Este caso usava FIM_COMPETENCIA até a decisão sobre E-08 torná-la válida.)",
       "calendario": "NACIONAL",
-      "prazo": { "ancora": "FIM_COMPETENCIA", "tipo_dia": "CORRIDO", "offset": 1 },
+      "prazo": { "ancora": "MEIO_DO_MES", "tipo_dia": "CORRIDO", "offset": 1 },
       "contexto": { "competencia": "2026-04" },
       "erro": "ANCORA_DESCONHECIDA" },
 

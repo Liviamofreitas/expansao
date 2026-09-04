@@ -16,9 +16,11 @@ Automatiza a conferência documental do faturamento por medição na **Engesoftw
 | [`docs/SGDF_Documentacao_Desenvolvimento_V1.md`](docs/SGDF_Documentacao_Desenvolvimento_V1.md) | Conversão fiel do `.docx` para Markdown — leitura no navegador, busca e **diff entre versões**. Cópia de conveniência: em caso de divergência, o `.docx` prevalece. |
 | [`docs/anexos/Anexo1_Diagnostico_Checklist_Faturamento.xlsx`](docs/anexos/Anexo1_Diagnostico_Checklist_Faturamento.xlsx) | **Anexo 1** — catálogo canônico (51 tipos), matriz normalizada (176 exigências), divergências e campos a criar. Fonte da carga inicial. |
 | [`docs/anexos/Anexo2_SGDF_Layout_Prototipo.html`](docs/anexos/Anexo2_SGDF_Layout_Prototipo.html) | **Anexo 2** — protótipo navegável das 5 telas e tokens de design da identidade Engesoftware. Abrir direto no navegador. |
-| [`docs/ERRATA-V1.md`](docs/ERRATA-V1.md) | **Ler antes de codificar.** Quatro inconsistências verificadas entre o documento e o Anexo 1, uma delas crítica. |
+| [`docs/ERRATA-V1.md`](docs/ERRATA-V1.md) | **Ler antes de codificar.** 10 inconsistências verificadas entre o documento, o Anexo 1 e o próprio modelo. Quatro já decididas e implementadas. |
+| [`docs/CORRECOES-V1.1.md`](docs/CORRECOES-V1.1.md) | O patch a aplicar no documento normativo, seção por seção. Enquanto não for aplicado, código e documento divergem — e o código está de acordo com as decisões. |
 | [`dados/*.csv`](dados/) | As 8 abas do Anexo 1 exportadas em CSV UTF-8 — insumo direto da *migration* de carga inicial e revisável em *code review*. Gerados a partir do `.xlsx`; **não editar à mão**. |
-| [`dados/complemento_tipo_documental.csv`](dados/complemento_tipo_documental.csv) | `escopo`, `sigilo`, `formatos` e `condicional_grupo` — campos que o modelo exige e o Anexo 1 não carrega (achado E-05). **Este é editável à mão**, e é onde a área demandante confirma os valores. |
+| [`dados/complemento_*.csv`](dados/) | Campos que o modelo exige e o Anexo 1 não carrega (achados E-05 e E-01). **Editáveis à mão** — é onde a área demandante confirma os valores. |
+| [`dados/correcoes_matriz.csv`](dados/correcoes_matriz.csv) | As 8 linhas da matriz a recadastrar para a âncora `FIM_COMPETENCIA` (achado E-08). |
 | [`db/`](db/) | Esquema, carga inicial e testes de aceite. Ver abaixo. |
 | [`tools/`](tools/) | Geradores. Nada aqui é executado em produção. |
 | [`especificacao/`](especificacao/) | Suítes de conformidade **normativas** + implementações de referência: [`prazo/`](especificacao/prazo/) e [`materializacao/`](especificacao/materializacao/). Ver abaixo. |
@@ -119,11 +121,11 @@ Quando A13 for decidida, a implementação definitiva é considerada pronta quan
 
 A suíte não existe só para testar: ela **fixa** as decisões que o documento deixou em aberto, de forma mensurável.
 
-| Achado | Questão | Como está resolvido | Caso na suíte |
+| Achado | Questão | Resolução | Caso na suíte |
 |---|---|---|---|
-| **E-06** | `offset` é ordinal ("dia 21") ou aditivo ("D+3")? Os dois exemplos do documento exigem regras diferentes | Ordinal para `INICIO_COMPETENCIA`, aditivo para âncoras de evento — a única leitura que satisfaz ambos | `DOC-01`, `DOC-02` |
-| **E-07** | Carnaval e Corpus Christi são ponto facultativo, não feriado. Contam como dia útil? | Entram marcados `[FACULTATIVO]`, removíveis por cadastro | `FACULTATIVO-01/02` |
-| **E-08** | 8 linhas da matriz pedem o dia 30 ou 31; fevereiro não tem | Ajusta para o último dia do período e devolve `AJUSTE_FIM_DE_PERIODO`. Travar violaria o princípio 1 do cap. 1 | `E-08-01` a `E-08-04` |
+| **E-06** | `offset` é ordinal ("dia 21") ou aditivo ("D+3")? Os dois exemplos do documento exigem regras diferentes | Ordinal para `INICIO_COMPETENCIA`, aditivo para as demais — a única leitura que satisfaz ambos | `DOC-01`, `DOC-02` |
+| **E-07** | Carnaval e Corpus Christi são ponto facultativo, não feriado. Contam como dia útil? | **Decidido:** não são dias úteis. Marcados `[FACULTATIVO]`, reversível por cadastro | `FACULTATIVO-01/02` |
+| **E-08** | 8 linhas da matriz pedem o dia 30 ou 31; fevereiro não tem | **Decidido:** âncora `FIM_COMPETENCIA`, que expressa "até o fim do mês". Em dia útil rola **para trás**, para não mudar a competência do prazo | `FIM-01` a `FIM-05` |
 
 ### Calendário
 
@@ -219,11 +221,13 @@ Estas pendências destravam o resto; as demais correm em paralelo ao desenvolvim
 | ID | Pendência | Bloqueia | Responsável |
 |---|---|---|---|
 | **A03** | BNB e TJCE usam a mesma matriz nas duas modalidades? | Fase 0 — verificação prévia urgente (≈30 min de checagem; risco de responsabilidade subsidiária) | Gestão de Contratos |
+| **A04** | Os 3 contratos-serviço da CAIXA são idênticos? | Carga da matriz — junto com A03, é o que destrava `contrato_servico` e `regra_exigibilidade` | Gestão de Contratos |
 | **A13** | Stack de desenvolvimento e infraestrutura alocada | Sprint 0 | TI |
 | **A05** | Sistema de folha e layout de extração | Início da fase 1b (único bloqueio real) | TI e AP |
-| **E-01** | Colisão da numeração R01–R12 entre documento e Anexo 1 | Escrita das histórias de conciliação | Área demandante + arquitetura |
+| **E-05** | Confirmar `escopo` e `sigilo` dos 51 tipos no CSV de complemento | Materialização por CNPJ e tarjamento (F2-07) | Gestão de Contratos + DAF |
+| **Tolerâncias** | 11 regras de conciliação aguardam tolerância para poder bloquear | Que a conciliação saia do modo alerta | Área demandante |
 
-A lista completa das 13 pendências está no cap. 23 da documentação; as inconsistências (E-01 a E-04) estão na errata.
+A lista completa das 13 pendências está no cap. 23 da documentação; as 10 inconsistências estão na [errata](docs/ERRATA-V1.md), e o patch para o documento normativo em [`CORRECOES-V1.1.md`](docs/CORRECOES-V1.1.md).
 
 ---
 

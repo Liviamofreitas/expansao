@@ -11,13 +11,13 @@ O que NÃO é gerado, e por quê:
     cliente, não contrato-serviço (achado E-04), e o desdobramento previsto em
     D-02 depende das pendências A03 e A04. Semear aqui obrigaria a inventar os
     15 contratos-serviço.
-  · regra_conciliacao — os códigos R01..R12 têm semânticas conflitantes entre o
-    cap. 9 e o Anexo 1 (achado E-01). Semear qualquer das duas seria escolher
-    por suposição.
+O que É gerado desde a decisão sobre E-01: as 12 regras de conciliação do Anexo
+1, que passou a ser a numeração canônica.
 
-Aliases em colisão (achado E-02) são emitidos comentados, nunca resolvidos por
-desempate automático: a restrição tipo_alias_normalizado_unico rejeitaria a
-segunda linha, e escolher qual sobrevive é decisão da área demandante.
+Aliases em colisão (achado E-02) NÃO são carregados para nenhum dos tipos:
+decidiu-se que um nome que serve a dois documentos não é sinal confiável, e o
+cap. 8.3 já manda identificar pelo conteúdo, com o nome apenas como reforço.
+Eles são listados no rodapé do arquivo gerado, para registro.
 """
 import csv
 import re
@@ -28,6 +28,8 @@ from pathlib import Path
 
 CATALOGO = Path("dados/catalogo_documentos.csv")
 COMPLEMENTO = Path("dados/complemento_tipo_documental.csv")
+REGRAS = Path("dados/regras_conciliacao.csv")
+COMPLEMENTO_REGRAS = Path("dados/complemento_regra_conciliacao.csv")
 SAIDA = Path("db/seed/V100__carga_inicial.sql")
 ATOR = "carga-inicial-anexo1"
 
@@ -176,35 +178,62 @@ def main() -> int:
     if colisoes:
         L += [
             "-- ---------------------------------------------------------------------",
-            "-- ALIASES EM COLISÃO — NÃO CARREGADOS (achado E-02)",
+            "-- ALIASES DESCARTADOS POR COLISÃO (achado E-02, decidido)",
             "--",
-            "-- Cada um aponta para mais de um tipo canônico. Sob a normalização do",
-            "-- cap. 5.1 eles colapsam na mesma chave, e a restrição",
-            "-- tipo_alias_normalizado_unico rejeita a segunda linha.",
+            "-- Cada um destes nomes aparecia como alias de mais de um tipo canônico.",
+            "-- Decisão: não pertencem a nenhum. Um nome que serve a dois documentos",
+            "-- não é sinal confiável, e o cap. 8.3 já identifica pelo conteúdo — o",
+            "-- nome é apenas reforço. Atribuí-lo a um dos dois daria bônus de score",
+            "-- ao tipo errado metade das vezes.",
             "--",
-            "-- Não são resolvidos aqui por desempate automático: escolher qual tipo",
-            "-- fica com o alias é decisão da área demandante. Descomente a linha",
-            "-- correta depois da decisão e regenere.",
+            "-- A desambiguação tem de vir das âncoras de conteúdo dos tipos",
+            "-- envolvidos, que precisam ser mutuamente exclusivas (cap. 8.5).",
             "-- ---------------------------------------------------------------------",
         ]
         for chave, ocorrencias in colisoes:
-            L.append(f"-- colisão em '{chave}':")
-            for cod, bruto in ocorrencias:
-                L.append(
-                    f"--   INSERT INTO tipo_alias (tipo_id, texto_original, texto_normalizado, origem, criado_por)"
-                )
-                L.append(
-                    f"--   VALUES ((SELECT id FROM tipo_documental WHERE codigo = {sql(cod)}), "
-                    f"{sql(bruto)}, {sql(chave)}, 'LEGADO', {sql(ATOR)});"
-                )
+            tipos = ", ".join(sorted({t for t, _ in ocorrencias}))
+            L.append(f"--   '{chave}' aparecia em: {tipos}")
         L.append("")
+
+    # ---- regras de conciliação (E-01: numeração canônica = Anexo 1) --------
+    regras_conc = list(csv.DictReader(REGRAS.open(encoding="utf-8")))
+    comp_regras = {c["COD"]: c for c in csv.DictReader(COMPLEMENTO_REGRAS.open(encoding="utf-8"))}
+
+    L += [
+        f"-- --- regras de conciliação ({len(regras_conc)}) ------------------------------",
+        "-- Numeração canônica do Anexo 1, aba REGRAS_CONCILIACAO (decisão sobre E-01).",
+        "--",
+        "-- Todas entram em modo ALERTA: a coluna 'Tolerância (preencher)' do anexo",
+        "-- está vazia, e o cap. 9 determina que regra sem tolerância cadastrada opera",
+        "-- em alerta. A restrição regra_conc_sem_tolerancia_nao_bloqueia (V001) impõe",
+        "-- isso no banco. A severidade que o anexo PRETENDE fica em modo_pretendido;",
+        "-- a view regra_conciliacao_a_parametrizar lista o que falta parametrizar.",
+        "INSERT INTO regra_conciliacao",
+        "    (codigo, nome, tipos_envolvidos, logica, tolerancia, modo, modo_pretendido,",
+        "     fase, criado_por)",
+        "VALUES",
+    ]
+    linhas = []
+    for r in regras_conc:
+        c = comp_regras.get(r["ID"])
+        if c is None:
+            print(f"sem complemento para a regra {r['ID']}", file=sys.stderr)
+            return 1
+        logica = f"{r['Falha que detecta']} | fontes: {r['Fontes cruzadas']}"
+        linhas.append(
+            f"    ({sql(r['ID'])}, {sql(r['Regra'])}, '[]'::jsonb, {sql(logica)}, NULL, "
+            f"'ALERTA', {sql(c['MODO_PRETENDIDO'])}, {sql(c['FASE'])}, {sql(ATOR)})"
+        )
+    L.append(",\n".join(linhas))
+    L += ["ON CONFLICT (codigo, versao) DO NOTHING;", ""]
 
     L += [
         "-- --- registro da própria carga na trilha (cap. 5.2) -----------------------",
         "INSERT INTO log_auditoria (ator, papel, acao, objeto_tipo, resultado, detalhe)",
         f"VALUES ({sql(ATOR)}, 'MIGRACAO', 'CARGA_INICIAL', 'catalogo', 'SUCESSO',",
         f"        '{{\"tipos\": {len(catalogo)}, \"aliases\": {len(aliases)}, "
-        f"\"aliases_em_colisao\": {len(colisoes)}, \"clientes\": {len(clientes)}, "
+        f"\"aliases_descartados\": {len(colisoes)}, \"clientes\": {len(clientes)}, "
+        f"\"regras_conciliacao\": {len(regras_conc)}, "
         f'"fonte": "Anexo 1 v1"}}\'::jsonb);',
         "",
         "COMMIT;",
@@ -218,7 +247,8 @@ def main() -> int:
     print(f"  clientes ............ {len(clientes)}")
     print(f"  tipos documentais ... {len(catalogo)}")
     print(f"  aliases carregados .. {len(aliases)}")
-    print(f"  aliases em colisão .. {len(colisoes)} (comentados — E-02)")
+    print(f"  aliases descartados . {len(colisoes)} (colisão — E-02, decidido)")
+    print(f"  regras conciliação .. {len(regras_conc)} (numeração do Anexo 1 — E-01)")
     return 0
 
 

@@ -2,13 +2,17 @@
 
 **Verificação executada sobre:** `SGDF_Documentacao_Desenvolvimento_V1.docx` × `Anexo1_Diagnostico_Checklist_Faturamento.xlsx`
 **Método:** conferência programática das contagens, chaves e referências cruzadas citadas no documento contra o conteúdo real da planilha.
-**Status:** achados **verificados**, ainda **não corrigidos**. Correção pendente de decisão da área demandante (a regra de leitura do documento proíbe resolver por suposição).
+**Status:** 10 achados verificados. **Quatro decididos e implementados** (E-01, E-02, E-07, E-08); três implementados sob leitura documentada, aguardando confirmação (E-06, E-09, E-10); três abertos, dependentes de pendências (E-03, E-04, E-05).
+
+> As correções no **código** já estão aplicadas. As correções no **documento normativo** — que pertence à área demandante — estão especificadas seção por seção em [`CORRECOES-V1.1.md`](CORRECOES-V1.1.md). Enquanto ele não for aplicado, código e documento divergem, e o código é que está de acordo com as decisões.
 
 > Nada aqui invalida o pacote. Três dos quatro achados são de numeração e contagem; um é de determinismo de classificação e tem efeito direto no maior volume documental do sistema. Todos são corrigíveis antes da sprint 0.
 
 ---
 
 ## E-01 — CRÍTICO · Os códigos R01–R12 significam coisas diferentes no documento e no anexo
+
+> ****DECIDIDO** — a numeração canônica passa a ser a do Anexo 1. De-para completo em [`CORRECOES-V1.1.md`](CORRECOES-V1.1.md), seção C-01. As 12 regras estão carregadas em `V100`, todas em modo ALERTA por falta de tolerância, com a severidade pretendida em `modo_pretendido`.**
 
 O capítulo 9 da documentação e a aba `REGRAS_CONCILIACAO` do Anexo 1 usam **a mesma faixa de identificadores para conjuntos de regras distintos**. Não é divergência de redação: é colisão de chave primária entre a especificação e a sua fonte canônica.
 
@@ -36,6 +40,8 @@ O capítulo 9 da documentação e a aba `REGRAS_CONCILIACAO` do Anexo 1 usam **a
 ---
 
 ## E-02 — ALTO · Alias `GFD_GUIA_DO_FGTS` registrado para dois tipos canônicos
+
+> ****DECIDIDO** — o alias não pertence a nenhum dos dois tipos. Um nome que serve a dois documentos não é sinal confiável e daria bônus de score ao tipo errado metade das vezes. Descartado dos dois na carga; a desambiguação passa a depender das âncoras de conteúdo, que precisam ser mutuamente exclusivas.**
 
 Na aba `CATALOGO_DOCUMENTOS`, a nomenclatura `GFD_GUIA_DO_FGTS` aparece como alias de **dois** códigos:
 
@@ -137,6 +143,8 @@ Sob contagem aditiva, o primeiro daria dia 22 (`1 + 21`). Sob contagem ordinal, 
 
 ## E-07 — MÉDIO · Carnaval e Corpus Christi não são feriados, mas ninguém trabalha
 
+> ****DECIDIDO** — Carnaval e Corpus Christi contam como dias **não úteis**. O prazo fica mais longo, mas nunca vence num dia em que não há ninguém para responder. As 24 linhas seguem marcadas `[FACULTATIVO]`, e a decisão é reversível por cadastro.**
+
 O cap. 7.3 manda contar dia útil pelo `calendario_feriados` da UF, mas nada no pacote diz o que fazer com **ponto facultativo federal**: Carnaval (segunda e terça) e Corpus Christi não são feriados nacionais por lei, e na prática não há expediente.
 
 A escolha não é neutra e vai nos dois sentidos:
@@ -153,6 +161,8 @@ A escolha não é neutra e vai nos dois sentidos:
 ---
 
 ## E-08 — ALTO · Oito linhas da matriz pedem um dia do mês que não existe
+
+> ****DECIDIDO** — criada a âncora `FIM_COMPETENCIA`, que expressa a intenção real de "ENTRE DIA 30 A 31". As 8 linhas a recadastrar estão em [`dados/correcoes_matriz.csv`](../dados/correcoes_matriz.csv). O ajuste `AJUSTE_FIM_DE_PERIODO` permanece como rede de segurança para cadastro antigo, mas deixa de aparecer na operação normal.**
 
 Na aba `MATRIZ_EXIGIBILIDADE`, oito linhas têm âncora "Início da competência" com limite maior que o número de dias de alguns meses:
 

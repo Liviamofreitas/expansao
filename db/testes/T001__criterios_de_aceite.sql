@@ -293,7 +293,7 @@ BEGIN
                                      versao_matriz_id, criado_por)
     VALUES ('44444444-4444-4444-4444-444444444444', 'MODALIDADE',
             (SELECT modalidade_id FROM t_fixture), 'OBRIGATORIO',
-            '{"ancora":"FIM_COMPETENCIA","tipo_dia":"UTIL","offset":5}',
+            '{"ancora":"MEIO_DO_MES","tipo_dia":"UTIL","offset":5}',
             'FINANCEIRO', '2025-01-01', '55555555-5555-5555-5555-555555555555', 'teste');
     PERFORM teste_falhou('Cap. 7.3: âncora fora do domínio foi aceita no cadastro');
 EXCEPTION WHEN check_violation THEN
@@ -338,6 +338,56 @@ BEGIN
             '{"ancora":"ATESTE","tipo_dia":"CORRIDO","offset":3}',
             'FINANCEIRO', '2025-01-01', '55555555-5555-5555-5555-555555555555', 'teste');
     PERFORM teste_ok('Cap. 7.3 · prazo bem formado (D+3 do ateste) é aceito');
+END $$;
+
+-- =============================================================================
+-- E-08 (decidido) — âncora FIM_COMPETENCIA e o que a distingue de INICIO
+-- =============================================================================
+DO $$
+BEGIN
+    INSERT INTO regra_exigibilidade (tipo_id, alvo, alvo_modalidade_id, obrigatoriedade,
+                                     prazo, responsavel_titular, vigencia_ini,
+                                     versao_matriz_id, criado_por)
+    VALUES ('44444444-4444-4444-4444-444444444444', 'MODALIDADE',
+            (SELECT modalidade_id FROM t_fixture), 'OBRIGATORIO',
+            '{"ancora":"FIM_COMPETENCIA","tipo_dia":"CORRIDO","offset":0}',
+            'FINANCEIRO', '2025-01-01', '55555555-5555-5555-5555-555555555555', 'teste');
+    PERFORM teste_ok('E-08 · FIM_COMPETENCIA com offset 0 é aceita (significa o fim do mês)');
+END $$;
+
+-- =============================================================================
+-- E-01 (decidido) — carga das regras de conciliação
+-- Este teste só faz sentido em banco semeado; num banco sem carga ele é pulado,
+-- porque a suíte tem de passar nos dois cenários.
+-- =============================================================================
+DO $$
+DECLARE total integer; bloqueando integer;
+BEGIN
+    SELECT count(*) INTO total FROM regra_conciliacao;
+    IF total = 0 THEN
+        RAISE NOTICE 'PASSOU: E-01 · sem carga no banco, verificação de regras pulada';
+        RETURN;
+    END IF;
+    IF total <> 12 THEN
+        PERFORM teste_falhou(format('E-01: esperava as 12 regras do Anexo 1, encontrou %s', total));
+    END IF;
+    SELECT count(*) INTO bloqueando FROM regra_conciliacao
+     WHERE modo = 'BLOQUEIO' AND tolerancia IS NULL;
+    IF bloqueando > 0 THEN
+        PERFORM teste_falhou(format('Cap. 9: %s regra(s) sem tolerância operando em BLOQUEIO', bloqueando));
+    END IF;
+    PERFORM teste_ok('E-01 · 12 regras do Anexo 1 carregadas, nenhuma bloqueando sem tolerância');
+END $$;
+
+DO $$
+DECLARE descartado integer;
+BEGIN
+    SELECT count(*) INTO descartado FROM tipo_alias
+     WHERE texto_normalizado = 'gfd_guia_do_fgts';
+    IF descartado <> 0 THEN
+        PERFORM teste_falhou('E-02: o alias em colisão foi carregado apesar da decisão de descartá-lo');
+    END IF;
+    PERFORM teste_ok('E-02 · alias em colisão não pertence a nenhum tipo');
 END $$;
 
 ROLLBACK;   -- os testes não deixam massa no banco

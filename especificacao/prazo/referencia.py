@@ -31,19 +31,30 @@ usam limite 0 (D+0, "sob faturamento").
 Confirmar com a área demandante — ver docs/ERRATA-V1.md, achado E-06.
 
 --------------------------------------------------------------------------------
-PERÍODO MAIS CURTO QUE O OFFSET ORDINAL
+ÂNCORA FIM_COMPETENCIA
 --------------------------------------------------------------------------------
-Oito linhas reais do Anexo 1 pedem o dia 30 ou 31 da competência ("ENTRE DIA 20 A
-30", "ENTRE DIA 30 A 31"). Em fevereiro esses dias não existem; o dia 31 não
-existe em quatro meses do ano. Estourar seria travar a abertura do ciclo para
-essas exigências — e o princípio 1 do cap. 1, primeiro na ordem de precedência,
-diz que o sistema nunca trava o faturamento por falta de configuração própria.
+Oito linhas do Anexo 1 pedem o dia 30 ou 31 da competência ("ENTRE DIA 20 A 30",
+"ENTRE DIA 30 A 31"). Em fevereiro esses dias não existem. Sob leitura ordinal
+estrita, a abertura do ciclo de fevereiro falharia para seis contratos.
 
-Por isso a resolução AJUSTA para o último dia do período e devolve o aviso
-`AJUSTE_FIM_DE_PERIODO`. O ajuste antecipa a data, nunca a adia: um prazo mais
-curto é seguro para o cumprimento. O aviso existe para que a tela e a trilha
-mostrem que houve ajuste — ajuste silencioso seria pior que o estouro.
-Ver docs/ERRATA-V1.md, achado E-08.
+A intenção real dessas linhas é "até o fim do mês", e é isso que a âncora
+FIM_COMPETENCIA expressa — decisão tomada sobre o achado E-08. Ela é ADITIVA,
+com base no último dia da competência:
+
+    {FIM_COMPETENCIA, CORRIDO, 0}  -> último dia do mês
+    {FIM_COMPETENCIA, UTIL,    0}  -> último dia ÚTIL do mês
+    {FIM_COMPETENCIA, CORRIDO, 5}  -> 5 dias corridos após o fim do mês
+
+Atenção ao sentido do arredondamento: em dia útil, esta âncora rola para TRÁS,
+não para frente. "Último dia útil de abril" tem de cair em abril; rolar para
+frente cairia em maio e mudaria a competência do prazo. É o inverso do que
+fazem as âncoras de evento, e é intencional.
+
+O ajuste AJUSTE_FIM_DE_PERIODO permanece como rede de segurança para cadastros
+antigos ou malfeitos que ainda usem offset ordinal alto: o princípio 1 do cap. 1
+diz que o sistema nunca trava o faturamento por falta de configuração própria.
+Com as 8 linhas recadastradas (dados/correcoes_matriz.csv), o aviso deixa de
+aparecer na operação normal.
 """
 from __future__ import annotations
 
@@ -53,7 +64,8 @@ from datetime import date, timedelta
 
 ANCORAS_ORDINAIS = {"INICIO_COMPETENCIA"}
 ANCORAS_ADITIVAS = {"ATESTE", "SOLICITACAO_FATURAMENTO", "EVENTO"}
-ANCORAS = ANCORAS_ORDINAIS | ANCORAS_ADITIVAS
+ANCORAS_FIM = {"FIM_COMPETENCIA"}
+ANCORAS = ANCORAS_ORDINAIS | ANCORAS_ADITIVAS | ANCORAS_FIM
 TIPOS_DIA = {"UTIL", "CORRIDO"}
 
 
@@ -100,6 +112,11 @@ class Calendario:
             d += timedelta(days=1)
         return d
 
+    def anterior_util(self, d: date) -> date:
+        while not self.e_util(d):
+            d -= timedelta(days=1)
+        return d
+
 
 def _ordinal(inicio: date, fim: date, offset: int, tipo_dia: str, cal: Calendario) -> Resolucao:
     """N-ésimo dia (útil ou corrido) do intervalo [inicio, fim].
@@ -141,6 +158,22 @@ def _aditivo(base: date, offset: int, tipo_dia: str, cal: Calendario) -> Resoluc
     return Resolucao(d, avisos)
 
 
+def _fim_competencia(fim: date, offset: int, tipo_dia: str, cal: Calendario) -> Resolucao:
+    """Último dia da competência, mais offset.
+
+    Em dia útil, a base rola para TRÁS (ver cabeçalho): o "último dia útil de
+    abril" tem de ficar em abril.
+    """
+    if offset < 0:
+        raise PrazoInvalido("OFFSET_NEGATIVO", f"offset deve ser >= 0, recebido {offset}")
+    if tipo_dia == "CORRIDO":
+        return Resolucao(fim + timedelta(days=offset))
+    d = cal.anterior_util(fim)
+    for _ in range(offset):
+        d = cal.proximo_util(d + timedelta(days=1))
+    return Resolucao(d)
+
+
 def resolver_prazo(prazo: dict, contexto: dict, calendario: Calendario) -> Resolucao:
     """Resolve um prazo estruturado. Função pura, sem acesso a relógio nem a banco.
 
@@ -171,6 +204,17 @@ def resolver_prazo(prazo: dict, contexto: dict, calendario: Calendario) -> Resol
             raise PrazoInvalido("COMPETENCIA_INVALIDA", str(competencia)) from None
         ultimo = date(ano, mes, monthrange(ano, mes)[1])
         return _ordinal(primeiro, ultimo, offset, tipo_dia, calendario)
+
+    if ancora in ANCORAS_FIM:
+        competencia = contexto.get("competencia")
+        if not competencia:
+            raise PrazoInvalido("CONTEXTO_AUSENTE", "competencia")
+        try:
+            ano, mes = (int(p) for p in competencia.split("-"))
+            ultimo = date(ano, mes, monthrange(ano, mes)[1])
+        except (ValueError, TypeError):
+            raise PrazoInvalido("COMPETENCIA_INVALIDA", str(competencia)) from None
+        return _fim_competencia(ultimo, offset, tipo_dia, calendario)
 
     chave = {
         "ATESTE": "ateste",
