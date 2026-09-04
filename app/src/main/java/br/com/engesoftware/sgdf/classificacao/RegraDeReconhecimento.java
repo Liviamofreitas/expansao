@@ -10,6 +10,8 @@ import java.util.List;
  * {@code regra_reconhecimento}.
  *
  * @param tipo           código do tipo documental
+ * @param emissor        quem emite o documento, quando o mesmo tipo tem mais de
+ *                       um layout ("FLASH", "PLUXEE"); nulo quando é único
  * @param ancoras        expressões que devem ocorrer, com peso
  * @param campos         padrões de extração; cada campo válido soma peso
  * @param essenciais     o que V8 exige depois de a classificação decidir
@@ -18,7 +20,7 @@ import java.util.List;
  * @param limiarTriagem  score abaixo do qual o arquivo é desconhecido
  * @param versao         versão da regra — gravada na decisão (cap. 16)
  */
-public record RegraDeReconhecimento(String tipo, List<Ancora> ancoras,
+public record RegraDeReconhecimento(String tipo, String emissor, List<Ancora> ancoras,
                                     List<PadraoDeCampo> campos,
                                     List<CampoEssencial> essenciais,
                                     double pesoPorCampo,
@@ -41,18 +43,36 @@ public record RegraDeReconhecimento(String tipo, List<Ancora> ancoras,
 
     /** Construtor de cadastro com os limiares padrão do cap. 8.3. */
     public static RegraDeReconhecimento de(String tipo, List<Ancora> ancoras) {
-        return new RegraDeReconhecimento(tipo, ancoras, List.of(), List.of(),
+        return de(tipo, null, ancoras);
+    }
+
+    /**
+     * Regra de um emissor específico de um tipo que tem vários.
+     *
+     * <p>Duas relações de VA/VR da massa real — Flash e Pluxee — não têm uma
+     * palavra em comum além do nome da empresa. Uma regra por tipo não alcança
+     * as duas: ou fica genérica a ponto de casar com qualquer coisa, ou casa com
+     * uma e recusa a outra. Regras irmãs resolvem, e a decisão continua sendo o
+     * tipo — o emissor entra na evidência, não na resposta.
+     */
+    public static RegraDeReconhecimento de(String tipo, String emissor, List<Ancora> ancoras) {
+        return new RegraDeReconhecimento(tipo, emissor, ancoras, List.of(), List.of(),
                 0.0, 0.95, 0.70, 1);
     }
 
     public RegraDeReconhecimento comCampos(List<PadraoDeCampo> campos, double pesoPorCampo) {
-        return new RegraDeReconhecimento(tipo, ancoras, campos, essenciais, pesoPorCampo,
+        return new RegraDeReconhecimento(tipo, emissor, ancoras, campos, essenciais, pesoPorCampo,
                 limiarAuto, limiarTriagem, versao);
     }
 
     public RegraDeReconhecimento comEssenciais(List<CampoEssencial> essenciais) {
-        return new RegraDeReconhecimento(tipo, ancoras, campos, essenciais, pesoPorCampo,
+        return new RegraDeReconhecimento(tipo, emissor, ancoras, campos, essenciais, pesoPorCampo,
                 limiarAuto, limiarTriagem, versao);
+    }
+
+    /** Identidade da regra: tipo, ou tipo e emissor quando o tipo tem vários. */
+    public String identidade() {
+        return emissor == null ? tipo : tipo + " (" + emissor + ")";
     }
 
     /** Soma de tudo que a regra pode marcar — o denominador do score. */

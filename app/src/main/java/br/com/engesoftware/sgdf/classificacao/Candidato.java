@@ -10,15 +10,20 @@ import java.util.List;
  * audita a reexecutar a regra para entender a decisão.
  *
  * @param tipo             código do tipo documental
+ * @param emissor          emissor cuja regra casou, quando o tipo tem vários
  * @param scoreDeConteudo  só âncoras e campos, sem bônus — em [0,1]
  * @param score            com os bônus de pasta e de nome de arquivo, em [0,1]
  * @param evidencias       o que casou, em português
  * @param versaoDaRegra    versão da regra que produziu este score
  */
-public record Candidato(String tipo, double scoreDeConteudo, double score,
+public record Candidato(String tipo, String emissor, double scoreDeConteudo, double score,
                         List<String> evidencias, int versaoDaRegra) {
 
     public Candidato {
         evidencias = List.copyOf(evidencias);
+    }
+
+    public String identidade() {
+        return emissor == null ? tipo : tipo + " (" + emissor + ")";
     }
 }

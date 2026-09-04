@@ -39,6 +39,10 @@ public final class TestesDeClassificacao {
         executar("documentoVazioNaoEReconhecido", TestesDeClassificacao::documentoVazioNaoEReconhecido);
         executar("aDecisaoDizPorQue", TestesDeClassificacao::aDecisaoDizPorQue);
         executar("cadastroIncoerenteERecusado", TestesDeClassificacao::cadastroIncoerenteERecusado);
+        executar("doisEmissoresDoMesmoTipoNaoEmpatam",
+                TestesDeClassificacao::doisEmissoresDoMesmoTipoNaoEmpatam);
+        executar("ancoraSobreTituloComTracking",
+                TestesDeClassificacao::ancoraSobreTituloComTracking);
         executar("cargaJavaEseedNaoDivergem", TestesDeClassificacao::cargaJavaEseedNaoDivergem);
 
         System.out.println();
@@ -203,7 +207,7 @@ public final class TestesDeClassificacao {
         ok("F1-03 . ancora com peso nao positivo e recusada",
                 recusa(() -> Ancora.de("qualquer", 0)));
         ok("F1-03 . limiar de triagem acima do automatico e recusado",
-                recusa(() -> new RegraDeReconhecimento("X.Y",
+                recusa(() -> new RegraDeReconhecimento("X.Y", null,
                         List.of(Ancora.de("a", 1)), List.of(), List.of(), 0, 0.7, 0.95, 1)));
     }
 
@@ -251,6 +255,63 @@ public final class TestesDeClassificacao {
         }
         ok("Carga . os comprovantes bancarios ficam fora do seed — quem decide o "
                 + "tipo e o pareamento " + comprovantesNoSeed, comprovantesNoSeed.isEmpty());
+    }
+
+    /**
+     * Duas regras irmas do MESMO tipo nao sao empate: sao a mesma resposta por
+     * caminhos diferentes. Sem essa reducao, a margem sobre o segundo colocado
+     * mandaria para triagem justamente os documentos que o cadastro aprendeu a
+     * reconhecer melhor.
+     */
+    static void doisEmissoresDoMesmoTipoNaoEmpatam() throws Exception {
+        Classificador motor = new Classificador(List.of(
+                RegraDeReconhecimento.de("BEN.X", "UM",
+                        List.of(Ancora.discriminante("relatorio de transacao", 3))),
+                RegraDeReconhecimento.de("BEN.X", "DOIS",
+                        List.of(Ancora.discriminante("relatorio de pedido", 3)))));
+
+        Classificacao r = motor.classificar(new ExtratorPdfBox()
+                .extrair(documento("relatorio de pedido - visao do colaborador")));
+
+        ok("F1-03 . emissor diferente do mesmo tipo classifica automaticamente",
+                r.decisao() == Decisao.AUTOMATICA && r.tipo().equals("BEN.X"));
+        ok("F1-03 . e o emissor que casou fica na evidencia",
+                "DOIS".equals(r.melhor().orElseThrow().emissor()));
+
+        // Um documento que casasse com os dois emissores continuaria sendo um
+        // candidato so, e nao um empate.
+        Classificacao ambos = motor.classificar(new ExtratorPdfBox()
+                .extrair(documento("relatorio de transacao", "relatorio de pedido")));
+        ok("F1-03 . documento que casa com os dois emissores nao vira duvida",
+                ambos.candidatos().size() == 1 && ambos.automatica());
+    }
+
+    /**
+     * Achado A22: a FOPAG imprime o rotulo do centro de custo com espacamento
+     * entre letras, e o numero de espacos e VARIAVEL. O limite entre "DE" e
+     * "CUSTO" nao e recuperavel — nenhuma contagem de espacos o distingue dos
+     * espacos internos.
+     */
+    static void ancoraSobreTituloComTracking() throws Exception {
+        Classificador comum = new Classificador(List.of(
+                RegraDeReconhecimento.de("X.NORMAL",
+                        List.of(Ancora.discriminante("centro de custo", 3)))));
+        Classificador semEspacos = new Classificador(List.of(
+                RegraDeReconhecimento.de("X.TOLERANTE",
+                        List.of(Ancora.semEspacos("centrodecusto", 3, true)))));
+
+        byte[] pdf = documento("CENTRO D  E   C   U  S   T  O   :  104501 - DOCAS");
+
+        ok("A22 . ancora comum nao casa em titulo com espacamento entre letras",
+                comum.classificar(new ExtratorPdfBox().extrair(pdf)).decisao()
+                        == Decisao.NAO_RECONHECIDO);
+        ok("A22 . a ancora sem espacos casa",
+                semEspacos.classificar(new ExtratorPdfBox().extrair(pdf)).automatica());
+
+        // E continua casando no documento sem tracking — nao é um caso especial.
+        ok("A22 . e continua casando no texto normal",
+                semEspacos.classificar(new ExtratorPdfBox()
+                        .extrair(documento("centro de custo: 104501"))).automatica());
     }
 
     // -------------------------------------------------------------------------

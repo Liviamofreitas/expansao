@@ -498,3 +498,170 @@ Casam por vizinhança apenas os campos cujo rótulo é seguido imediatamente do 
 **Consequência aplicada no cadastro (`db/seed/V103`):** só foram declarados como `campos` os padrões **verificados contra o documento real**, e só esses podem ser `campos_essenciais`. Declarar essencial um campo que a regra não consegue extrair reprovaria **todo** documento do tipo — o modo de falha contra o qual a própria migração V007 adverte, e que a restrição `regra_recon_essenciais_validos` impede no banco.
 
 **Fica em aberto:** os campos de layout tabular (competência da DCTFWeb, vencimento e identificador da guia do FGTS, validade da CND estadual) precisam de extração por coordenada, com `LeitorDeTabela`, e não por regex. O mecanismo existe e está testado; falta ligá-lo ao cadastro, que hoje só sabe expressar padrão de texto.
+
+---
+
+# Parte II — a folha de um segundo contrato (DOCAS, 06/2026)
+
+Cinco documentos de **outro contrato-serviço**: FOPAG, contracheques, comprovante de pagamento de salário, relação de VA/VR e relação de plano de saúde. É a primeira massa que o sistema não tinha visto ao ser construído — e por isso a primeira medição de **generalização**, e não de ajuste.
+
+## 12. O que generalizou e o que não
+
+Passando os cinco pelo que já estava pronto, sem tocar em nada:
+
+| Documento | Resultado | Leitura |
+|---|---|---|
+| Contracheque | **AUTOMÁTICA**, tipo certo | As âncoras do contracheque atravessam contratos |
+| Relação VA/VR (Pluxee) | NÃO RECONHECIDO | A regra tinha sido escrita sobre a relação da **Flash** |
+| FOPAG | NÃO RECONHECIDO | Não havia regra — o tipo nunca tinha aparecido |
+| Relação plano de saúde | NÃO RECONHECIDO | Idem |
+| Comprovante de pagamento | NÃO RECONHECIDO | Regra escrita sobre o Sicoob; este é Itaú |
+
+Três dos quatro não-reconhecidos eram **ausência de cadastro**, que é o comportamento correto. O quarto — a relação da Pluxee — expôs um limite do **modelo**, não do cadastro.
+
+## 13. A23 — o mesmo tipo documental com emissores diferentes
+
+`BEN.RELACAO_VA_VR` tem duas relações reais na massa, e elas **não têm uma palavra em comum** além do nome da empresa:
+
+| | Flash | Pluxee |
+|---|---|---|
+| Título | `relatorio de transacao` | `relatorio de pedido - visao do colaborador` |
+| Estrutura | bloco de 6 linhas por beneficiário | uma linha por beneficiário |
+| Chave | CPF | matrícula |
+| Total | `soma dos beneficios` | `subtotal` / `total dos produtos` |
+
+Uma regra por tipo não alcança as duas: **ou fica genérica a ponto de casar com qualquer coisa, ou casa com uma e recusa a outra.** A saída é permitir **regras irmãs** — mais de uma regra vigente para o mesmo tipo, cada uma de um emissor (migração `V008`).
+
+**A decisão continua sendo o tipo.** O emissor entra na evidência, para que a triagem saiba qual layout casou. E duas regras irmãs pontuando alto **não é empate**: sem essa redução, a margem sobre o segundo colocado mandaria para triagem justamente os documentos que o cadastro aprendeu a reconhecer melhor.
+
+O mesmo vale para os comprovantes bancários: `CMP.TRANSFERENCIA` passou a ter regra do Sicoob e do Itaú.
+
+**Depois do cadastro: 5 de 5 automáticas, com o tipo certo.** A massa antiga continua em 20 de 20.
+
+## 14. A21 — o recibo que continua na página seguinte
+
+O contracheque de quem teve férias **não cabe numa página**:
+
+```
+Fls 1/2 …  FERIAS 1 OCORRENCIA 7.036,18
+           Continua...            Continua...
+           LÍQUIDO A RECEBER      ← rótulo sem valor
+
+Fls 2/2 …  MED 1/3 FERIAS 1 OC  878,44   (+ 5 rubricas)
+           TOTAL DE PROVENTOS 31.440,69
+           LÍQUIDO A RECEBER   7.320,49
+```
+
+O leitor deduplicava as duas vias da página por matrícula (achado A17) — e, com isso, **descartava a continuação como se fosse a via repetida**. Metade dos proventos se perdia.
+
+A distinção entre as duas situações está impressa: `Fls 1/1` é recibo único, `1/2` e `2/2` são partes do mesmo. A chave de deduplicação passou a ser **matrícula + número da folha**: mesma folha é via repetida e se descarta, folha diferente é continuação e se une.
+
+**Um bug adjacente que isso revelou:** a via era recortada a partir do cabeçalho `Matrícula Nome`, mas o `Fls` é impresso **acima** dele. O recorte precisava começar no título `Recibo de Pagamento` — a via é o recibo, não o miolo dele.
+
+O resultado importa: 20.148,32 (folha 1/2) + 11.292,37 (folha 2/2) = **31.440,69**, o total impresso. Antes: 20.148,32 e "não fecha".
+
+## 15. A22 — espaçamento entre letras quebra âncoras irrecuperavelmente
+
+A FOPAG imprime o rótulo do centro de custo com *tracking*:
+
+```
+CENTRO D  E   C   U  S   T  O   :          104501 - DOCAS - OUTSOURCING
+```
+
+O número de espaços entre as letras é **variável** (2, 3, 3, 2, 3, 2). O limite entre `DE` e `CUSTO` **não é recuperável**: nenhuma contagem de espaços o distingue dos espaços internos.
+
+**Regra adotada: não ancorar num título com tracking quando o documento oferece alternativa** — e a FOPAG oferece várias (`relacao da folha de pagamento`, `resumo geral`, `funcionario admissao situacao`). Para quando não oferecer, existe `Ancora.semEspacos`, que casa contra o texto sem espaço nenhum: a ambiguidade some porque a informação perdida deixa de ser necessária.
+
+## 16. A24 — o identificador do pagamento tem código de empresa
+
+O achado A14 registrou que o número do cliente é *matrícula + ddMMyyyy*. A massa do segundo contrato corrige:
+
+```
+001 | 000101963 | 03072026
+ ^        ^          ^
+ |        |          data do pagamento
+ |        matrícula na folha (9 dígitos)
+ código da empresa — o mesmo "001-Engesoftware Tecnologia S/A" que encabeça a FOPAG
+```
+
+A primeira implementação tirava a data e removia os zeros à esquerda do que sobrava. **Funcionou nos comprovantes do Santander por acaso**: ali o código da empresa é `000` e some junto com os zeros da matrícula. No comprovante do Itaú o código é `001`, e o resultado era `1000101963` — uma matrícula que não existe. A conciliação por matrícula acusaria ausência do colaborador **com os dois documentos corretos**.
+
+## 17. A05 fechado de verdade — a FOPAG
+
+A pendência A05 pedia a folha estruturada. O contracheque servia; a FOPAG é a fonte certa, por dois motivos:
+
+**1. Código de rubrica.** A FOPAG imprime `08305 VALE ALIMENTACAO`; o contracheque imprime só a descrição. A descrição varia de grafia entre competências e entre sistemas; o código não.
+
+**2. Coluna RESULTADOS.** Traz bases e totais já codificados, onde o contracheque tem um rodapé de rótulos posicionais:
+
+| Código | Descrição | No contracheque |
+|---|---|---|
+| `10000` | TOTAL PROVENTOS | "TOTAL DE PROVENTOS" |
+| `10200` | LIQUIDO A RECEBER | "LÍQUIDO A RECEBER" |
+| `12200` | BASE INSS LIM TETO | "Sal. Contrib. INSS" |
+| `13300` | BASE LIQ IRRF MES | "Base Cálc. IRRF" |
+| `14000` | BASE FGTS MES | "Base Cálc. FGTS" |
+| `17300` | CUST TT VL ALIME | *não existe* |
+| `17305` | CUST EMP VL ALIME | *não existe* |
+
+### A conferência mais forte disponível: o RESUMO GERAL
+
+A FOPAG consolida cada rubrica sobre todos os colaboradores. A leitura colaborador a colaborador tem de reproduzir esse total. **Onze de onze códigos conferem exatamente**, incluindo `10000` (95.422,91), `14000` (84.456,43) e `08305` (24,49).
+
+### Uma armadilha que só a FOPAG revela
+
+O `Base Cálc. FGTS` do contracheque e o `14000 BASE FGTS MES` da FOPAG **não são a mesma grandeza**. Para o colaborador com férias:
+
+```
+contracheque (rodapé)  26.193,39
+FOPAG (14000)          20.916,25
+delta                   5.277,14  =  ADTO 13 SAL FERIAS
+```
+
+Somados sobre a folha: 89.733,57 pelo contracheque contra 84.456,43 pela FOPAG. **Usar um pelo outro na R09 produziria divergência falsa de R$ 5.277,14.** O código diz exatamente qual base é; o rótulo do contracheque, não. É o argumento decisivo para a FOPAG como fonte de registro.
+
+### O que a FOPAG acrescenta à R08
+
+`17300 CUST TT VL ALIME` = `17305 CUST EMP` + a rubrica de desconto `08305`. Confere em todos os colaboradores (604,80 = 598,75 + 6,05). A R08 deixa de comparar coparticipação com crédito — grandezas diferentes, como a Parte I já tinha registrado — e passa a comparar **custo total contra a relação do fornecedor**.
+
+## 18. A cadeia por profissional, fechada ponta a ponta
+
+O requisito original — *"ver o nome do profissional na folha, achar o comprovante de pagamento dele de salário, e validar os benefícios do contracheque no relatório de benefícios"* — executado sobre documentos reais:
+
+```
+comprovante de transferência (Itaú SISPAG)
+   valor pago    = 13.225,67
+   identificador = 00100010196303072026
+                 → empresa 001, matrícula 101963, data 03/07/2026
+
+folha (FOPAG)
+   000101963 HERMES LIMA DE OLIVEIRA   líquido (10200) = 13.225,67
+
+   [1] salário:        pago 13.225,67 × líquido 13.225,67   → CONFORME
+   [2] VA:             folha (17300) 604,80 × relação 604,80 → CONFORME
+   [3] coparticipação: 17300 = 17305 + 08305                → CONFORME
+```
+
+## 19. As conciliações do contrato, e a divergência que apareceu
+
+| Conciliação | Resultado |
+|---|---|
+| FOPAG × contracheques (duas fontes independentes) | **5 de 5 conferem** em proventos, descontos e líquido |
+| R08 valor: relação Pluxee × custo total na folha | **DIVERGENTE — R$ 144,00** |
+| R07 cobertura: rateio do plano × rubrica na folha | **CONFORME** — 4 × 4 |
+| Relação Pluxee consigo (subtotal) | CONFERE — R$ 2.592,00 |
+| Rateio do plano consigo | CONFERE — R$ 990,37 |
+
+**A divergência:** matrícula **100787 — SIDHARTHA BEZERRA DE SOUZA**. A relação da Pluxee credita R$ 604,80; a folha calcula R$ 460,80. Delta de **R$ 144,00 = 5 × R$ 28,80**, e R$ 28,80 é o `19630 VLR DIARIO VA` da própria folha — **cinco dias**.
+
+O contexto que o sistema já tem: este colaborador teve `LICENCA PATERNIDADE` e 23 dias de salário no mês. O pedido à Pluxee foi feito em **22/05/2026**, antes da competência. A hipótese é que o pedido foi emitido pelo mês cheio e a folha aplicou a redução depois.
+
+Isto **não é conclusão de erro** — é uma pergunta com evidência anexada, para a área demandante:
+
+- o pedido cobre período diferente do da folha, e a diferença se acerta na competência seguinte?
+- o crédito foi a maior e há valor a recuperar?
+- a redução por licença paternidade não deveria ter sido aplicada ao VA?
+
+### Uma correção de escopo que isto impõe
+
+O `centro de custo 104501 - DOCAS - OUTSOURCING` aparece em todos os cinco documentos. A FOPAG é emitida **por empresa**, não por contrato — as páginas se agrupam por centro de custo. O recorte de um ciclo de faturamento é o **centro de custo**, e o leitor precisa filtrar por ele antes de somar, ou a conciliação de um contrato incluirá colaboradores de outro. Nesta massa há um só centro de custo, então a questão não apareceu; numa folha completa, apareceria em todo lugar. Fica registrado como trabalho pendente.

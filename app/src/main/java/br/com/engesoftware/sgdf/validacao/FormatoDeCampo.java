@@ -65,9 +65,15 @@ public record FormatoDeCampo(String nome, Pattern expressao, String descricao) {
     public static final FormatoDeCampo INTEIRO =
             de("inteiro", "\\d+", "número inteiro");
 
-    /** Qualquer texto não vazio. Só confere presença — usar quando não há forma. */
+    /**
+     * Qualquer texto não vazio. Só confere presença — usar quando não há forma.
+     *
+     * <p>Casa através de quebra de linha ({@code [\s\S]}, não {@code .}): um
+     * nome que o documento imprime em duas linhas é um valor legítimo, e
+     * recusá-lo por causa do {@code \n} seria reprovar documento bom.
+     */
     public static final FormatoDeCampo TEXTO =
-            de("texto", "\\S.*", "texto não vazio");
+            de("texto", "\\S[\\s\\S]*", "texto não vazio");
 
     /**
      * Resolve pelo nome usado no cadastro ({@code campos_essenciais.formato}).

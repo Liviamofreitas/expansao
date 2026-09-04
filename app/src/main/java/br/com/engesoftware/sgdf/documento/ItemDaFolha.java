@@ -25,16 +25,42 @@ import java.util.Optional;
  * @param fgtsMes         FGTS do mês
  * @param baseInss        salário de contribuição do INSS — insumo da R10
  * @param baseIrrf        base de cálculo do IRRF — insumo da R10
+ * @param resultados      coluna RESULTADOS da FOPAG, por código de rubrica; vazio
+ *                        quando a fonte é o contracheque, que não a imprime
  */
 public record ItemDaFolha(String matricula, String nome, String cpf, String competencia,
                           List<Rubrica> proventos, List<Rubrica> descontos,
                           BigDecimal totalProventos, BigDecimal totalDescontos,
                           BigDecimal liquido, BigDecimal baseFgts, BigDecimal fgtsMes,
-                          BigDecimal baseInss, BigDecimal baseIrrf) {
+                          BigDecimal baseInss, BigDecimal baseIrrf,
+                          java.util.Map<String, BigDecimal> resultados) {
 
     public ItemDaFolha {
         proventos = List.copyOf(proventos);
         descontos = List.copyOf(descontos);
+        resultados = java.util.Map.copyOf(resultados);
+    }
+
+    /** Construtor para fonte sem coluna de resultados codificada (contracheque). */
+    public ItemDaFolha(String matricula, String nome, String cpf, String competencia,
+                       List<Rubrica> proventos, List<Rubrica> descontos,
+                       BigDecimal totalProventos, BigDecimal totalDescontos,
+                       BigDecimal liquido, BigDecimal baseFgts, BigDecimal fgtsMes,
+                       BigDecimal baseInss, BigDecimal baseIrrf) {
+        this(matricula, nome, cpf, competencia, proventos, descontos, totalProventos,
+                totalDescontos, liquido, baseFgts, fgtsMes, baseInss, baseIrrf,
+                java.util.Map.of());
+    }
+
+    /** Valor de um código da coluna RESULTADOS, ou nulo. */
+    public BigDecimal resultado(String codigo) {
+        return resultados.get(codigo);
+    }
+
+    /** A rubrica de código {@code codigo}, entre proventos e descontos. */
+    public Optional<Rubrica> rubrica(String codigo) {
+        return java.util.stream.Stream.concat(proventos.stream(), descontos.stream())
+                .filter(r -> r.temCodigo(codigo)).findFirst();
     }
 
     /** A rubrica de desconto cuja descrição contém {@code trecho}, se houver. */

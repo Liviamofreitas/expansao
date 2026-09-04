@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -35,6 +36,10 @@ public final class TestesDeDocumento {
         executar("duasViasNaoDobramAFolha", TestesDeDocumento::duasViasNaoDobramAFolha);
         executar("contrachequeQueNaoFechaEAcusado", TestesDeDocumento::contrachequeQueNaoFechaEAcusado);
         executar("insumosDasConciliacoes", TestesDeDocumento::insumosDasConciliacoes);
+        executar("reciboQueContinuaEmOutraFolha", TestesDeDocumento::reciboQueContinuaEmOutraFolha);
+        executar("identificadorTemCodigoDeEmpresa", TestesDeDocumento::identificadorTemCodigoDeEmpresa);
+        executar("fopagLeitaPorCodigo", TestesDeDocumento::fopagLeitaPorCodigo);
+        executar("relacaoDeBeneficioPorMatricula", TestesDeDocumento::relacaoDeBeneficioPorMatricula);
 
         System.out.println();
         falhas.forEach(f -> System.out.println("  FALHA " + f));
@@ -188,6 +193,102 @@ public final class TestesDeDocumento {
                 f.somaDasBasesInss().compareTo(new BigDecimal("11876.28")) == 0);
     }
 
+    /**
+     * Achado A21: o recibo de um colaborador com ferias nao cabe numa pagina.
+     * A folha 1/2 traz "Continua..." e nenhum total; a 2/2 traz o resto das
+     * rubricas e os totais. Descartar a continuacao como se fosse a via
+     * repetida perde metade dos proventos.
+     */
+    static void reciboQueContinuaEmOutraFolha() throws Exception {
+        FolhaDeCompetencia f = new LeitorDeContracheque()
+                .ler(new ExtratorPdfBox().extrair(contrachequeComContinuacao()));
+
+        ok("A21 . as duas folhas do mesmo recibo viram um item so", f.itens().size() == 1);
+        ItemDaFolha i = f.itens().get(0);
+        ok("A21 . as rubricas das duas folhas se somam", i.proventos().size() == 2);
+        ok("A21 . os totais vem da folha que os imprime",
+                i.totalProventos().compareTo(new BigDecimal("9000.00")) == 0);
+        ok("A21 . e o item fecha com eles", i.fecha());
+    }
+
+    /**
+     * Achado A14, corrigido pela massa do segundo contrato. O identificador tem
+     * codigo de empresa, matricula de 9 digitos e data. Tirar so a data e
+     * remover zeros funcionava por acaso quando a empresa era "000".
+     */
+    static void identificadorTemCodigoDeEmpresa() {
+        PagamentoDoLote itau = new PagamentoDoLote("-", "00100010196303072026", "-",
+                "03/07/2026", "-", BigDecimal.ONE);
+        ok("A14 . a matricula sao os 9 digitos antes da data",
+                "101963".equals(itau.matricula()));
+        ok("A14 . o que sobra na frente e o codigo da empresa",
+                "001".equals(itau.codigoDaEmpresa()));
+        ok("A14 . e a data sai formatada do proprio identificador",
+                "03/07/2026".equals(itau.dataDoIdentificador()));
+
+        PagamentoDoLote santander = new PagamentoDoLote("-", "00000010225306072026", "-",
+                "06/07/2026", "-", BigDecimal.ONE);
+        ok("A14 . o comprovante de empresa 000 continua dando a mesma matricula",
+                "102253".equals(santander.matricula()));
+    }
+
+    /** A FOPAG e a folha estruturada: rubrica com codigo e coluna RESULTADOS. */
+    static void fopagLeitaPorCodigo() throws Exception {
+        TextoExtraido t = new ExtratorPdfBox().extrair(fopag());
+        LeitorDeFopag leitor = new LeitorDeFopag();
+        FolhaDeCompetencia f = leitor.ler(t);
+
+        ok("FOPAG . a competencia sai do cabecalho", "06/2026".equals(f.competencia()));
+        ok("FOPAG . um item por funcionario", f.itens().size() == 1);
+
+        ItemDaFolha i = f.itens().get(0);
+        ok("FOPAG . a rubrica traz o codigo, nao so a descricao",
+                i.rubrica("00005").orElseThrow().descricao().equals("SALARIO"));
+        ok("FOPAG . o desconto tambem", i.rubrica("08305").orElseThrow()
+                .valor().compareTo(new BigDecimal("6.05")) == 0);
+        ok("FOPAG . os totais vem da coluna RESULTADOS por codigo",
+                i.totalProventos().compareTo(new BigDecimal("12000.00")) == 0
+                        && i.liquido().compareTo(new BigDecimal("10000.00")) == 0);
+        ok("FOPAG . a base do FGTS e o codigo 14000, nao um rotulo posicional",
+                i.baseFgts().compareTo(new BigDecimal("12000.00")) == 0);
+        ok("FOPAG . o custo total do vale alimentacao e o codigo 17300",
+                i.resultado(LeitorDeFopag.CUSTO_TOTAL_VA)
+                        .compareTo(new BigDecimal("604.80")) == 0);
+        ok("FOPAG . custo total = custo da empresa mais a coparticipacao",
+                i.resultado("17305").add(i.rubrica("08305").orElseThrow().valor())
+                        .compareTo(i.resultado("17300")) == 0);
+
+        Map<String, BigDecimal> resumo = leitor.resumoGeral(t);
+        ok("FOPAG . o resumo geral e lido por codigo",
+                resumo.get("10000").compareTo(new BigDecimal("12000.00")) == 0);
+        ok("FOPAG . e o resumo nao vira um colaborador", f.itens().size() == 1);
+    }
+
+    /**
+     * A mesma leitura serve a fornecedores diferentes porque nao depende do
+     * layout: matricula no comeco da linha, valor no fim.
+     */
+    static void relacaoDeBeneficioPorMatricula() throws Exception {
+        RelacaoDeBeneficio r = new LeitorDeRelacaoDeBeneficio()
+                .ler(new ExtratorPdfBox().extrair(relacaoDeBeneficio(true)));
+
+        ok("Relacao . os dois beneficiarios sao lidos", r.beneficiarios().size() == 2);
+        ok("Relacao . a matricula sai sem os zeros a esquerda da folha",
+                r.beneficiarios().get(0).matricula().equals("101963"));
+        ok("Relacao . o CPF e lido quando a relacao o traz",
+                "618.557.313-04".equals(r.beneficiarios().get(0).cpf()));
+        ok("Relacao . a soma reproduz o total declarado", r.confere());
+
+        RelacaoDeBeneficio semTotal = new LeitorDeRelacaoDeBeneficio()
+                .ler(new ExtratorPdfBox().extrair(relacaoDeBeneficio(false)));
+        ok("Relacao . relacao sem total declarado nao e dada por conferida",
+                !semTotal.confere());
+        ok("Relacao . e a recusa diz que a leitura nao pode ser verificada",
+                semTotal.divergenciasComOTotal().get(0).contains("não pôde ser verificada"));
+        ok("Relacao . a matricula com zeros da folha e a mesma da relacao",
+                LeitorDeRelacaoDeBeneficio.semZeros("000101963").equals("101963"));
+    }
+
     // -------------------------------------------------------------------------
 
     static ComprovanteEmLote lerLote(String rodape) throws Exception {
@@ -338,6 +439,124 @@ public final class TestesDeDocumento {
         escrever(f, 244.0f, topo - 322f, primeiro ? "7.300,79" : "4.575,49");
         escrever(f, 348.0f, topo - 322f, primeiro ? "584,06" : "366,04");
         escrever(f, 432.0f, topo - 322f, primeiro ? "6.477,18" : "3.968,29");
+    }
+
+    /** Recibo em duas folhas: "Continua..." na 1/2 e os totais na 2/2. */
+    static byte[] contrachequeComContinuacao() throws IOException {
+        try (PDDocument doc = new PDDocument()) {
+            for (int folha = 1; folha <= 2; folha++) {
+                PDPage pagina = new PDPage(PDRectangle.A4);
+                doc.addPage(pagina);
+                try (PDPageContentStream f = new PDPageContentStream(doc, pagina)) {
+                    f.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 7);
+                    escrever(f, 270.8f, 736.0f, "Recibo de Pagamento");
+                    escrever(f, 272.0f, 717.0f, "JUNHO/2026 MENSAL " + folha + "/2");
+                    escrever(f, 38.0f, 690.0f, "Matrícula Nome");
+                    escrever(f, 38.0f, 681.0f, "000100884 OZIAS ALVES DE LIMA JUNIOR");
+                    escrever(f, 38.0f, 665.0f, "CPF Cargo/Nível");
+                    escrever(f, 38.0f, 656.0f, "058.507.653-79 DESENVOLVEDOR /");
+                    escrever(f, 38.0f, 608.0f, "Descrição");
+                    escrever(f, 179.0f, 608.0f, "Qtde");
+                    escrever(f, 242.0f, 608.0f, "Valor");
+                    escrever(f, 272.0f, 608.0f, "Descrição");
+                    escrever(f, 413.0f, 608.0f, "Qtde");
+                    escrever(f, 473.0f, 608.0f, "Valor");
+                    if (folha == 1) {
+                        escrever(f, 38.0f, 597.0f, "SALARIO");
+                        escrever(f, 218.0f, 597.0f, "4.000,00");
+                        escrever(f, 272.0f, 597.0f, "INSS MES");
+                        escrever(f, 458.0f, 597.0f, "1.000,00");
+                        escrever(f, 38.0f, 586.0f, "Continua...");
+                        escrever(f, 272.0f, 586.0f, "Continua...");
+                        // A folha 1/2 imprime o rótulo do líquido, sem valor.
+                        escrever(f, 272.0f, 442.0f, "LÍQUIDO A RECEBER");
+                    } else {
+                        escrever(f, 38.0f, 597.0f, "FERIAS 1 OCORRENCIA");
+                        escrever(f, 218.0f, 597.0f, "5.000,00");
+                        escrever(f, 38.0f, 469.0f, "TOTAL DE PROVENTOS");
+                        escrever(f, 218.0f, 469.0f, "9.000,00");
+                        escrever(f, 272.0f, 469.0f, "TOTAL DE DESCONTOS");
+                        escrever(f, 448.0f, 469.0f, "1.000,00");
+                        escrever(f, 272.0f, 442.0f, "LÍQUIDO A RECEBER");
+                        escrever(f, 450.0f, 442.0f, "8.000,00");
+                    }
+                }
+            }
+            ByteArrayOutputStream saida = new ByteArrayOutputStream();
+            doc.save(saida);
+            return saida.toByteArray();
+        }
+    }
+
+    /** Geometria medida na FOPAG real: proventos | descontos | resultados. */
+    static byte[] fopag() throws IOException {
+        try (PDDocument doc = new PDDocument()) {
+            PDPage pagina = new PDPage(PDRectangle.A4);
+            doc.addPage(pagina);
+            try (PDPageContentStream f = new PDPageContentStream(doc, pagina)) {
+                f.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 6);
+                escrever(f, 23.6f, 552.0f, "RELAÇÃO DA FOLHA DE PAGAMENTO Pág: 0001");
+                escrever(f, 372.8f, 544.0f, "Mês: JUNHO/2026");
+                escrever(f, 23.6f, 536.0f, "Folha: MENSAL");
+                escrever(f, 23.6f, 512.8f, "FUNCIONÁRIO ADMISSÃO SITUAÇÃO DATA INÍCIO FOLHA");
+                escrever(f, 23.6f, 505.1f,
+                        "000101963 - HERMES LIMA DE OLIVEIRA 13/01/2026 ATIVIDADE NORMAL MENSAL");
+                linhaDaFopag(f, 460.7f, "00005 SALARIO 30,00 9.793,14",
+                        "07200 INSS MES 988,07", "10000 TOTAL PROVENTOS 12.000,00");
+                linhaDaFopag(f, 453.5f, "02420 CRED CESTA BASICA 110,51",
+                        "08305 VALE ALIMENTACAO 6,05", "10100 TOTAL DESCONTOS 2.000,00");
+                linhaDaFopag(f, 446.3f, null, null, "10200 LIQUIDO A RECEBER 10.000,00");
+                linhaDaFopag(f, 439.1f, null, null, "14000 BASE FGTS MES 12.000,00");
+                linhaDaFopag(f, 431.9f, null, null, "17300 CUST TT VL ALIME 604,80");
+                linhaDaFopag(f, 424.7f, null, null, "17305 CUST EMP VL ALIME 598,75");
+            }
+            PDPage resumo = new PDPage(PDRectangle.A4);
+            doc.addPage(resumo);
+            try (PDPageContentStream f = new PDPageContentStream(doc, resumo)) {
+                f.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 6);
+                escrever(f, 23.6f, 552.0f, "RELAÇÃO DA FOLHA DE PAGAMENTO Pág: 0002");
+                escrever(f, 23.6f, 525.2f, "RESUMO GERAL");
+                escrever(f, 23.6f, 480.2f, "10000 TOTAL PROVENTOS 0001 12.000,00 12.000,00");
+            }
+            ByteArrayOutputStream saida = new ByteArrayOutputStream();
+            doc.save(saida);
+            return saida.toByteArray();
+        }
+    }
+
+    static void linhaDaFopag(PDPageContentStream f, float y, String provento,
+                             String desconto, String resultado) throws IOException {
+        if (provento != null) {
+            escrever(f, 22.9f, y, provento);
+        }
+        if (desconto != null) {
+            escrever(f, 268.0f, y, desconto);
+        }
+        if (resultado != null) {
+            escrever(f, 512.0f, y, resultado);
+        }
+    }
+
+    /** Relação de benefício: matrícula no começo da linha, valor no fim. */
+    static byte[] relacaoDeBeneficio(boolean comTotal) throws IOException {
+        try (PDDocument doc = new PDDocument()) {
+            PDPage pagina = new PDPage(PDRectangle.A4);
+            doc.addPage(pagina);
+            try (PDPageContentStream f = new PDPageContentStream(doc, pagina)) {
+                f.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 7);
+                escrever(f, 44.1f, 590.0f, "MATRÍCULA COLABORADOR CPF ALIMENTAÇÃO");
+                escrever(f, 44.1f, 576.0f,
+                        "101963 HERMES LIMA DE OLIVEIRA 618.557.313-04 R$ 604,80");
+                escrever(f, 44.1f, 565.0f,
+                        "100787 SIDHARTHA BEZERRA DE SOUZA 003.684.063-77 R$ 460,80");
+                if (comTotal) {
+                    escrever(f, 465.3f, 518.0f, "SUBTOTAL R$ 1.065,60");
+                }
+            }
+            ByteArrayOutputStream saida = new ByteArrayOutputStream();
+            doc.save(saida);
+            return saida.toByteArray();
+        }
     }
 
     static void escrever(PDPageContentStream f, float x, float y, String texto)

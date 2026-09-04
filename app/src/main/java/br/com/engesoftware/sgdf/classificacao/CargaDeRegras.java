@@ -105,11 +105,40 @@ public final class CargaDeRegras {
                         Ancora.de("total de descontos", 2),
                         Ancora.de("liquido a receber", 2))),
 
-                RegraDeReconhecimento.de("BEN.RELACAO_VA_VR", List.of(
+                // O MESMO TIPO, DOIS EMISSORES. As relações de VA/VR da Flash e
+                // da Pluxee não têm uma palavra em comum além do nome da
+                // empresa. Uma regra só não alcança as duas: ou fica genérica a
+                // ponto de casar com qualquer coisa, ou casa com uma e recusa a
+                // outra — foi o que aconteceu quando a folha do segundo contrato
+                // chegou e a relação da Pluxee saiu como NAO_RECONHECIDO.
+                RegraDeReconhecimento.de("BEN.RELACAO_VA_VR", "FLASH", List.of(
                         Ancora.discriminante("discriminacao dos beneficios", 3),
                         Ancora.de("relatorio de transacao", 2),
                         Ancora.de("total de bene ?ciarios", 2),
-                        Ancora.de("disponibilizacao do beneficio", 1))));
+                        Ancora.de("disponibilizacao do beneficio", 1))),
+
+                RegraDeReconhecimento.de("BEN.RELACAO_VA_VR", "PLUXEE", List.of(
+                        Ancora.discriminante("relatorio de pedido", 3),
+                        Ancora.de("pluxee", 2),
+                        Ancora.de("total geral por colaborador", 2),
+                        Ancora.de("total dos produtos", 1))),
+
+                RegraDeReconhecimento.de("BEN.RELACAO_PLANO_SAUDE", List.of(
+                        Ancora.discriminante("rateio \\d{2}/\\d{4}", 3),
+                        Ancora.de("centro de lucro", 2),
+                        Ancora.de("rateio %", 2),
+                        Ancora.de("nome completo", 1))),
+
+                // A folha estruturada — a fonte que a pendência A05 pedia.
+                // Nenhuma âncora sobre "CENTRO DE CUSTO": esse rótulo sai com
+                // espaçamento entre letras e o limite entre as palavras não é
+                // recuperável (achado A22). O documento oferece alternativas
+                // sem tracking, e é nelas que a regra se apoia.
+                RegraDeReconhecimento.de("FOL.FOPAG", List.of(
+                        Ancora.discriminante("relacao da folha de pagamento", 3),
+                        Ancora.de("funcionario admissao situacao", 2),
+                        Ancora.de("total proventos", 2),
+                        Ancora.de("resumo geral", 1))));
     }
 
     /**
@@ -135,10 +164,19 @@ public final class CargaDeRegras {
                         Ancora.de("data de pagamento", 1),
                         Ancora.de("valor total", 1))),
 
-                RegraDeReconhecimento.de("CMP.TRANSFERENCIA", List.of(
+                RegraDeReconhecimento.de("CMP.TRANSFERENCIA", "SICOOB", List.of(
                         Ancora.discriminante("dados do pagamento", 2),
                         Ancora.de("pagador", 1),
                         Ancora.de("destinatario", 1))),
+
+                // O SISPAG do Itaú é outro layout do mesmo fato — e é o mesmo
+                // documento que o achado A12 pegou vazio. Preenchido, ele
+                // classifica e passa em V8; vazio, é recusado pelos dois.
+                RegraDeReconhecimento.de("CMP.TRANSFERENCIA", "ITAU", List.of(
+                        Ancora.discriminante("comprovante de transferencia", 3),
+                        Ancora.de("sispag salarios", 2),
+                        Ancora.de("dados da conta debitada", 1),
+                        Ancora.de("dados da conta creditada", 1))),
 
                 RegraDeReconhecimento.de("CMP.BOLETO", List.of(
                         Ancora.discriminante("pagamento de boleto", 3),

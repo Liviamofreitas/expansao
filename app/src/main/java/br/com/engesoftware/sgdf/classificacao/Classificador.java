@@ -54,12 +54,14 @@ public final class Classificador {
 
     public Classificacao classificar(TextoExtraido texto, Bonus bonus) {
         String normalizado = normalizar(texto.textoCompleto());
+        String semEspacos = normalizado.replace(" ", "");
 
         List<Candidato> candidatos = new ArrayList<>();
         for (RegraDeReconhecimento regra : regras) {
-            pontuar(regra, texto, normalizado, bonus).ifPresent(candidatos::add);
+            pontuar(regra, texto, normalizado, semEspacos, bonus).ifPresent(candidatos::add);
         }
         candidatos.sort(Comparator.comparingDouble(Candidato::score).reversed());
+        candidatos = melhorPorTipo(candidatos);
 
         if (candidatos.isEmpty()) {
             return new Classificacao(Decisao.NAO_RECONHECIDO, Optional.empty(), List.of(),
@@ -80,11 +82,11 @@ public final class Classificador {
     }
 
     private Optional<Candidato> pontuar(RegraDeReconhecimento regra, TextoExtraido texto,
-                                        String normalizado, Bonus bonus) {
+                                        String normalizado, String semEspacos, Bonus bonus) {
         // Discriminante ausente elimina o tipo: não é desconto de peso, é a
         // expressão que separa este tipo de outro que se parece com ele.
         for (Ancora d : regra.discriminantes()) {
-            if (!d.ocorreEm(normalizado)) {
+            if (!d.ocorreEm(normalizado, semEspacos)) {
                 return Optional.empty();
             }
         }
@@ -92,7 +94,7 @@ public final class Classificador {
         double marcado = 0;
         List<String> evidencias = new ArrayList<>();
         for (Ancora a : regra.ancoras()) {
-            if (a.ocorreEm(normalizado)) {
+            if (a.ocorreEm(normalizado, semEspacos)) {
                 marcado += a.peso();
                 evidencias.add("âncora " + a.expressao().pattern() + " (peso " + a.peso() + ")");
             }
@@ -113,8 +115,27 @@ public final class Classificador {
         if (comBonus > conteudo) {
             evidencias.add("bônus de contexto " + bonus.para(regra.tipo()));
         }
-        return Optional.of(new Candidato(regra.tipo(), conteudo, comBonus,
+        return Optional.of(new Candidato(regra.tipo(), regra.emissor(), conteudo, comBonus,
                 evidencias, regra.versao()));
+    }
+
+    /**
+     * Guarda só o melhor candidato de cada TIPO.
+     *
+     * <p>Um tipo com vários emissores tem várias regras irmãs — as relações de
+     * VA/VR da Flash e da Pluxee, por exemplo. Duas regras do MESMO tipo
+     * pontuando alto não é empate: é a mesma resposta por caminhos diferentes.
+     * Sem esta redução, a margem sobre o segundo colocado mandaria para triagem
+     * justamente os documentos que o cadastro aprendeu a reconhecer melhor.
+     */
+    private static List<Candidato> melhorPorTipo(List<Candidato> ordenados) {
+        List<Candidato> unicos = new ArrayList<>();
+        for (Candidato c : ordenados) {
+            if (unicos.stream().noneMatch(u -> u.tipo().equals(c.tipo()))) {
+                unicos.add(c);
+            }
+        }
+        return unicos;
     }
 
     private Classificacao decidir(List<Candidato> candidatos) {

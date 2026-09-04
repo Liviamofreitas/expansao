@@ -36,7 +36,7 @@ A finalidade aqui tem termo natural: a prescrição quinquenal do art. 7º, XXIX
 
 | ID | Pendência | O que já está pronto | O que falta, e de quem |
 |---|---|---|---|
-| **A05** | Sistema de folha e layout | **Deixou de bloquear.** O contrato de dados está especificado (cap. 14.3) e a fase 1a não dependia dele (D-10). O que faltava era o lado *esperado* das conciliações — e ele agora sai do **contracheque em PDF**, que já está no repositório: `LeitorDeContracheque` produz matrícula, CPF, nome, rubricas, totais, líquido e as bases de FGTS/INSS/IRRF, deduplicando as duas vias (A17). Nos 8 contracheques reais de 06/2026, **os 8 fecham** contra os próprios totais impressos. | Qual é o sistema de folha e se ele exporta o layout mínimo. **TI e AP.** Continua em aberto e continua sendo a solução melhor — reler PDF é fonte de segunda escolha. Mas a fase 1b não espera mais por ela. |
+| **A05** | Sistema de folha e layout | **Resolvido.** A **FOPAG** (`RELAÇÃO DA FOLHA DE PAGAMENTO`) é a folha estruturada, e `LeitorDeFopag` a lê por **código de rubrica** — `08305 VALE ALIMENTACAO`, `14000 BASE FGTS MES`, `17300 CUST TT VL ALIME`. Verificada contra o **RESUMO GERAL** que a própria folha imprime: **11 de 11 códigos conferem**. E contra os contracheques da mesma competência: **5 de 5** em proventos, descontos e líquido. | Nada bloqueante. O contrato de dados do cap. 14.3 continua desejável para receber a folha por arquivo em vez de PDF, mas a fase 1b tem a fonte de que precisava. |
 | **A12** | RIPD e inventário de dados pessoais | O **inventário está gerado**: 23 dos 51 tipos tratam dado pessoal, 4 deles sensível; onde cada dado vive e com que proteção. É a parte factual e volumosa do RIPD. | A avaliação de risco, a base legal por finalidade e a aprovação. **DPO e jurídico.** | 
 
 ---
@@ -68,7 +68,7 @@ O motor de classificação está construído, cadastrado (`db/seed/V103`) e medi
 
 | O que falta | De quem depende |
 |---|---|
-| Massa de mais duas competências fechadas | **Área demandante.** Nenhuma linha de código substitui. |
+| Massa de mais duas competências fechadas | **Área demandante.** Nenhuma linha de código substitui. Chegou a folha de um segundo contrato (DOCAS), que valeu como primeira medição de generalização — ver a Parte II dos achados. |
 | Um DARF avulso (o tipo `INS.DARF` nunca foi exercitado) | Área demandante. |
 | Documentos que não sejam de nenhum tipo, para medir falso positivo | Área demandante. |
 | Pareamento família → tipo dos comprovantes bancários (R01/R02) | Engenharia — fase 1b. Ver a seção 10 dos achados. |
@@ -94,7 +94,7 @@ Estado dos 10 achados de [`ERRATA-V1.md`](ERRATA-V1.md):
 | Quer fazer | Precisa de |
 |---|---|
 | Fase 1a completa (varredura, reconhecimento, book) | Nada. **Liberada.** |
-| Fase 1b (conciliação de valores) | ~~A05~~ — **liberada** pela folha derivada do contracheque. Falta o cadastro de tolerâncias das 11 regras (decisão da AP). |
+| Fase 1b (conciliação de valores) | ~~A05~~ — **liberada** pela FOPAG. Falta o cadastro de tolerâncias das 11 regras (decisão da AP) e o recorte por centro de custo. |
 | Selar book com prazo irreversível | **A08** — hoje sela em `LEGAL_HOLD`, o que é suficiente para operar |
 | Entrar em produção | **A12** (RIPD) e **A11** (norma) |
 | Ativar a fase 3 | **A10** |

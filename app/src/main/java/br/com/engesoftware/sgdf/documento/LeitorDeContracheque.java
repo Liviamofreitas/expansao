@@ -37,6 +37,16 @@ public final class LeitorDeContracheque {
     private static final Pattern MATRICULA_E_NOME = Pattern.compile("^(\\d{5,})\\s+(.+)$");
     private static final Pattern CPF = Pattern.compile("\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}");
     private static final Pattern DINHEIRO = Pattern.compile("\\d{1,3}(?:\\.\\d{3})*,\\d{2}");
+    /**
+     * "JUNHO/2026 MENSAL 1/2" — a última fração é a folha atual e o total de
+     * folhas do MESMO recibo. Achado A21: o recibo de um colaborador com férias
+     * não cabe numa página, e a continuação traz os totais.
+     */
+    private static final Pattern FLS = Pattern.compile(
+            "(?:JANEIRO|FEVEREIRO|MARÇO|ABRIL|MAIO|JUNHO|JULHO|AGOSTO|SETEMBRO|OUTUBRO"
+                    + "|NOVEMBRO|DEZEMBRO)/\\d{4}\\s+\\S+\\s+(\\d+)/(\\d+)",
+            Pattern.CASE_INSENSITIVE);
+
     private static final Pattern REFERENCIA = Pattern.compile(
             "(JANEIRO|FEVEREIRO|MARÇO|ABRIL|MAIO|JUNHO|JULHO|AGOSTO|SETEMBRO|OUTUBRO"
                     + "|NOVEMBRO|DEZEMBRO)/(\\d{4})", Pattern.CASE_INSENSITIVE);
@@ -45,7 +55,18 @@ public final class LeitorDeContracheque {
             "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO",
             "NOVEMBRO", "DEZEMBRO");
 
-    private static final String INICIO_DA_VIA = "Matr";
+    /**
+     * Cada via começa no título do recibo, não no cabeçalho "Matrícula Nome".
+     *
+     * <p>A distinção importa: o número da folha ("JUNHO/2026 MENSAL 1/2") é
+     * impresso ACIMA do cabeçalho de matrícula. Recortar a via a partir dele
+     * deixava o número de fora, e a continuação da folha 2/2 era descartada
+     * como se fosse a via repetida — perdendo metade dos proventos de quem
+     * teve férias no mês (achado A21).
+     */
+    private static final String INICIO_DA_VIA = "Recibo de Pagamento";
+
+    private static final String CABECALHO_DA_MATRICULA = "Matr";
     private static final String CABECALHO_DAS_RUBRICAS = "Descri";
     private static final String TOTAIS = "TOTAL DE PROVENTOS";
     private static final String LIQUIDO = "QUIDO A RECEBER";
@@ -61,28 +82,73 @@ public final class LeitorDeContracheque {
             "salario_contratual", "base_inss", "base_fgts", "fgts_mes", "base_irrf");
 
     public FolhaDeCompetencia ler(TextoExtraido texto) {
-        Map<String, ItemDaFolha> porMatricula = new LinkedHashMap<>();
+        // Chave: matrícula + número da folha. Distingue as duas situações que
+        // parecem a mesma coisa e não são — a VIA repetida (achado A17), que é
+        // descartada, e a CONTINUAÇÃO em outra folha (achado A21), que é unida.
+        Map<String, ItemDaFolha> porFolha = new LinkedHashMap<>();
         String competencia = competenciaDe(texto.textoCompleto());
 
         for (PaginaExtraida pagina : texto.paginas()) {
             List<LinhaVisual> linhas = LeitorDeTabela.agruparEmLinhas(pagina);
             for (List<LinhaVisual> via : separarVias(linhas)) {
                 ItemDaFolha item = montar(via, competencia);
-                // A17: as duas vias da mesma página são idênticas. A primeira vence.
                 if (item != null) {
-                    porMatricula.putIfAbsent(item.matricula(), item);
+                    porFolha.putIfAbsent(item.matricula() + "#" + folhaDaVia(via), item);
                 }
             }
         }
+
+        Map<String, ItemDaFolha> porMatricula = new LinkedHashMap<>();
+        porFolha.forEach((chave, item) -> porMatricula.merge(
+                item.matricula(), item, LeitorDeContracheque::unir));
         return new FolhaDeCompetencia(competencia, new ArrayList<>(porMatricula.values()));
     }
 
-    /** Cada recibo da página, delimitado pelo cabeçalho "Matrícula Nome". */
+    /** Número da folha dentro do recibo; 1 quando o documento não declara. */
+    private static int folhaDaVia(List<LinhaVisual> via) {
+        for (LinhaVisual l : via) {
+            Matcher m = FLS.matcher(l.texto());
+            if (m.find()) {
+                return Integer.parseInt(m.group(1));
+            }
+        }
+        return 1;
+    }
+
+    /**
+     * Une a continuação à folha anterior do mesmo recibo.
+     *
+     * <p>As rubricas se somam na ordem; os totais, o líquido e as bases vêm da
+     * folha que os imprime — a última. Tomar o valor não nulo, e não o último
+     * incondicionalmente, é o que impede que uma folha sem totais apague os que
+     * a anterior trazia.
+     */
+    private static ItemDaFolha unir(ItemDaFolha a, ItemDaFolha b) {
+        List<Rubrica> proventos = new ArrayList<>(a.proventos());
+        proventos.addAll(b.proventos());
+        List<Rubrica> descontos = new ArrayList<>(a.descontos());
+        descontos.addAll(b.descontos());
+        return new ItemDaFolha(a.matricula(), a.nome(), primeiro(a.cpf(), b.cpf()),
+                a.competencia(), proventos, descontos,
+                primeiro(b.totalProventos(), a.totalProventos()),
+                primeiro(b.totalDescontos(), a.totalDescontos()),
+                primeiro(b.liquido(), a.liquido()),
+                primeiro(b.baseFgts(), a.baseFgts()),
+                primeiro(b.fgtsMes(), a.fgtsMes()),
+                primeiro(b.baseInss(), a.baseInss()),
+                primeiro(b.baseIrrf(), a.baseIrrf()),
+                a.resultados().isEmpty() ? b.resultados() : a.resultados());
+    }
+
+    private static <T> T primeiro(T preferido, T alternativo) {
+        return preferido != null ? preferido : alternativo;
+    }
+
+    /** Cada recibo da página, do título ao começo do próximo. */
     private static List<List<LinhaVisual>> separarVias(List<LinhaVisual> linhas) {
         List<Integer> inicios = new ArrayList<>();
         for (int i = 0; i < linhas.size(); i++) {
-            String t = linhas.get(i).texto();
-            if (t.startsWith(INICIO_DA_VIA) && t.contains("Nome")) {
+            if (linhas.get(i).texto().contains(INICIO_DA_VIA)) {
                 inicios.add(i);
             }
         }
@@ -95,7 +161,11 @@ public final class LeitorDeContracheque {
     }
 
     private ItemDaFolha montar(List<LinhaVisual> via, String competencia) {
-        Matcher m = MATRICULA_E_NOME.matcher(depoisDe(via, 0));
+        int iMatricula = indiceDoCabecalhoDaMatricula(via);
+        if (iMatricula < 0) {
+            return null;
+        }
+        Matcher m = MATRICULA_E_NOME.matcher(depoisDe(via, iMatricula));
         if (!m.find()) {
             return null;
         }
@@ -204,7 +274,7 @@ public final class LeitorDeContracheque {
         }
         BigDecimal valor = aDecimal(numeros.get(numeros.size() - 1));
         BigDecimal quantidade = numeros.size() > 1 ? aDecimal(numeros.get(0)) : null;
-        destino.add(new Rubrica(descricao, quantidade, valor));
+        destino.add(Rubrica.semCodigo(descricao, quantidade, valor));
     }
 
     /** O rodapé de bases: rótulos alinhados à esquerda, um valor sob cada um. */
@@ -226,6 +296,22 @@ public final class LeitorDeContracheque {
             }
         });
         return bases;
+    }
+
+    /**
+     * Onde está o cabeçalho "Matrícula Nome" dentro da via.
+     *
+     * <p>Exige as duas palavras: a linha do estabelecimento traz "Matriz", que
+     * um {@code contains("Matr")} sozinho casaria.
+     */
+    private static int indiceDoCabecalhoDaMatricula(List<LinhaVisual> via) {
+        for (int i = 0; i < via.size(); i++) {
+            String t = via.get(i).texto();
+            if (t.startsWith(CABECALHO_DA_MATRICULA) && t.contains("Nome")) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private static String depoisDe(List<LinhaVisual> via, int indice) {
