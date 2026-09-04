@@ -739,3 +739,46 @@ Um extrator que pegasse "a primeira data numérica do documento" daria uma certi
 A FOPAG é emitida **por empresa**, não por contrato: as páginas se agrupam por centro de custo. O leitor passou a carregar o centro de custo em cada item, e `FolhaDeCompetencia.doCentroDeCusto` recorta antes de somar.
 
 Sem isso, a conciliação de um contrato incluiria colaboradores de outro — e a divergência apareceria em **todas** as regras de valor, com os dois lados corretos.
+
+---
+
+## 24. O motor de conciliação — fase 1b
+
+Com a folha estruturada e os campos extraíveis, as regras do cap. 9 deixam de ser inertes. O motor separa o que é **código** do que é **cadastro**: a lógica de cada regra é código revisado; a **tolerância** e o **modo** são cadastro que a área demandante ajusta sem nova versão do sistema.
+
+### O pareamento, que é o que faltava para os comprovantes
+
+Os comprovantes bancários não se distinguem por conteúdo — os do INSS e do IRRF do Santander são textualmente idênticos. O cap. 8.5 já dizia o que fazer: *"identificado pelo pareamento: valor + data + identificador da obrigação"*.
+
+Um comprovante pareia quando o valor bate dentro da tolerância **e** (o identificador coincide **ou** o pagamento ocorreu até o vencimento mais a carência). O `ou` não é frouxidão: **o comprovante real do FGTS é um PIX** e não carrega o identificador da guia. Exigi-lo reprovaria um pagamento legítimo.
+
+Duas regras de ordem que a implementação exigiu:
+
+- **Identificador primeiro, valor e data depois.** O pareamento por identificador é certo; o por valor e data é inferência. Na ordem inversa, a inferência consome o comprovante que casaria exatamente com outra obrigação.
+- **Um comprovante pareia uma vez só.** Dois pagamentos do mesmo valor são dois pagamentos; reusar um esconderia uma obrigação não paga. É o achado A17 outra vez — contar duas vezes o mesmo documento produz um resultado bonito e falso.
+
+**Um defeito que o teste pegou:** duas obrigações de mesmo valor e vencimento são `record`s **iguais**, e o pareamento por igualdade tratava as duas como uma — dando uma delas por paga sem comprovante nenhum. O pareamento passou a ser por posição.
+
+### Resultado sobre os documentos reais
+
+| Regra | Resultado |
+|---|---|
+| **R01** guia do FGTS × comprovante | **CONFORME** — R$ 119.301,51, pareado por valor e data |
+| **R08** VA/VR × folha (contrato DOCAS) | **DIVERGENTE** — R$ 144,00 na matrícula 100787 |
+| **R09** base FGTS × guia | **NÃO APLICÁVEL** — e este é o resultado importante |
+
+### R09 e o falso positivo que o motor recusa produzir
+
+A guia do FGTS é da **empresa inteira**: 157 trabalhadores, R$ 119.301,51. A folha do ciclo é o recorte de um centro de custo: 5 colaboradores, R$ 84.456,43 de base.
+
+Rodadas uma contra a outra, dariam **divergência de R$ 115 mil com os dois documentos corretos** — comparando populações diferentes. O motor recusa a comparação e diz por quê, em vez de produzir o veredito. Recusar é o resultado certo; produzir seria o falso positivo do risco P01.
+
+**Consequência para o cadastro:** cada regra precisa declarar de que escopo é a folha que ela consome. Regras corporativas (R09, R10) exigem a folha completa da competência; regras de contrato (R05, R07, R08) usam o recorte.
+
+### O princípio 1 do cap. 1, executável
+
+Uma regra cadastrada em modo `BLOQUEIO` **mas sem tolerância** opera em `ALERTA` e não trava faturamento. Está no código, no banco (restrição `regra_conc_sem_tolerancia_nao_bloqueia`) e agora num teste que verifica os dois caminhos.
+
+### A tolerância da R09 tem de ser percentual
+
+Registrado na Parte I e agora exercitado: 8% da soma das bases deu R$ 3.975,45 e a soma do FGTS impresso deu R$ 3.975,44 — **um centavo**, de arredondamento por colaborador. Com oito colaboradores o erro é um centavo; com oitocentos, não é. Uma tolerância absoluta calibrada nesta folha reprovaria a próxima.
