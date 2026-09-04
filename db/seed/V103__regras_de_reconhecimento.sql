@@ -72,8 +72,10 @@ FROM (VALUES
    {"expressao": "certidao negativa de debitos", "peso": 2},
    {"expressao": "cf/df", "peso": 1}]'::jsonb,
  '[{"nome": "cnpj",   "padrao": "cnpj:? ?(\\d{2}\\.\\d{3}\\.\\d{3}/\\d{4}-\\d{2})", "grupo": 1},
-   {"nome": "numero", "padrao": "certidao no:? ?(\\d+)", "grupo": 1}]'::jsonb,
- '[{"campo": "cnpj", "formato": "cnpj", "motivo": "V3 confere a titularidade da certidão estadual/distrital"}]'::jsonb),
+   {"nome": "numero", "padrao": "certidao no:? ?(\\d+)", "grupo": 1},
+   {"nome": "validade", "padrao": "valida ate (\\d{1,2} de \\w+ de \\d{4})", "grupo": 1}]'::jsonb,
+ '[{"campo": "cnpj", "formato": "cnpj", "motivo": "V3 confere a titularidade da certidão estadual/distrital"},
+   {"campo": "validade", "formato": "data_por_extenso", "motivo": "V5 confere a vigência — esta certidão escreve a data por extenso (achado A25)"}]'::jsonb),
 
 ('CER.SICAF', NULL,
  '[{"expressao": "sistema de cadastramento unificado de fornecedores", "peso": 3, "discriminante": true},
@@ -121,20 +123,51 @@ FROM (VALUES
    {"expressao": "periodo de apuracao", "peso": 1},
    {"expressao": "composicao do documento de arrecadacao", "peso": 1}]'::jsonb,
  '[{"nome": "cnpj",        "padrao": "(\\d{2}\\.\\d{3}\\.\\d{3}/\\d{4}-\\d{2})", "grupo": 1},
-   {"nome": "valor_total", "padrao": "valor total do documento ([\\d.]+,\\d{2})", "grupo": 1}]'::jsonb,
+   {"nome": "valor_total", "padrao": "valor total do documento ([\\d.]+,\\d{2})", "grupo": 1},
+   {"nome": "competencia", "modo": "ABAIXO_DO_ROTULO",
+    "rotulos": ["Período de Apuração", "Data de Vencimento", "Número do Documento"],
+    "rotulo": "Período de Apuração"},
+   {"nome": "vencimento", "modo": "ABAIXO_DO_ROTULO",
+    "rotulos": ["Período de Apuração", "Data de Vencimento", "Número do Documento"],
+    "rotulo": "Data de Vencimento", "padrao": "\\d{2}/\\d{2}/\\d{4}"},
+   {"nome": "numero_documento", "modo": "ABAIXO_DO_ROTULO",
+    "rotulos": ["Período de Apuração", "Data de Vencimento", "Número do Documento"],
+    "rotulo": "Número do Documento"}]'::jsonb,
  '[{"campo": "cnpj",        "formato": "cnpj",  "motivo": "V3 confere de quem é a declaração"},
-   {"campo": "valor_total", "formato": "valor", "motivo": "R02 concilia o total da DCTFWeb com a soma dos DARF pagos"}]'::jsonb),
+   {"campo": "valor_total", "formato": "valor", "motivo": "R02 concilia o total da DCTFWeb com a soma dos DARF pagos"},
+   {"campo": "competencia", "formato": "texto", "motivo": "V4 confere se a declaração é da competência exigida"}]'::jsonb),
 
 -- ---------------------------------------------------------------------------
 -- FGTS
 -- ---------------------------------------------------------------------------
+-- Achado A20 resolvido: vencimento, identificador, competência e CNPJ são
+-- TABULARES nesta guia — rótulos numa linha, valores na de baixo. Nenhum casa
+-- por regex de vizinhança, e todos casam por coordenada. A coluna "FGTS Total"
+-- é numérica e por isso alinhada à DIREITA: declará-la à esquerda devolve o
+-- valor da coluna vizinha (0,00 em vez de 119.301,51).
 ('FGT.GUIA', NULL,
  '[{"expressao": "guia do fgts digital", "peso": 3, "discriminante": true},
    {"expressao": "valor a recolher", "peso": 2},
    {"expressao": "identificador", "peso": 1},
    {"expressao": "pagar este documento ate", "peso": 1}]'::jsonb,
- '[{"nome": "valor", "padrao": "valor a recolher[^0-9]{0,40}([\\d.]+,\\d{2})", "grupo": 1}]'::jsonb,
- '[{"campo": "valor", "formato": "valor", "motivo": "R01 concilia o valor da guia com o comprovante de pagamento"}]'::jsonb),
+ '[{"nome": "valor", "padrao": "valor a recolher[^0-9]{0,40}([\\d.]+,\\d{2})", "grupo": 1},
+   {"nome": "vencimento", "modo": "ABAIXO_DO_ROTULO",
+    "rotulos": ["Pagar este documento até"], "rotulo": "Pagar este documento até",
+    "padrao": "\\d{2}/\\d{2}/\\d{4}"},
+   {"nome": "cnpj", "modo": "ABAIXO_DO_ROTULO",
+    "rotulos": ["CPF/CNPJ do Empregador", "Nome/Razão Social do Empregador"],
+    "rotulo": "CPF/CNPJ do Empregador"},
+   {"nome": "identificador", "modo": "ABAIXO_DO_ROTULO",
+    "rotulos": ["Núm. de Pág.", "Identificador", "Tag"], "rotulo": "Identificador",
+    "padrao": "\\d{16}-\\d"},
+   {"nome": "competencia", "modo": "ABAIXO_DO_ROTULO",
+    "rotulos": ["Competência", "Trabalhadores", "FGTS Mensal", "FGTS Rescisório",
+                "Compensatória", "Encargos", "FGTS Total"],
+    "rotulo": "Competência", "padrao": "\\d{2}/\\d{4}"}]'::jsonb,
+ '[{"campo": "valor", "formato": "valor", "motivo": "R01 concilia o valor da guia com o comprovante de pagamento"},
+   {"campo": "vencimento", "formato": "data", "motivo": "R01 confere se o pagamento ocorreu até o vencimento"},
+   {"campo": "cnpj", "formato": "cnpj", "motivo": "V3 confere a titularidade — aqui só a raiz, achado A6"},
+   {"campo": "competencia", "formato": "competencia", "motivo": "V4 confere se a guia é da competência exigida"}]'::jsonb),
 
 ('FGT.RELATORIO_DIGITAL', NULL,
  '[{"expressao": "relacao de trabalhadores", "peso": 3, "discriminante": true},

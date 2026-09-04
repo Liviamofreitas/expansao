@@ -149,8 +149,8 @@ DECLARE
     -- Só a carga: as regras de fixture dos testes acima nascem incompletas de
     -- propósito, para exercitar as restrições.
     CARGA      constant text := 'carga-inicial-f1-03';
-    conhecidos text[] := ARRAY['cpf', 'cnpj', 'data', 'competencia', 'valor',
-                               'nome', 'natureza', 'inteiro', 'texto'];
+    conhecidos text[] := ARRAY['cpf', 'cnpj', 'data', 'data_por_extenso', 'competencia',
+                               'valor', 'nome', 'natureza', 'inteiro', 'texto'];
 BEGIN
     SELECT count(*) INTO n FROM regra_reconhecimento WHERE criado_por = CARGA;
     IF n = 0 THEN

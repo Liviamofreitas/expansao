@@ -168,6 +168,27 @@ public final class LeitorDeTabela {
      * como glifo, então o índice do texto não é o índice do glifo. Refaz-se a
      * contagem pulando os espaços inseridos.
      */
+    /**
+     * A faixa horizontal que um rótulo sozinho ocupa na linha.
+     *
+     * <p>Serve ao rótulo que não tem vizinho na mesma linha: ali a coluna não é
+     * "da borda até o próximo rótulo", é a extensão do próprio rótulo. Usar a
+     * linha inteira faria o valor ser procurado em qualquer lugar abaixo, e o
+     * primeiro texto que aparecesse — que costuma ser o cabeçalho do bloco
+     * seguinte — seria tomado como valor.
+     */
+    public static Coluna faixaDo(LinhaVisual cabecalho, String rotulo) {
+        String texto = cabecalho.texto();
+        int achado = texto.indexOf(rotulo);
+        if (achado < 0) {
+            throw new IllegalArgumentException(
+                    "rótulo '" + rotulo + "' não encontrado na linha: " + texto);
+        }
+        return new Coluna(rotulo,
+                xDoCaractere(cabecalho, texto, achado),
+                xFinalDoCaractere(cabecalho, texto, achado + rotulo.length() - 1) + 1f);
+    }
+
     private static float xDoCaractere(LinhaVisual linha, String texto, int indice) {
         int visiveis = 0;
         for (int i = 0; i < indice; i++) {

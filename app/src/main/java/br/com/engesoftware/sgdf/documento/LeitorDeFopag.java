@@ -122,6 +122,11 @@ public final class LeitorDeFopag {
 
     private List<ItemDaFolha> itensDaPagina(List<LinhaVisual> linhas, String competencia) {
         List<ItemDaFolha> itens = new ArrayList<>();
+        // A FOPAG é emitida por EMPRESA, não por contrato: as páginas se
+        // agrupam por centro de custo, e o recorte de um ciclo de faturamento é
+        // o centro de custo. Sem carregá-lo, a conciliação de um contrato
+        // somaria colaboradores de outro.
+        String centro = centroDeCusto(linhas);
         String matricula = null;
         String nome = null;
         List<Rubrica> proventos = new ArrayList<>();
@@ -133,7 +138,7 @@ public final class LeitorDeFopag {
             if (f.find()) {
                 if (matricula != null) {
                     itens.add(montar(matricula, nome, competencia,
-                            proventos, descontos, resultados));
+                            proventos, descontos, resultados, centro));
                 }
                 matricula = f.group(1);
                 nome = f.group(2).trim();
@@ -150,21 +155,22 @@ public final class LeitorDeFopag {
             resultado(resultados, linha.textoEntre(FIM_DOS_DESCONTOS, Float.POSITIVE_INFINITY));
         }
         if (matricula != null) {
-            itens.add(montar(matricula, nome, competencia, proventos, descontos, resultados));
+            itens.add(montar(matricula, nome, competencia, proventos, descontos,
+                    resultados, centro));
         }
         return itens;
     }
 
     private static ItemDaFolha montar(String matricula, String nome, String competencia,
                                       List<Rubrica> proventos, List<Rubrica> descontos,
-                                      Map<String, BigDecimal> resultados) {
+                                      Map<String, BigDecimal> resultados, String centro) {
         // A FOPAG não imprime CPF: a chave dela é a matrícula, e é por isso que
         // a junção com os documentos de benefício tem de ser por matrícula
         // sempre que o outro lado a traga (achado A14).
         return new ItemDaFolha(matricula, nome, null, competencia, proventos, descontos,
                 resultados.get(TOTAL_PROVENTOS), resultados.get(TOTAL_DESCONTOS),
                 resultados.get(LIQUIDO), resultados.get(BASE_FGTS), resultados.get(FGTS_MES),
-                resultados.get(BASE_INSS_TETO), resultados.get(BASE_IRRF), resultados);
+                resultados.get(BASE_INSS_TETO), resultados.get(BASE_IRRF), resultados, centro);
     }
 
     private static void acrescentar(List<Rubrica> destino, String celula) {
@@ -205,8 +211,8 @@ public final class LeitorDeFopag {
         descontos.addAll(b.descontos());
         Map<String, BigDecimal> resultados = new LinkedHashMap<>(a.resultados());
         resultados.putAll(b.resultados());
-        return montar(a.matricula(), a.nome(), a.competencia(),
-                proventos, descontos, resultados);
+        return montar(a.matricula(), a.nome(), a.competencia(), proventos, descontos,
+                resultados, a.centroDeCusto() != null ? a.centroDeCusto() : b.centroDeCusto());
     }
 
     private static List<String> numerosDe(String texto) {

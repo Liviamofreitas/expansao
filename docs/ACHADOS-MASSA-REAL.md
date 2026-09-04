@@ -665,3 +665,77 @@ Isto **não é conclusão de erro** — é uma pergunta com evidência anexada, 
 ### Uma correção de escopo que isto impõe
 
 O `centro de custo 104501 - DOCAS - OUTSOURCING` aparece em todos os cinco documentos. A FOPAG é emitida **por empresa**, não por contrato — as páginas se agrupam por centro de custo. O recorte de um ciclo de faturamento é o **centro de custo**, e o leitor precisa filtrar por ele antes de somar, ou a conciliação de um contrato incluirá colaboradores de outro. Nesta massa há um só centro de custo, então a questão não apareceu; numa folha completa, apareceria em todo lugar. Fica registrado como trabalho pendente.
+
+---
+
+# Parte III — as pendências de engenharia fechadas
+
+## 20. V3 fechada — titularidade por raiz e com máscara (achados A6, A7, A16)
+
+Os achados marcavam A6 e A7 como *"o mais consequente em aberto"*. O CNPJ aparece em três formas que a comparação por igualdade recusa:
+
+| Documento | Como aparece | |
+|---|---|---|
+| Guia do FGTS Digital | `00.681.946` | truncado na raiz (A6) |
+| Comprovante SICOOB | `**.681.946/0001-**` | mascarado (A7) |
+| Rodapé da Flash | `32.223.020. 0001-18` | um **terceiro ponto** onde deveria haver barra, e um espaço (A16) |
+
+A comparação passou a ser **posição a posição, com coringa**, sobre dígitos sem separador. Nos nove documentos reais testados, **os nove aprovam** — inclusive os dois que a igualdade recusaria.
+
+**Três decisões que valem registrar:**
+
+1. **Um CNPJ de terceiro no documento não reprova.** A relação da Flash traz o CNPJ da Flash no rodapé; o comprovante do SICOOB traz o do destinatário. O que reprova é *nenhum* dos CNPJs do documento poder ser o da empresa — não a presença de outros.
+
+2. **Evidência parcial fica no registro.** `**.681.946/0001-**` esconde dois dígitos da raiz: cem raízes casariam com ele. Aprovar é certo — recusar reprovaria um comprovante legítimo — mas o resultado carrega `evidencia_parcial` dizendo em que a aprovação se apoiou. O mesmo para a raiz sozinha, que prova a empresa e não o estabelecimento.
+
+3. **Exigir CNPJ completo é decisão do cadastro, não da validação.** Se um tipo é exigido por estabelecimento, a raiz não basta — e quem diz isso é o cadastro.
+
+## 21. A20 fechado — extração por coordenada ligada ao cadastro
+
+O cadastro só sabia expressar padrão de texto. Agora `regra_reconhecimento.campos` aceita dois modos:
+
+| Modo | Quando | Exemplo |
+|---|---|---|
+| `TEXTO` | rótulo seguido do valor na mesma linha física | `cnpj: 00.681.946/0001-60` |
+| `ABAIXO_DO_ROTULO` | tabela — rótulos numa linha, valores na de baixo | tudo o que faltava |
+
+**Os campos que estavam em aberto agora saem:**
+
+```
+GFD guia do FGTS   vencimento    '20/07/2026'
+                   cnpj          '00.681.946'
+                   identificador '0126071549847969-2'
+                   competência   '06/2026'
+                   valor         '119.301,51'
+DCTFWeb            competência   'Junho/2026'
+                   nº documento  '07.16.26196.1378103-1'
+```
+
+**Duas regras que a massa impôs ao mecanismo:**
+
+**A linha de valores é ancorada na PRIMEIRA coluna.** "A primeira linha abaixo com conteúdo nesta faixa" não basta: na DCTFWeb, o rótulo solto `Pagar este documento até` fica *entre* o cabeçalho e a linha dos números, e caía na faixa da terceira coluna. O `Número do Documento` saía como `"Pagar este documento até"`.
+
+**Coluna numérica é alinhada à DIREITA, e o cadastro declara.** Os valores crescem para a esquerda a partir da borda; a fronteira deduzida do início do rótulo os corta. Declarada à esquerda, a coluna `FGTS Total` devolvia `0,00` — o valor da coluna vizinha — em vez de `119.301,51`.
+
+**Rótulo sozinho na linha tem a faixa da própria extensão.** Usar a linha inteira faria o cabeçalho do bloco seguinte, impresso entre o rótulo e o seu valor, ser tomado como valor.
+
+## 22. A25 — data por extenso, e a armadilha do decreto
+
+A certidão negativa do GDF **não imprime a validade em `dd/mm/aaaa`**:
+
+```
+Certidão expedida conforme Decreto Distrital nº 23.873 de 04/07/2003, gratuitamente.
+Válida até 27 de agosto de 2026. *
+```
+
+Duas coisas ao mesmo tempo: a validade está **por extenso**, e o documento contém uma data numérica que é do **decreto**, de 2003.
+
+Um extrator que pegasse "a primeira data numérica do documento" daria uma certidão **vencida há vinte anos** — e V5 reprovaria um documento perfeitamente válido, que é o falso positivo do risco P01.
+
+**Regra adotada:** extração de data é sempre **ancorada num rótulo**, e a janela para no fim da frase. O formato por extenso entrou no catálogo do cadastro como `data_por_extenso`.
+
+## 23. Recorte por centro de custo
+
+A FOPAG é emitida **por empresa**, não por contrato: as páginas se agrupam por centro de custo. O leitor passou a carregar o centro de custo em cada item, e `FolhaDeCompetencia.doCentroDeCusto` recorta antes de somar.
+
+Sem isso, a conciliação de um contrato incluiria colaboradores de outro — e a divergência apareceria em **todas** as regras de valor, com os dois lados corretos.

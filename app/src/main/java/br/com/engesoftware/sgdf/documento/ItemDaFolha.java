@@ -27,13 +27,16 @@ import java.util.Optional;
  * @param baseIrrf        base de cálculo do IRRF — insumo da R10
  * @param resultados      coluna RESULTADOS da FOPAG, por código de rubrica; vazio
  *                        quando a fonte é o contracheque, que não a imprime
+ * @param centroDeCusto   centro de custo do colaborador na competência; nulo
+ *                        quando a fonte não o declara
  */
 public record ItemDaFolha(String matricula, String nome, String cpf, String competencia,
                           List<Rubrica> proventos, List<Rubrica> descontos,
                           BigDecimal totalProventos, BigDecimal totalDescontos,
                           BigDecimal liquido, BigDecimal baseFgts, BigDecimal fgtsMes,
                           BigDecimal baseInss, BigDecimal baseIrrf,
-                          java.util.Map<String, BigDecimal> resultados) {
+                          java.util.Map<String, BigDecimal> resultados,
+                          String centroDeCusto) {
 
     public ItemDaFolha {
         proventos = List.copyOf(proventos);
@@ -49,7 +52,7 @@ public record ItemDaFolha(String matricula, String nome, String cpf, String comp
                        BigDecimal baseInss, BigDecimal baseIrrf) {
         this(matricula, nome, cpf, competencia, proventos, descontos, totalProventos,
                 totalDescontos, liquido, baseFgts, fgtsMes, baseInss, baseIrrf,
-                java.util.Map.of());
+                java.util.Map.of(), null);
     }
 
     /** Valor de um código da coluna RESULTADOS, ou nulo. */

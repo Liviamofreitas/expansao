@@ -137,7 +137,8 @@ public final class LeitorDeContracheque {
                 primeiro(b.fgtsMes(), a.fgtsMes()),
                 primeiro(b.baseInss(), a.baseInss()),
                 primeiro(b.baseIrrf(), a.baseIrrf()),
-                a.resultados().isEmpty() ? b.resultados() : a.resultados());
+                a.resultados().isEmpty() ? b.resultados() : a.resultados(),
+                primeiro(a.centroDeCusto(), b.centroDeCusto()));
     }
 
     private static <T> T primeiro(T preferido, T alternativo) {

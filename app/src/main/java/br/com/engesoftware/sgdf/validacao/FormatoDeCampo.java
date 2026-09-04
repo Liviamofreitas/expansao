@@ -62,6 +62,19 @@ public record FormatoDeCampo(String nome, Pattern expressao, String descricao) {
             de("natureza", "negativa|positiva com efeitos de negativa",
                     "negativa ou positiva com efeitos de negativa");
 
+    /**
+     * Data escrita por extenso — {@code 27 de agosto de 2026}.
+     *
+     * <p>Achado A25: a certidão negativa do GDF não imprime a validade em
+     * dd/mm/aaaa. Um formato que só aceitasse a forma numérica reprovaria uma
+     * certidão válida.
+     */
+    public static final FormatoDeCampo DATA_POR_EXTENSO =
+            de("data_por_extenso",
+                    "\\d{1,2} de (janeiro|fevereiro|mar\u00e7o|abril|maio|junho|julho"
+                            + "|agosto|setembro|outubro|novembro|dezembro) de \\d{4}",
+                    "data por extenso, como \"27 de agosto de 2026\"");
+
     public static final FormatoDeCampo INTEIRO =
             de("inteiro", "\\d+", "número inteiro");
 
@@ -97,5 +110,6 @@ public record FormatoDeCampo(String nome, Pattern expressao, String descricao) {
     }
 
     private static final java.util.List<FormatoDeCampo> CATALOGO = java.util.List.of(
-            CPF, CNPJ, DATA, COMPETENCIA, VALOR, NOME_DE_PESSOA, NATUREZA, INTEIRO, TEXTO);
+            CPF, CNPJ, DATA, DATA_POR_EXTENSO, COMPETENCIA, VALOR, NOME_DE_PESSOA,
+            NATUREZA, INTEIRO, TEXTO);
 }

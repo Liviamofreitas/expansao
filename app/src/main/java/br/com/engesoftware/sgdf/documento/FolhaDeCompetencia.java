@@ -30,6 +30,29 @@ public record FolhaDeCompetencia(String competencia, List<ItemDaFolha> itens) {
         itens = List.copyOf(itens);
     }
 
+    /**
+     * A folha recortada num centro de custo.
+     *
+     * <p>A FOPAG é emitida por EMPRESA, não por contrato: as páginas se agrupam
+     * por centro de custo, e o recorte de um ciclo de faturamento é o centro de
+     * custo. Conciliar sem recortar somaria colaboradores de outro contrato —
+     * e a divergência apareceria em todas as regras de valor, com os dois lados
+     * corretos.
+     */
+    public FolhaDeCompetencia doCentroDeCusto(String centro) {
+        List<ItemDaFolha> recorte = itens.stream()
+                .filter(i -> centro == null ? i.centroDeCusto() == null
+                                            : centro.equals(i.centroDeCusto()))
+                .toList();
+        return new FolhaDeCompetencia(competencia, recorte);
+    }
+
+    /** Centros de custo presentes na folha, na ordem em que aparecem. */
+    public List<String> centrosDeCusto() {
+        return itens.stream().map(ItemDaFolha::centroDeCusto)
+                .filter(java.util.Objects::nonNull).distinct().toList();
+    }
+
     public Optional<ItemDaFolha> porMatricula(String matricula) {
         return itens.stream().filter(i -> i.matricula().equals(matricula)).findFirst();
     }

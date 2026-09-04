@@ -32,6 +32,9 @@ public final class TestesDeTabela {
         reconstrucaoDeEspacos();
         blocosPorLacunaVertical();
         leituraPorBloco();
+        campoAbaixoDoRotulo();
+        campoNumericoAlinhadoADireita();
+        rotuloSozinhoNaLinha();
 
         System.out.println();
         falhas.forEach(f -> System.out.println("  FALHA " + f));
@@ -187,6 +190,72 @@ public final class TestesDeTabela {
                         && segundo.get("total").equals("R$ 865,19"));
     }
 
+    /**
+     * Achado A20: em layout tabular os rotulos vem todos primeiro e os valores
+     * todos depois. Nenhuma janela de vizinhanca alcanca o valor sem atravessar
+     * os outros rotulos.
+     */
+    static void campoAbaixoDoRotulo() throws Exception {
+        PaginaExtraida pg = new ExtratorPdfBox().extrair(guiaComRotulos()).paginas().get(0);
+        List<String> rotulos = List.of("CPF/CNPJ do Empregador", "Nome/Razao Social");
+
+        CampoExtraido cnpj = ExtratorPorRotulo.valorAbaixoDe(pg, rotulos,
+                "CPF/CNPJ do Empregador", "cnpj");
+        CampoExtraido nome = ExtratorPorRotulo.valorAbaixoDe(pg, rotulos,
+                "Nome/Razao Social", "nome");
+
+        ok("A20 . o valor sai da coluna do seu rotulo",
+                cnpj != null && cnpj.valor().equals("00.681.946"));
+        ok("A20 . e o da coluna vizinha nao se mistura",
+                nome != null && nome.valor().equals("ENGESOFTWARE TECNOLOGIA S/A"));
+        ok("A20 . o campo extraido guarda de onde veio",
+                cnpj.posicao() != null && !cnpj.posicao().retangulos().isEmpty());
+
+        ok("A20 . rotulo que nao esta entre os declarados e erro de cadastro",
+                recusa(() -> ExtratorPorRotulo.valorAbaixoDe(pg, rotulos, "Inexistente", "x")));
+    }
+
+    /**
+     * Coluna numerica cresce para a ESQUERDA a partir da borda direita. Declarar
+     * o alinhamento errado devolve o valor da coluna vizinha — na guia real,
+     * 0,00 em vez de 119.301,51.
+     */
+    static void campoNumericoAlinhadoADireita() throws Exception {
+        PaginaExtraida pg = new ExtratorPdfBox().extrair(guiaComRotulos()).paginas().get(0);
+        List<String> rotulos = List.of("Competencia", "Encargos", "FGTS Total");
+
+        CampoExtraido esquerda = ExtratorPorRotulo.valorAbaixoDe(pg, rotulos, "FGTS Total",
+                "valor", List.of(LeitorDeTabela.Alinhamento.ESQUERDA,
+                        LeitorDeTabela.Alinhamento.ESQUERDA,
+                        LeitorDeTabela.Alinhamento.ESQUERDA));
+        CampoExtraido direita = ExtratorPorRotulo.valorAbaixoDe(pg, rotulos, "FGTS Total",
+                "valor", List.of(LeitorDeTabela.Alinhamento.ESQUERDA,
+                        LeitorDeTabela.Alinhamento.DIREITA,
+                        LeitorDeTabela.Alinhamento.DIREITA));
+
+        ok("A20 . alinhamento a direita traz o valor da coluna certa",
+                direita != null && direita.valor().endsWith("119.301,51"));
+        ok("A20 . e a esquerda traria o da vizinha — por isso o cadastro declara",
+                esquerda != null && !esquerda.valor().equals(direita.valor()));
+    }
+
+    /**
+     * Rotulo sozinho na linha: a faixa e a extensao dele mesmo. Usar a linha
+     * inteira faria o cabecalho do bloco seguinte, impresso entre o rotulo e o
+     * seu valor, ser tomado como valor.
+     */
+    static void rotuloSozinhoNaLinha() throws Exception {
+        PaginaExtraida pg = new ExtratorPdfBox().extrair(guiaComRotulos()).paginas().get(0);
+
+        CampoExtraido venc = ExtratorPorRotulo.valorAbaixoDe(pg,
+                List.of("Pagar este documento ate"), "Pagar este documento ate", "vencimento");
+
+        ok("A20 . rotulo sozinho encontra o proprio valor",
+                venc != null && venc.valor().equals("20/07/2026"));
+        ok("A20 . e nao o cabecalho que fica no meio do caminho",
+                venc != null && !venc.valor().contains("CPF"));
+    }
+
     // -------------------------------------------------------------------------
 
     /** Layout de duas colunas, como o contracheque: proventos | descontos. */
@@ -272,6 +341,46 @@ public final class TestesDeTabela {
             ByteArrayOutputStream saida = new ByteArrayOutputStream();
             doc.save(saida);
             return saida.toByteArray();
+        }
+    }
+
+    /**
+     * Geometria medida em GFDGUIA_DO_FGTS.pdf: o rotulo "Pagar este documento
+     * ate" sozinho a direita, com o cabecalho de outro bloco entre ele e o seu
+     * valor, e a tabela de competencia com a coluna numerica a direita.
+     */
+    static byte[] guiaComRotulos() throws IOException {
+        try (PDDocument doc = new PDDocument()) {
+            PDPage pagina = new PDPage(PDRectangle.A4);
+            doc.addPage(pagina);
+            try (PDPageContentStream f = new PDPageContentStream(doc, pagina)) {
+                f.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 7);
+                escrever(f, 465.9f, 738.0f, "Pagar este documento ate");
+                escrever(f, 25.0f, 725.0f, "CPF/CNPJ do Empregador");
+                escrever(f, 150.0f, 725.0f, "Nome/Razao Social");
+                escrever(f, 468.1f, 720.3f, "20/07/2026");
+                escrever(f, 88.8f, 711.5f, "00.681.946");
+                escrever(f, 150.0f, 711.5f, "ENGESOFTWARE TECNOLOGIA S/A");
+
+                escrever(f, 25.0f, 598.7f, "Competencia");
+                escrever(f, 300.0f, 598.7f, "Encargos");
+                escrever(f, 400.0f, 598.7f, "FGTS Total");
+                escrever(f, 25.0f, 583.9f, "06/2026");
+                escrever(f, 330.0f, 583.9f, "0,00");
+                escrever(f, 440.0f, 583.9f, "119.301,51");
+            }
+            ByteArrayOutputStream saida = new ByteArrayOutputStream();
+            doc.save(saida);
+            return saida.toByteArray();
+        }
+    }
+
+    static boolean recusa(Runnable acao) {
+        try {
+            acao.run();
+            return false;
+        } catch (IllegalArgumentException e) {
+            return true;
         }
     }
 
