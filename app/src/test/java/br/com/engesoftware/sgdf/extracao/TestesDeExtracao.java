@@ -43,6 +43,10 @@ public final class TestesDeExtracao {
         pdfSemCamadaDeTexto();
         pdfCorrompido();
         serializacaoDaPosicao();
+        espacoRigidoNoTextoReal();
+        ligaduraTipografica();
+        ancoraAtravessandoQuebraDeLinha();
+        arquivoSemExtensao();
 
         System.out.println();
         falhas.forEach(f -> System.out.println("  FALHA " + f));
@@ -136,13 +140,16 @@ public final class TestesDeExtracao {
         byte[] curto = pdfCom("CNPJ 07.237.373/0001-20");   // 22 caracteres
 
         TextoExtraido comPadrao = new ExtratorPdfBox().extrair(curto);
-        ok("Cap. 8.2 . pagina abaixo do limiar padrao (50) e mandada para OCR",
-                comPadrao.exigeOcr());
+        ok("Cap. 8.2 . pagina abaixo do limiar padrao (50) e sinalizada",
+                comPadrao.paginasSemRecuperacao().equals(List.of(1)));
+        // Sem imagem, o OCR nao teria o que recuperar: sinalizar nao e mandar
+        // para OCR. Sao coisas diferentes, e confundi-las gera falso positivo.
+        ok("Cap. 8.2 . mas sem imagem nao ha OCR a fazer", !comPadrao.exigeOcr());
 
         TextoExtraido comLimiarBaixo = new ExtratorPdfBox(
                 new ExtratorPdfBox.Limites(500, 10)).extrair(curto);
-        ok("Cap. 8.2 . o limiar e parametro: com 10, a mesma pagina passa como nativa",
-                !comLimiarBaixo.exigeOcr());
+        ok("Cap. 8.2 . o limiar e parametro: com 10, a mesma pagina passa como suficiente",
+                comLimiarBaixo.paginasSemRecuperacao().isEmpty());
     }
 
     /** Uma pagina digitalizada entre paginas nativas nao pode passar despercebida. */
@@ -152,9 +159,12 @@ public final class TestesDeExtracao {
         byte[] pdf = pdfComPaginas(corpo, "", corpo);
 
         TextoExtraido t = new ExtratorPdfBox().extrair(pdf);
-        ok("Cap. 8.2 . uma pagina sem texto entre nativas e detectada",
-                t.exigeOcr() && t.paginasSemTexto().equals(List.of(2)));
-        ok("Cap. 8.2 . o documento continua marcado como nativo, nao como OCR",
+        // Sem imagem, e folha em branco: um comprovante bancario real de 8
+        // paginas trouxe exatamente isso, e trata-lo como digitalizado mandaria
+        // o documento inteiro para triagem sem necessidade (risco P01).
+        ok("Cap. 8.2 . folha em branco entre nativas NAO dispara OCR",
+                !t.exigeOcr() && t.paginasSemRecuperacao().equals(List.of(2)));
+        ok("Cap. 8.2 . o documento continua marcado como nativo",
                 t.origem() == TextoExtraido.Origem.PDF_NATIVO);
     }
 
@@ -236,9 +246,10 @@ public final class TestesDeExtracao {
         byte[] pdf = pdfVazio();   // pagina em branco: sem camada de texto
         TextoExtraido t = new ExtratorPdfBox().extrair(pdf);
 
-        ok("Cap. 8.2 . pagina sem texto e sinalizada para OCR", t.exigeOcr());
-        ok("Cap. 8.2 . a pagina sem texto e identificada pelo numero",
-                t.paginasSemTexto().equals(List.of(1)));
+        // Pagina em branco (sem texto E sem imagem) nao exige OCR: nao ha
+        // conteudo a recuperar. Ver paginaEmBrancoNoMeio.
+        ok("Cap. 8.2 . pagina em branco e identificada como tal, nao como digitalizada",
+                !t.exigeOcr() && t.paginasSemRecuperacao().equals(List.of(1)));
         ok("Cap. 8.2 . documento inteiro sem texto tem origem OCR",
                 t.origem() == TextoExtraido.Origem.OCR);
     }
@@ -260,6 +271,78 @@ public final class TestesDeExtracao {
         ok("F1-02 . regiao sem retangulo e recusada, pois nao seria auditavel",
                 codigoDeErro(() -> new RegiaoNoDocumento(1, List.of()))
                         .equals("IllegalArgumentException"));
+    }
+
+    // =========================================================================
+    // Achados do primeiro contato com documentos reais do OwnCloud
+    // (certidoes RFB e GDF, DCTFWeb, comprovantes bancarios)
+    // =========================================================================
+
+    /**
+     * A CND da Receita Federal traz 266 NO-BREAK SPACE no corpo. Onde parece
+     * haver espaco, ha U+00A0 — e uma ancora escrita com espaco comum nao
+     * casaria.
+     */
+    static void espacoRigidoNoTextoReal() throws Exception {
+        String comNbsp = "CERTIDAO\u00A0NEGATIVA\u00A0DE\u00A0DEBITOS";
+        TextoNormalizado n = TextoNormalizado.de(comNbsp);
+        ok("Real . NO-BREAK SPACE vira espaco comum na normalizacao",
+                n.texto().equals("certidao negativa de debitos"));
+
+        byte[] pdf = pdfComLinhas(80, 750, 11, comNbsp,
+                "Texto de apoio para a pagina atingir o minimo de caracteres exigido.");
+        TextoExtraido t = new ExtratorPdfBox().extrair(pdf);
+        ok("Real . ancora com espaco comum casa em texto que usa espaco rigido",
+                LocalizadorDeCampos.primeiro(t,
+                        PadraoDeCampo.de("x", "certidao negativa de debitos"), 1.0) != null);
+    }
+
+    /**
+     * Os comprovantes bancarios trazem a ligadura U+FB01 em "deficiencia".
+     * NFKD a desfaz; NFD nao.
+     */
+    static void ligaduraTipografica() {
+        TextoNormalizado n = TextoNormalizado.de("de\uFB01ciencia auditiva");
+        ok("Real . ligadura tipografica e desfeita",
+                n.texto().equals("deficiencia auditiva"));
+        ok("Real . a ligadura, que era 1 caractere, aponta seus 2 caracteres a origem certa",
+                n.origemDe(n.texto().indexOf("fi")) == n.origemDe(n.texto().indexOf("fi") + 1));
+    }
+
+    /**
+     * O achado mais grave: o titulo da CND ocupa duas linhas, e "TRIBUTOS
+     * FEDERAIS" sai como "TRIBUTOS\nFEDERAIS". Como os titulos SAO as ancoras
+     * do cap. 8.5, e titulos longos sempre quebram, sem colapsar separadores
+     * praticamente nenhuma ancora multi-palavra funcionaria.
+     */
+    static void ancoraAtravessandoQuebraDeLinha() throws Exception {
+        byte[] pdf = pdfComLinhas(80, 750, 11,
+                "CERTIDAO POSITIVA COM EFEITOS DE NEGATIVA DE DEBITOS RELATIVOS AOS TRIBUTOS",
+                "FEDERAIS E A DIVIDA ATIVA DA UNIAO",
+                "Nome: ENGESOFTWARE TECNOLOGIA S/A");
+        TextoExtraido t = new ExtratorPdfBox().extrair(pdf);
+
+        CampoExtraido achado = LocalizadorDeCampos.primeiro(t,
+                PadraoDeCampo.de("ancora", "tributos federais"), 1.0);
+        ok("Real . ancora multi-palavra casa atravessando a quebra de linha",
+                achado != null);
+        ok("Real . e a regiao devolve DOIS retangulos, um por linha",
+                achado != null && achado.posicao().retangulos().size() == 2);
+    }
+
+    /**
+     * Um comprovante real chegou do OwnCloud sem extensao nenhuma. Rejeita-lo
+     * perderia documento legitimo; D-07 ja avisa que os arquivos reais nao
+     * seguem a nomenclatura do checklist.
+     */
+    static void arquivoSemExtensao() throws Exception {
+        byte[] pdf = pdfCom("comprovante de pagamento");
+        ok("Real . extensao AUSENTE nao e divergencia: o conteudo decide",
+                DetectorDeMime.conferir(pdf, "COMPROVANTE_PG_IRRF") == DetectorDeMime.Tipo.PDF);
+        // Mas extensao PRESENTE e contraditoria continua sendo rejeitada.
+        ok("Cap. 8.2 . extensao presente e divergente continua rejeitada",
+                codigoDeErro(() -> DetectorDeMime.conferir(pdf, "planilha.xlsx"))
+                        .equals("MIME_DIVERGENTE"));
     }
 
     // =========================================================================

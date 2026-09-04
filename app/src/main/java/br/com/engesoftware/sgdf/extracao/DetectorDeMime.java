@@ -74,7 +74,12 @@ public final class DetectorDeMime {
             throw new ExtracaoInvalida("MIME_DESCONHECIDO",
                     "assinatura binária não reconhecida em " + nomeArquivo);
         }
-        if (!tipo.aceitaExtensao(extensao)) {
+        // Extensão AUSENTE não é divergência. Um comprovante real do OwnCloud
+        // chegou sem extensão nenhuma, e é um PDF válido: rejeitá-lo perderia
+        // documento legítimo. O cap. 8.2 manda o mime_real decidir, e é ele que
+        // decide quando não há extensão para contradizê-lo. D-07 já avisa que os
+        // arquivos reais não seguem a nomenclatura do checklist.
+        if (!extensao.isEmpty() && !tipo.aceitaExtensao(extensao)) {
             throw new ExtracaoInvalida("MIME_DIVERGENTE",
                     nomeArquivo + " declara ." + extensao + " mas o conteúdo é " + tipo.mime);
         }
