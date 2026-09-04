@@ -291,6 +291,16 @@ A causa é o achado **A13**: o nome ocupa duas linhas e invade a faixa dos núme
 
 Isso não é leitura de tabela; é extração por padrão posicional, e fica registrado como trabalho separado. **Não foi implementado** — a calibração por tentativa não convergia, e insistir teria custado mais do que entregar o leitor que já funciona.
 
+> **Correção (A18 resolvido).** O diagnóstico acima estava errado, e o erro era de método: a projeção estava sendo calculada sobre a **página inteira**, onde o rodapé de atendimento e as linhas de texto corrido atravessam todas as faixas e apagam as lacunas. Restrita às linhas de dados, a projeção acha as seis colunas de forma **estável para qualquer largura mínima entre 4 e 10 pontos** — as fronteiras saem em x = 118,4 / 239,4 / 356,9 / 438,4 / 494,9.
+>
+> O que de fato exigia trabalho novo era outra coisa: o nome do funcionário ocupa **até três linhas visuais**, uma acima e uma abaixo da linha dos números, então o registro precisa ser agrupado por lacuna vertical (31 pontos entre registros, 6,5 a 13 dentro) antes de ser recortado por coluna — o mesmo mecanismo do achado A19.
+>
+> **O padrão posicional continuou necessário, mas para outra função.** Não para segmentar as colunas: para **delimitar a região de dados**. Delimitá-la pelo literal `Total Compromissos` é frágil — num comprovante sem esse rodapé o texto de atendimento entra nos dados e destrói a projeção, que foi exatamente como este achado se formou. A âncora `^\d{9}\b` (número do pagamento) marca o início de cada registro, e só os blocos que a contêm entram na projeção. O rodapé deixa de importar.
+>
+> **A verificação é o próprio documento.** O banco imprime `Total Compromissos: 11` e `Valor Total: R$ 60.363,05`. A leitura reproduz os dois exatamente — 11 registros, R$ 60.363,05. Uma extração que não reproduz o rodapé está errada e diz que está.
+>
+> **Ausência de rodapé é divergência, não conformidade.** `COMPROVANTE_PG_FOLHA_6` e `_7` (os documentos vazios do achado A12) leem zero pagamentos e não declaram totais. A primeira versão do registro respondia `CONFERE` — uma falha silenciosa perfeita. Um documento que não pôde ser conferido não confere: são coisas diferentes, e tratá-las como iguais é o pior resultado possível.
+
 ---
 
 ## 5. Correção de classificação de sigilo — evidência para o achado E-05

@@ -20,7 +20,7 @@ rm -rf "$ALVO"
 mkdir -p "$ALVO"
 
 echo "→ compilando"
-javac -Xlint:all -cp "$CP" -d "$ALVO" $(find "$RAIZ/app/src" -name '*.java')
+javac -Xlint:all -encoding UTF-8 -cp "$CP" -d "$ALVO" $(find "$RAIZ/app/src" -name '*.java')
 
 # PDFBox emite avisos de cache de fonte na primeira execução; são ruído de
 # ambiente, não do código, e não devem esconder o resultado dos testes.
@@ -34,3 +34,6 @@ java -cp "$ALVO:$CP" br.com.engesoftware.sgdf.extracao.TestesDeExtracao | filtra
 
 echo "→ leitura de tabela"
 java -cp "$ALVO:$CP" br.com.engesoftware.sgdf.extracao.TestesDeTabela | filtrar
+
+echo "→ leitores de documento (A18)"
+java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" br.com.engesoftware.sgdf.documento.TestesDeDocumento | filtrar

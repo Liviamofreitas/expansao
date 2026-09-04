@@ -382,6 +382,60 @@ public final class LeitorDeTabela {
         return celulas;
     }
 
+    /**
+     * Recorta as linhas de dados de uma tabela como REGISTROS, agrupando por
+     * lacuna vertical antes de recortar por coluna.
+     *
+     * <p>É o par de {@link #lerAbaixoDe} para as tabelas em que um registro não
+     * cabe numa linha. Dois documentos reais da massa precisam disto: a relação
+     * de benefícios da Flash, onde o CPF quebra, e o comprovante de pagamento em
+     * lote do Santander, onde o nome do funcionário ocupa até três linhas.
+     *
+     * @param linhas          todas as linhas da página
+     * @param indiceCabecalho posição do cabeçalho em {@code linhas}
+     * @param lacunaMinima    distância vertical que separa um registro do próximo
+     * @param colunas         faixas das colunas
+     * @param pararEm         texto que encerra a tabela; nulo lê até o fim
+     */
+    public static List<Map<String, String>> lerBlocosAbaixoDe(List<LinhaVisual> linhas,
+                                                              int indiceCabecalho,
+                                                              float lacunaMinima,
+                                                              List<Coluna> colunas,
+                                                              String pararEm) {
+        List<Map<String, String>> resultado = new ArrayList<>();
+        for (List<LinhaVisual> bloco
+                : agruparEmBlocos(dadosAbaixoDe(linhas, indiceCabecalho, pararEm), lacunaMinima)) {
+            Map<String, String> celulas = lerBloco(bloco, colunas);
+            if (celulas.values().stream().anyMatch(v -> !v.isBlank())) {
+                resultado.add(celulas);
+            }
+        }
+        return resultado;
+    }
+
+    /**
+     * As linhas entre o cabeçalho e o fim da tabela, sem as vazias.
+     *
+     * <p>Isolar isto importa: as colunas por projeção precisam ser deduzidas
+     * DESTAS linhas, não da página inteira. Rodapé e texto corrido atravessam
+     * todas as faixas e apagam as lacunas que separam as colunas — foi o que
+     * fez o comprovante em lote parecer não ceder à projeção (achado A18).
+     */
+    public static List<LinhaVisual> dadosAbaixoDe(List<LinhaVisual> linhas,
+                                                  int indiceCabecalho, String pararEm) {
+        List<LinhaVisual> dados = new ArrayList<>();
+        for (int i = indiceCabecalho + 1; i < linhas.size(); i++) {
+            LinhaVisual linha = linhas.get(i);
+            if (pararEm != null && linha.texto().contains(pararEm)) {
+                break;
+            }
+            if (!linha.vazia()) {
+                dados.add(linha);
+            }
+        }
+        return dados;
+    }
+
     /** Todo o texto de um bloco, na ordem de leitura, para reconstituir campos partidos. */
     public static String textoDoBloco(List<LinhaVisual> bloco) {
         StringBuilder sb = new StringBuilder();
