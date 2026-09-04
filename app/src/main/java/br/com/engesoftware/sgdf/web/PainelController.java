@@ -15,7 +15,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * As telas do Anexo 2 — histórias F1-06, F1-07 e F1-10.
+ * As telas do Anexo 2 — histórias F1-07 e F1-10.
+ *
+ * <p>A tela 3 (triagem) saiu daqui na F1-06: ela ganhou escrita e recorte por
+ * contrato, e passou a ter um controlador próprio.
  *
  * <p>Cada método faz a mesma coisa na mesma ordem: pega o ator, <b>pergunta ao
  * Autorizador</b>, e só então consulta. A autorização não é uma anotação: é uma
@@ -58,15 +61,6 @@ public class PainelController {
                 consulta.estadosDoCiclo(cicloId),
                 consulta.motivosDeBloqueio(cicloId),
                 ator.nome());
-    }
-
-    /** Tela 3: fila de triagem. */
-    @GetMapping("/triagem")
-    public List<ItemDeTriagem> triagem(@RequestParam(defaultValue = "50") int limite) {
-        Ator ator = exigir(Permissao.TRIAR, Autorizador.Alvo.nenhum());
-        return consulta.filaDeTriagem(limite).stream()
-                .map(c -> ItemDeTriagem.de(c, podeVerConteudo(ator, c)))
-                .toList();
     }
 
     /** Tela 5: arquivos desconhecidos e conflitos de sincronização (F1-10). */

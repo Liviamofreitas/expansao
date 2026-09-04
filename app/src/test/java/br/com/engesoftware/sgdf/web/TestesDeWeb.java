@@ -1,6 +1,7 @@
 package br.com.engesoftware.sgdf.web;
 
 import br.com.engesoftware.sgdf.persistencia.ConsultaDoPainel;
+import br.com.engesoftware.sgdf.persistencia.RepositorioDeTriagem;
 import br.com.engesoftware.sgdf.persistencia.Sgdf;
 import br.com.engesoftware.sgdf.seguranca.Ator;
 import br.com.engesoftware.sgdf.seguranca.Papel;
@@ -54,6 +55,8 @@ public final class TestesDeWeb {
         executar("contratoMalFormadoNoTokenNaoDaAcesso",
                 TestesDeWeb::contratoMalFormadoNoTokenNaoDaAcesso);
         executar("oMotivoNaoVaiNoCorpo", TestesDeWeb::oMotivoNaoVaiNoCorpo);
+        executar("escritaDaTriagemTambemEAutorizada",
+                TestesDeWeb::escritaDaTriagemTambemEAutorizada);
 
         System.out.println();
         falhas.forEach(f -> System.out.println("  FALHA " + f));
@@ -74,13 +77,13 @@ public final class TestesDeWeb {
         Ator ator = AtorDaRequisicao.de(token("u1", List.of("FINANCEIRO-GERAL"), List.of()));
         ok("F0-01 . grupo desconhecido nao vira papel", ator.papeis().isEmpty());
         ok("F0-01 . e o endpoint devolve 403",
-                negou(() -> controlador(ator, bancoQueExplode()).triagem(50)));
+                negou(() -> triagemControlador(ator, bancoQueExplode()).fila(50)));
     }
 
     /** Sem autenticacao no contexto, o ator e nulo e o endpoint nega. */
     static void semTokenRecebe403() {
         ok("F0-01 . requisicao sem token recebe 403",
-                negou(() -> controlador(null, bancoQueExplode()).triagem(50)));
+                negou(() -> triagemControlador(null, bancoQueExplode()).fila(50)));
     }
 
     /**
@@ -90,11 +93,11 @@ public final class TestesDeWeb {
     static void papelErradoRecebe403NoEndpoint() {
         Ator gestor = ator("gestor", Papel.GESTOR_CONTRATO, CONTRATO_DO_ATOR);
         ok("F0-01 . GESTOR_CONTRATO nao tria e recebe 403",
-                negou(() -> controlador(gestor, bancoQueExplode()).triagem(50)));
+                negou(() -> triagemControlador(gestor, bancoQueExplode()).fila(50)));
 
         Ator financeiro = ator("fin", Papel.PUBLICADOR_FIN, CONTRATO_DO_ATOR);
         ok("F0-01 . mas o PUBLICADOR_FIN, que tria, passa",
-                controlador(financeiro, bancoComFila()).triagem(50).size() == 1);
+                triagemControlador(financeiro, bancoComFila()).fila(50).size() == 1);
     }
 
     /**
@@ -129,7 +132,7 @@ public final class TestesDeWeb {
     static void negarNaoConsultaOBanco() {
         Ator gestor = ator("gestor", Papel.GESTOR_CONTRATO, CONTRATO_DO_ATOR);
         ConexaoDeMentira banco = bancoQueExplode();
-        negou(() -> controlador(gestor, banco).triagem(50));
+        negou(() -> triagemControlador(gestor, banco).fila(50));
         ok("F0-01 . negar nao le o dado que estava negando",
                 banco.consultasFeitas().isEmpty());
 
@@ -180,16 +183,18 @@ public final class TestesDeWeb {
      * outra decisao. O PUBLICADOR_FIN nao ve escopo profissional (cap. 15.1).
      */
     static void triagemEscondeConteudoProfissional() {
-        List<PainelController.ItemDeTriagem> paraFin =
-                controlador(ator("fin", Papel.PUBLICADOR_FIN, CONTRATO_DO_ATOR),
-                        bancoComFila()).triagem(50);
+        List<TriagemController.ItemDaFila> paraFin =
+                triagemControlador(ator("fin", Papel.PUBLICADOR_FIN, CONTRATO_DO_ATOR),
+                        bancoComFila()).fila(50);
         ok("Cap. 15.1 . o financeiro ve a exigencia pendente", paraFin.size() == 1);
         ok("Cap. 15.1 . mas nao o conteudo do contracheque",
                 !paraFin.get(0).conteudoVisivel());
+        ok("SEC-02 . e o nome do arquivo da fila tambem sai mascarado",
+                !paraFin.get(0).nomeArquivo().contains("052.190.471-40"));
 
-        List<PainelController.ItemDeTriagem> paraAp =
-                controlador(ator("ap", Papel.PUBLICADOR_AP, CONTRATO_DO_ATOR),
-                        bancoComFila()).triagem(50);
+        List<TriagemController.ItemDaFila> paraAp =
+                triagemControlador(ator("ap", Papel.PUBLICADOR_AP, CONTRATO_DO_ATOR),
+                        bancoComFila()).fila(50);
         ok("Cap. 15.1 . quem trata exigencia trabalhista ve",
                 paraAp.get(0).conteudoVisivel());
     }
@@ -260,23 +265,66 @@ public final class TestesDeWeb {
                 new AcessoNegado("fora do escopo").getMessage().contains("escopo"));
     }
 
+    /**
+     * F1-06 . a escrita e autorizada pelo contrato DA CANDIDATURA.
+     *
+     * <p>Ler a fila recortada nao protege a escrita: quem souber o UUID de uma
+     * candidatura de outro contrato a confirmaria pela URL. O alvo vem do dado,
+     * como no painel — e candidatura inexistente responde igual a candidatura
+     * alheia, pela mesma razao do 403-em-vez-de-404.
+     */
+    static void escritaDaTriagemTambemEAutorizada() {
+        Ator financeiro = ator("fin", Papel.PUBLICADOR_FIN, CONTRATO_DO_ATOR);
+        UUID candidatura = UUID.randomUUID();
+
+        ConexaoDeMentira alheia = bancoQueExplode()
+                .respondendo("FROM   candidatura c", linha(CONTRATO_ALHEIO));
+        ok("F1-06 . confirmar candidatura de contrato alheio recebe 403",
+                negou(() -> triagemControlador(financeiro, alheia).confirmar(candidatura)));
+        ok("F0-01 . e nada alem do contrato foi lido antes de negar",
+                alheia.consultasFeitas().size() == 1);
+
+        ConexaoDeMentira inexistente = bancoQueExplode()
+                .respondendo("FROM   candidatura c");
+        ok("F1-06 . candidatura inexistente recebe 403, nao 404",
+                negou(() -> triagemControlador(financeiro, inexistente)
+                        .ilegivel(candidatura, new TriagemController.Justificativa(
+                                "esta ilegivel de verdade"))));
+
+        Ator gestor = ator("gestor", Papel.GESTOR_CONTRATO, CONTRATO_DO_ATOR);
+        ConexaoDeMentira minha = bancoQueExplode()
+                .respondendo("FROM   candidatura c", linha(CONTRATO_DO_ATOR));
+        ok("F0-01 . GESTOR_CONTRATO nao tria, nem pela escrita",
+                negou(() -> triagemControlador(gestor, minha).confirmar(candidatura)));
+    }
+
     // -------------------------------------------------------------------------
 
     static PainelController controlador(Ator ator, ConexaoDeMentira banco) {
-        AtorDaRequisicao atores = new AtorDaRequisicao() {
+        return new PainelController(atores(ator), new ConsultaDoPainel(new Sgdf(banco.conexao())));
+    }
+
+    static AtorDaRequisicao atores(Ator ator) {
+        return new AtorDaRequisicao() {
             @Override
             public Ator atual() {
                 return ator;
             }
         };
-        return new PainelController(atores, new ConsultaDoPainel(new Sgdf(banco.conexao())));
     }
 
-    /** O contracheque na fila: pendente, escopo profissional. */
+    /** O contracheque na fila: candidatura aberta, escopo profissional. */
     static ConexaoDeMentira bancoComFila() {
-        return bancoQueExplode().respondendo("status_triagem = 'PENDENTE'",
-                linha(UUID.randomUUID(), "1041601__CONTRACHEQUE.pdf", "/rh/06.2026/",
-                        "CONTRACHEQUE", 0.72, "PESSOAL"));
+        return bancoQueExplode().respondendo("FROM   fila_de_triagem",
+                linha(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                        CONTRATO_DO_ATOR, "2026-06",
+                        "052.190.471-40 1041601__CONTRACHEQUE.pdf", "/rh/06.2026/",
+                        "CONTRACHEQUE", "PESSOAL", 0.72, "margem de 0,04 sobre o segundo"));
+    }
+
+    static TriagemController triagemControlador(Ator ator, ConexaoDeMentira banco) {
+        return new TriagemController(atores(ator),
+                new RepositorioDeTriagem(new Sgdf(banco.conexao())));
     }
 
     /** Nenhuma resposta registrada: qualquer consulta e uma falha do teste. */

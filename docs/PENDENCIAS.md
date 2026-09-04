@@ -100,7 +100,6 @@ Estado dos 10 achados de [`ERRATA-V1.md`](ERRATA-V1.md):
 | Ativar a fase 3 | **A10** |
 | Carregar os 3 contratos faltantes | **A01** |
 | Defender uma exigência perante o cliente | **A06** |
-| Recortar a fila de triagem por contrato | **F1-06** — ver RA-01 |
 
 ---
 
@@ -108,5 +107,7 @@ Estado dos 10 achados de [`ERRATA-V1.md`](ERRATA-V1.md):
 
 | # | Risco | Contenção hoje | Some quando |
 |---|---|---|---|
-| **RA-01** | A fila de triagem e o painel de desconhecidos não têm recorte por contrato: quem tem `TRIAR` vê a **existência** de arquivos ainda não classificados de qualquer contrato. `documento` não tem coluna de contrato porque o arquivo é varrido antes de ser classificado — é a exigência que o vincula. | Conteúdo vedado por sigilo (`PUBLICADOR_FIN` não abre escopo profissional); nome de arquivo e caminho mascarados na fronteira (SEC-02). Exposto: o nome mascarado e a existência. | **F1-06** (triagem com escrita) — a confirmação cria o vínculo, e a fila passa a poder ser recortada pelo contrato da exigência resultante. Ver achados § 30.5. |
+| ~~**RA-01**~~ | ~~Fila de triagem sem recorte por contrato~~ | — | **Fechado na F1-06.** A causa não era o recorte: faltava a candidatura, que liga documento a exigência e portanto a ciclo e contrato. Migração V009 + view `fila_de_triagem`. Ver achados § 31.1. |
+| **RA-03** | O peso do alias no score (`RepositorioDeAlias.PESO_DO_ALIAS = 0,10`) está no código, não no cadastro — ao contrário dos limiares, que são por regra. | O valor é pequeno por construção (`Bonus` recusa acima de 0,20) e o bônus nunca elege sozinho: só soma depois de o conteúdo alcançar o limiar de triagem. | O cadastro de parâmetros receber o peso. Decisão de engenharia, não da área demandante. |
+| **RA-04** | O painel de **desconhecidos** (tela 5) continua sem recorte por contrato — resíduo do RA-01 que a F1-06 não alcança. Um arquivo abaixo do limiar de triagem não é candidato de exigência nenhuma, logo não tem contrato por construção. | Nome e caminho mascarados (SEC-02); nenhum conteúdo é servido por ali. Exposto: a existência de um arquivo não reconhecido. | Não some por engenharia: um arquivo que o sistema não reconheceu não pertence a contrato algum até alguém dizer a que pertence. A tela é de organização, e é para isso que serve. |
 | **RA-02** | Resíduo de tarjamento no book do cliente: `13781031900`, fragmento de número de DARF com DV de CPF coincidentemente válido. 178/180 tarjados. | Reportado como pendência em vez de aceito em silêncio. | Decisão da área demandante sobre o resíduo — ver achado A26. |

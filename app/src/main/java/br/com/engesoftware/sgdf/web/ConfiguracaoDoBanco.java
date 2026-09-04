@@ -1,6 +1,7 @@
 package br.com.engesoftware.sgdf.web;
 
 import br.com.engesoftware.sgdf.persistencia.ConsultaDoPainel;
+import br.com.engesoftware.sgdf.persistencia.RepositorioDeTriagem;
 import br.com.engesoftware.sgdf.persistencia.Sgdf;
 import java.sql.SQLException;
 import javax.sql.DataSource;
@@ -30,5 +31,11 @@ public class ConfiguracaoDoBanco {
     @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
     ConsultaDoPainel consultaDoPainel(Sgdf sgdf) {
         return new ConsultaDoPainel(sgdf);
+    }
+
+    @Bean
+    @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
+    RepositorioDeTriagem repositorioDeTriagem(Sgdf sgdf) {
+        return new RepositorioDeTriagem(sgdf);
     }
 }

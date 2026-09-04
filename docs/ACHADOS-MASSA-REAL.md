@@ -1045,3 +1045,120 @@ caminho saem mascarados. O que fica exposto a quem tem `TRIAR` é **a existênci
 de um arquivo ainda não classificado**, de qualquer contrato. Aceitável na fase
 1a; a recortar quando a triagem ganhar escrita (F1-06), porque aí a confirmação
 já cria o vínculo. Registrado em `PENDENCIAS.md`.
+
+---
+
+## 31. F1-06 — a triagem que ensina, e o modelo que faltava
+
+Critério de aceite: *"confirmar tira da fila, cria alias e o mesmo padrão não
+retorna"*. São três promessas, e elas falham separadamente — por isso têm testes
+separados.
+
+### 31.1 O RA-01 não era um problema de recorte; era um modelo faltando
+
+A fila era lida de `documento` sozinho (`status_triagem = 'PENDENTE'`), e
+`documento` não tem contrato porque o arquivo é varrido antes de ser
+classificado. A leitura natural era "falta uma coluna de contrato". Não falta: o
+cap. 6.1 diz que **EM_TRIAGEM é estado da exigência**, não do documento —
+*"EM_TRIAGEM → RECEBIDO · Confirmação humana (gera alias)"*. O que faltava era a
+linha que diz **de que exigência** aquele documento é candidato.
+
+Sem ela não havia como mover a exigência na confirmação, nem como saber de que
+ciclo — logo, de que contrato — a fila é.
+
+`vinculo_exigencia_documento` não servia: ele afirma que o documento **satisfaz**
+a exigência, que é justamente o que ainda não se sabe. Candidatura e vínculo são
+coisas diferentes, e confundi-las faria toda candidatura contar como entrega
+enquanto ninguém a examinasse — a mesma família de erro de A17, V7 e do
+pareamento: **contar duas vezes, ou cedo demais, produz um resultado bonito e
+falso.**
+
+A V009 criou `candidatura` e a view `fila_de_triagem`. O recorte passou a ser um
+`IN (...)` sobre `ciclo.contrato_servico_id`, no SQL — não um filtro em memória
+depois: filtrar depois significa que a consulta leu as linhas dos outros
+contratos, e uma leitura que aconteceu não deixa de ter acontecido porque o
+resultado foi descartado. **RA-01 fechado.**
+
+### 31.2 "Cria alias" era verdade; "o mesmo padrão não retorna" era fé
+
+Gravar o alias na confirmação não cumpre a terceira promessa sozinho. Sem alguém
+que **leia** `tipo_alias` e transforme o alias em bônus, o mês seguinte
+reclassifica o mesmo arquivo com a mesma pontuação e ele volta para a fila — a
+confirmação teria virado um registro que ninguém consulta, e quem tria aprenderia
+que triar não adianta.
+
+Faltava `RepositorioDeAlias.doNome(...)`, que fecha o laço. Verificado por quebra
+deliberada: forçando-o a devolver `Bonus.nenhum()`, cai exatamente uma asserção —
+*"depois de confirmar, o arquivo do mês seguinte já chega com bônus"*.
+
+O peso é 0,10, e a escolha é o ponto: fecha a faixa de triagem (0,70–0,95) pela
+metade. Um documento que o conteúdo já pôs em 0,86 passa a decidir sozinho; um em
+0,72 continua indo para a fila. **O alias corrobora; não elege.**
+
+### 31.3 O padrão do nome, e o CPF que ele carregava
+
+`1041601__CONTRACHEQUE.pdf` não pode ser guardado inteiro: o arquivo do mês
+seguinte é `1041602__CONTRACHEQUE.pdf` e o padrão não voltaria a casar. O que
+sobrevive é `contracheque`.
+
+Ao escrever a regra de extração apareceu a razão mais forte para derrubar **todo**
+dígito. A massa real trouxe `052.190.471-40 folha.pdf` — nome digitado por gente,
+com CPF dentro. `tipo_alias` é tabela de configuração: consultada em toda
+classificação, listada em toda tela de cadastro, e em inventário de dado pessoal
+nenhum. Se o padrão preservasse dígitos, ela viraria um repositório silencioso de
+CPF, fora do cap. 17. Dígitos dentro de palavras caem também, senão
+`folha05219047140.pdf` passaria inteiro.
+
+Padrão com menos de 5 caracteres significativos é recusado — e a recusa **é
+informada a quem confirmou**. O cap. 12 manda que confirmar *"registra alias e
+informa"*; "não registrei, porque" é a metade mais útil das duas.
+
+### 31.4 A colisão de alias é aviso, não exceção
+
+A unicidade de `tipo_alias` é global (achado E-02). Se o padrão aprendido já
+aponta para outro tipo, o alias não é gravado — mas **a confirmação vale do mesmo
+jeito**. Desfazer a decisão de quem triou por causa de um efeito colateral de
+cadastro seria punir a pessoa por um problema que não é dela.
+
+### 31.5 A transação engolia a recusa do domínio
+
+Encontrado pelo teste "decidir duas vezes é recusado", que falhou com
+`FalhaDePersistencia: transação desfeita` em vez de `CandidaturaJaDecidida`.
+
+`Sgdf.emTransacao` desfazia e **reembrulhava** toda `RuntimeException`. Correto
+para falha de banco; errado para recusa de domínio: transformava *"você não pode
+fazer isso"* em *"o banco falhou"*. A camada web devolveria 500 onde o certo é 409
+(alguém decidiu antes) ou 422 (o pedido não faz sentido) — e o `TratamentoDeErro`
+nunca seria acionado. Agora desfaz e repassa com o tipo original; só `SQLException`
+é embrulhada.
+
+### 31.6 As três decisões, e por que não são variações da mesma
+
+| Decisão | Vínculo | Exigência | Aprende | Motivo |
+|---|---|---|---|---|
+| **Confirmar** | cria | EM_TRIAGEM → **RECEBIDO** | sim | não exige — concordar não é corrigir |
+| **Reclassificar** | **não cria** | EM_TRIAGEM → **PENDENTE** | sim, para o tipo *escolhido* | obrigatório |
+| **Ilegível** | não cria | EM_TRIAGEM → **PENDENTE** | **não** | obrigatório |
+
+Reclassificar diz o que o documento **é**, não que esta exigência foi satisfeita:
+ela continua sem o documento que esperava. E reclassificar para o tipo que o motor
+já propôs é recusado — a diferença entre concordar e corrigir é o que mede o
+acerto do motor (risco P01, modo sombra).
+
+Ilegível não aprende nada: gravar um alias a partir de um arquivo que ninguém
+conseguiu ler é transformar palpite em conhecimento permanente.
+
+### 31.7 A primeira escrita humana do sistema
+
+Até aqui tudo era reproduzível a partir do documento e da versão da regra. A
+triagem é a primeira decisão que uma pessoa toma e que muda estado — e por isso
+`TrilhaDeAuditoria` nasce agora, gravando **na mesma transação do efeito**.
+Registrar fora dela produziria as duas metades erradas: trilha de uma decisão
+desfeita, ou decisão gravada sem trilha.
+
+### 31.8 Cobertura
+
+52 asserções em `TestesDeTriagem` (21 sem banco, 31 contra o PostgreSQL real),
+12 em `T005`, 5 novas na fronteira HTTP — a escrita é autorizada pelo contrato **da
+candidatura**, porque ler a fila recortada não protege a escrita: quem soubesse o
+UUID confirmaria pela URL.

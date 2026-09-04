@@ -59,20 +59,34 @@ public final class Sgdf {
             T resultado = trabalho.apply(conexao);
             conexao.commit();
             return resultado;
-        } catch (RuntimeException | SQLException e) {
-            try {
-                conexao.rollback();
-            } catch (SQLException falhaNoRollback) {
-                e.addSuppressed(falhaNoRollback);
-            }
-            throw e instanceof FalhaDePersistencia f ? f
-                    : new FalhaDePersistencia("transação desfeita", e);
+        } catch (RuntimeException e) {
+            // DESFAZ E REPASSA COMO VEIO.
+            //
+            // Uma recusa do domínio levantada dentro da unidade de trabalho — "esta
+            // candidatura já foi decidida", "reclassificar exige escolher tipo" —
+            // precisa do rollback e precisa chegar a quem chamou COM O SEU TIPO.
+            // Envolvê-la em FalhaDePersistencia transformava "você não pode fazer
+            // isso" em "o banco falhou": a camada web devolveria 500 onde o certo
+            // é 409 ou 422, e quem investigasse o erro procuraria defeito no banco.
+            desfazer(e);
+            throw e;
+        } catch (SQLException e) {
+            desfazer(e);
+            throw new FalhaDePersistencia("transação desfeita", e);
         } finally {
             try {
                 conexao.setAutoCommit(autoCommitAnterior);
             } catch (SQLException ignorado) {
                 // A conexão está sendo descartada de qualquer forma.
             }
+        }
+    }
+
+    private void desfazer(Exception causa) {
+        try {
+            conexao.rollback();
+        } catch (SQLException falhaNoRollback) {
+            causa.addSuppressed(falhaNoRollback);
         }
     }
 

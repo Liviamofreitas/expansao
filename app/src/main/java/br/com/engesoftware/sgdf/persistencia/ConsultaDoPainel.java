@@ -113,39 +113,12 @@ public final class ConsultaDoPainel {
         return motivos;
     }
 
-    /**
-     * A fila de triagem (tela 3): candidatos entre os dois limiares.
-     *
-     * <p>Cap. 8.3: {@code limiar_triagem ≤ score < limiar_auto} vai para a fila.
-     * O documento aparece com o tipo que o motor propôs e com a confiança, para
-     * que quem confirma veja em que o sistema se apoiou.
-     */
-    public List<Candidato> filaDeTriagem(int limite) {
-        String sql = """
-                SELECT d.id, d.nome_arquivo, d.caminho, coalesce(t.codigo, '?'), d.confianca,
-                       coalesce(t.sigilo, 'INTERNO')
-                FROM documento d
-                LEFT JOIN tipo_documental t ON t.id = d.tipo_id
-                WHERE d.status_triagem = 'PENDENTE' AND d.confianca IS NOT NULL
-                ORDER BY d.confianca DESC, d.criado_em
-                LIMIT ?
-                """;
-        try (PreparedStatement ps = sgdf.conexao().prepareStatement(sql)) {
-            ps.setInt(1, limite);
-            try (ResultSet rs = ps.executeQuery()) {
-                List<Candidato> fila = new ArrayList<>();
-                while (rs.next()) {
-                    fila.add(new Candidato(rs.getObject(1, UUID.class), rs.getString(2),
-                            rs.getString(3), rs.getString(4),
-                            rs.getBigDecimal(5) == null ? 0 : rs.getBigDecimal(5).doubleValue(),
-                            rs.getString(6)));
-                }
-                return fila;
-            }
-        } catch (SQLException e) {
-            throw new Sgdf.FalhaDePersistencia("falha ao ler a fila de triagem", e);
-        }
-    }
+    // A fila de triagem saiu daqui na F1-06.
+    //
+    // Ela era lida de `documento` sozinho, e `documento` não tem contrato — era
+    // a origem do RA-01. Removida em vez de mantida "para compatibilidade":
+    // uma consulta que lê a fila inteira sem recorte, deixada no código, é o
+    // buraco disponível para o próximo chamador. Ver RepositorioDeTriagem.fila.
 
     /**
      * O painel de arquivos desconhecidos (tela 5, história F1-10).

@@ -58,6 +58,11 @@ final class ConexaoDeMentira {
                             return prepara((String) args[0]);
                         case "getAutoCommit":
                             return Boolean.TRUE;
+                        case "createArrayOf":
+                            return Proxy.newProxyInstance(
+                                    java.sql.Array.class.getClassLoader(),
+                                    new Class<?>[] {java.sql.Array.class},
+                                    (a, m, r) -> padrao(m));
                         case "close":
                         case "setAutoCommit":
                         case "commit":

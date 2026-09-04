@@ -62,6 +62,10 @@ echo "→ autorização (F0-01)"
 java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.seguranca.TestesDeAutorizacao | filtrar
 
+echo "→ triagem (F1-06)"
+java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.triagem.TestesDeTriagem | filtrar
+
 echo "→ fronteira HTTP (F0-01, F1-07, F1-10)"
 java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" br.com.engesoftware.sgdf.web.TestesDeWeb | filtrar
 
