@@ -260,10 +260,15 @@ Sete das treze pendências do cap. 23 estão **resolvidas**; duas **encaminhadas
 
 **Java 21 + Spring Boot** — [`ADR-001`](docs/adr/ADR-001-stack.md). A escolha foi puxada pela extração de PDF **com posições**, que a história F1-02 exige e onde PDFBox é a opção mais madura.
 
-A prova de que a decisão não invalidou o construído: a função de prazo foi portada para Java e passa nos **mesmos 32 casos** da suíte agnóstica.
+A prova de que a decisão não invalidou o construído: a função de prazo foi portada para Java e passa nos **mesmos 32 casos** da suíte agnóstica. O porte começou como arquivo avulso em `especificacao/prazo/java/` e hoje **é o código de produção** — `app/.../matriz/Prazo.java`, junto com a materialização (18 casos). Manter as duas versões seria manter duas implementações da mesma regra, e a avulsa não rodava em suíte nenhuma.
 
 ```bash
-python3 especificacao/prazo/verificar.py --comando 'java especificacao/prazo/java/Prazo.java'
+# A referência em Python, contra si mesma
+python3 especificacao/prazo/verificar.py
+python3 especificacao/materializacao/verificar.py
+
+# O código de produção, contra os MESMOS casos.json
+./scripts/testar-app.sh   # seção "matriz"
 ```
 
 ### Carga real (A03/A04)

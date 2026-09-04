@@ -1271,3 +1271,110 @@ sugere que o sistema atesta a medição.
 
 42 asserções em `TestesDeNotificacao` (30 sem banco, 12 contra o PostgreSQL
 real) e 14 em `T006`.
+
+---
+
+## 33. F0-04, F0-06 e F0-07 — o motor que faltava embaixo de tudo
+
+Eu tinha recomendado os CRUDs de cadastro como próximo passo. Ao abrir o código
+para começar, o gap real era outro e maior: **a materialização de exigências não
+existia em Java.** O `app/` tinha coleta, extração, classificação, validação,
+conciliação, book, triagem e notificação — tudo operando *sobre* exigências que
+nenhum código do sistema jamais criou. Nos testes, elas eram inseridas à mão.
+
+A regra existia como implementação de referência em Python
+(`especificacao/materializacao/referencia.py`) com 18 casos normativos, e o prazo
+idem com 32. Ambas sem contraparte de produção.
+
+### 33.1 Os testes não inventam casos — eles leem as suítes
+
+`TestesDeMatriz` abre `especificacao/prazo/casos.json` e
+`especificacao/materializacao/casos.json` e roda os 50 casos contra o código de
+produção. O cabeçalho das suítes diz por que isso importa: *"divergência é defeito
+da implementação, não da suíte — corrigir a suíte exige decisão da área
+demandante"*.
+
+Escrever casos próprios seria o contrário: eu escolheria o que testar a partir do
+que implementei, e as duas coisas concordariam por construção.
+
+### 33.2 O caso ERRO-07, e onde ele realmente mora
+
+A suíte tem um caso cuja descrição é *"booleano não é inteiro. Em linguagens onde
+`true == 1`, aceitar isto produziria um prazo silenciosamente errado"*. Java não
+é uma dessas linguagens — `Boolean` não é `Integer`, e a assinatura tipada já
+protege quem chama com valores tipados. Minha primeira versão do teste falhou
+mesmo assim, e por um motivo mais interessante que o caso: **eu tinha escrito
+`no.get("offset").asInt()`**, e Jackson converte `true` em 1.
+
+O perigo não está no cálculo; está na **fronteira**. `regra_exigibilidade.prazo` é
+`jsonb`, e qualquer leitor distraído que chame `asInt()` reproduz exatamente o
+defeito. A correção foi criar um único lugar estrito — `Prazo.Cadastrado.deValores`
+— que recusa `Boolean`, `Double` e `String`, e usá-lo **nos dois** leitores: o do
+teste e o do `RepositorioDaMatriz` que lê o jsonb. `5.0` também é recusado, não
+convertido: converter esconderia que alguém digitou um número onde a coluna espera
+outro.
+
+### 33.3 A garantia da F0-05 mora numa linha, e o primeiro teste dela era fraco
+
+*"Alterar regra não afeta ciclo aberto"* é sustentado por
+`WHERE r.versao_matriz_id = <a versão que o ciclo congelou>` — nunca "a versão
+vigente". Publicar a 2.0 enquanto abril está aberto não muda uma exigência de
+abril, porque abril continua perguntando pela 1.0.
+
+Escrevi o teste como "publica a 2.0, rematerializa, verifica que o prazo não
+mudou". Ele passou. Depois **quebrei o repositório de propósito**, trocando a
+leitura pela versão corrente — e o teste continuou passando.
+
+O motivo: `ORDER BY publicada_em DESC LIMIT 1` devolve a versão mais recente de
+*todo* o banco, que nos testes é a de outro fixture, cujas regras não alcançam
+este contrato. Zero regras aplicáveis → nada criado → "o prazo não mudou" →
+verde. **"Nada mudou" também acontece quando nada foi encontrado.**
+
+Reescrito: as exigências são **apagadas** depois de publicada a 2.0, e a
+rematerialização precisa **recriá-las** com o prazo da 1.0. A afirmação passou a
+ser sobre o que foi produzido, não sobre o que deixou de ser. Com a quebra
+reposta, agora falha — e falha na asserção certa.
+
+### 33.4 `ON CONFLICT` sobre índice parcial precisa repetir o `WHERE`
+
+A V004 substituiu a restrição `exigencia_unica` por dois índices únicos
+**parciais**: `ux_exigencia_de_ciclo` (onde `ciclo_id IS NOT NULL`) e
+`ux_exigencia_corporativa` (onde `empresa_id IS NOT NULL`). Um `ON CONFLICT` que
+não repete o `WHERE` do índice não o infere, e o PostgreSQL recusa.
+
+O detalhe que torna isso perigoso: a recusa só aparece **quando há conflito** —
+ou seja, na segunda execução. A abertura de ciclo do cap. 7.6 roda por agendador,
+e agendador repete; o erro apareceria em produção no segundo disparo, não no
+primeiro.
+
+### 33.5 A exigência corporativa, e o `xmax`
+
+Cap. 7.1: a corporativa é *"1 por CNPJ por competência, compartilhada entre
+ciclos, satisfeita uma única vez"*. Com 15 contratos, duplicá-la faria a mesma CND
+ser cobrada 15 vezes.
+
+O `INSERT ... ON CONFLICT DO UPDATE` devolve a linha nos dois casos, e contar toda
+linha devolvida como "criada" faria o painel dizer que há 15 CNDs onde há uma. O
+`RETURNING id, (xmax = 0) AS inserida` distingue criação de reaproveitamento.
+
+O prazo, no conflito, fica com o **menor** (`LEAST`): se um cliente quer a CND no
+5º dia útil e outro no 10º, a certidão compartilhada precisa estar lá no 5º —
+ERRATA E-10.
+
+### 33.6 Uma duplicata removida
+
+`especificacao/prazo/java/Prazo.java` era um porte avulso, escrito como prova da
+ADR-001 e marcado "não é código de produção". Com o porte de verdade em `app/`,
+ele virou uma segunda implementação da mesma regra — e a única que **não rodava
+em suíte automatizada nenhuma**, só sob `verificar.py --comando` executado à mão.
+Removido; a ADR-001 ganhou uma nota posterior em vez de ter o texto reescrito,
+porque o registro de uma decisão é o que ela foi na época.
+
+### 33.7 Cobertura
+
+82 asserções em `TestesDeMatriz`: 32 casos da suíte de prazo, 18 da suíte de
+materialização, 12 sobre o que as suítes não cobrem (prazo corporativo, vigência
+contra o mês, alocação de um dia) e 20 contra o PostgreSQL real (gravação,
+idempotência, F0-05, compartilhamento corporativo, trilha).
+
+As duas suítes em Python continuam passando 32/32 e 18/18 contra a referência.

@@ -54,3 +54,19 @@ Esse arquivo não é código de produção — numa aplicação Spring Boot ele 
 | Integração OIDC com o IdP corporativo | F0-01 |
 
 **O que fica em aberto.** A escolha do runtime não resolve A10 (time de sustentação). O cap. 20 mantém o gate: a fase 3 não é ativada sem dono nomeado.
+
+---
+
+## Nota posterior (F0-04/F0-06/F0-07)
+
+O arquivo `especificacao/prazo/java/Prazo.java` citado acima **não existe mais**. O
+porte que ele demonstrava virou código de produção em
+`app/src/main/java/br/com/engesoftware/sgdf/matriz/`, junto com a materialização
+do cap. 7.1, e as duas suítes normativas (32 + 18 casos) passaram a ser lidas
+diretamente por `TestesDeMatriz`, que roda em toda execução de
+`scripts/testar-app.sh`.
+
+Manter as duas versões seria manter duas implementações da mesma regra — e a
+avulsa não rodava em suíte automatizada nenhuma, só sob `verificar.py --comando`
+executado à mão. O texto acima fica como está: é o registro da decisão na época
+em que foi tomada, e a evidência que ele cita foi verificada.

@@ -26,6 +26,10 @@ javac -Xlint:all -encoding UTF-8 -cp "$CP" -d "$ALVO" $(find "$RAIZ/app/src" -na
 # ambiente, não do código, e não devem esconder o resultado dos testes.
 filtrar() { grep -viE 'picked up|^(WARNING|INFO|SEVERE):|^[A-Z][a-z]{2} [0-9]{2}, [0-9]{4}'; }
 
+echo "→ matriz: prazo e materialização (F0-04, F0-06, F0-07)"
+java -Dfile.encoding=UTF-8 -Dsgdf.raiz="$RAIZ" -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.matriz.TestesDeMatriz | filtrar
+
 echo "→ coleta (F1-01)"
 java -cp "$ALVO:$CP" br.com.engesoftware.sgdf.coleta.TestesDeColeta | filtrar
 
