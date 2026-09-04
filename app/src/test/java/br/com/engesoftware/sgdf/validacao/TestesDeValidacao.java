@@ -1,5 +1,6 @@
 package br.com.engesoftware.sgdf.validacao;
 
+import br.com.engesoftware.sgdf.coleta.VeredictoAntivirus;
 import br.com.engesoftware.sgdf.extracao.CampoExtraido;
 import br.com.engesoftware.sgdf.extracao.ExtratorPdfBox;
 import br.com.engesoftware.sgdf.extracao.LocalizadorDeCampos;
@@ -50,6 +51,13 @@ public final class TestesDeValidacao {
         executar("titularidadeRegistraEvidenciaParcial",
                 TestesDeValidacao::titularidadeRegistraEvidenciaParcial);
         executar("dataPorExtenso", TestesDeValidacao::dataPorExtenso);
+        executar("v1Seguranca", TestesDeValidacao::v1Seguranca);
+        executar("v2Legibilidade", TestesDeValidacao::v2Legibilidade);
+        executar("v4Competencia", TestesDeValidacao::v4Competencia);
+        executar("v5Vigencia", TestesDeValidacao::v5Vigencia);
+        executar("v5NaturezaPositiva", TestesDeValidacao::v5NaturezaPositiva);
+        executar("v6Formatos", TestesDeValidacao::v6Formatos);
+        executar("v7Unicidade", TestesDeValidacao::v7Unicidade);
 
         System.out.println();
         falhas.forEach(f -> System.out.println("  FALHA " + f));
@@ -267,6 +275,187 @@ public final class TestesDeValidacao {
         ok("A25 . o formato de cadastro aceita a forma por extenso",
                 FormatoDeCampo.DATA_POR_EXTENSO.aceita("27 de agosto de 2026")
                         && !FormatoDeCampo.DATA_POR_EXTENSO.aceita("27/08/2026"));
+    }
+
+    static void v1Seguranca() {
+        ValidacaoDeSeguranca v = new ValidacaoDeSeguranca(50L * 1024 * 1024);
+
+        ok("V1 . PDF limpo e coerente e aprovado",
+                v.validar("guia.pdf", "application/pdf", 1024,
+                        VeredictoAntivirus.limpo()).aprovado());
+        ok("V1 . arquivo infectado e reprovado com a assinatura",
+                v.validar("x.pdf", "application/pdf", 1024,
+                        VeredictoAntivirus.infectado("Eicar-Test-Signature"))
+                        .motivo().contains("Eicar"));
+
+        // Indisponivel nao e limpo: o documento fica sem veredito, nao aprovado.
+        ResultadoDeValidacao semAntivirus = v.validar("x.pdf", "application/pdf", 1024,
+                VeredictoAntivirus.indisponivel("clamd fora do ar"));
+        ok("V1 . antivirus indisponivel nao aprova",
+                semAntivirus.veredito() == Veredito.NAO_APLICAVEL && !semAntivirus.aprovado());
+        ok("V1 . e o motivo diz que indisponivel nao e limpo",
+                semAntivirus.motivo().contains("indisponível não é limpo"));
+
+        ok("V1 . extensao que nao bate com o conteudo e reprovada",
+                v.validar("planilha.xlsx", "application/pdf", 1024,
+                        VeredictoAntivirus.limpo()).reprovado());
+        ok("V1 . extensao fora das aceitas e reprovada",
+                v.validar("script.exe", "application/x-dosexec", 1024,
+                        VeredictoAntivirus.limpo()).reprovado());
+        ok("V1 . arquivo acima do limite e reprovado",
+                v.validar("x.pdf", "application/pdf", 60L * 1024 * 1024,
+                        VeredictoAntivirus.limpo()).reprovado());
+        ok("V1 . arquivo vazio e reprovado",
+                v.validar("x.pdf", "application/pdf", 0, VeredictoAntivirus.limpo()).reprovado());
+    }
+
+    static void v2Legibilidade() throws Exception {
+        ValidacaoDeLegibilidade v = new ValidacaoDeLegibilidade();
+        TextoExtraido nativo = new ExtratorPdfBox().extrair(comprovanteItau(true));
+
+        ok("V2 . documento com camada de texto e aprovado", v.validar(nativo, false).aprovado());
+
+        // O documento vazio do achado A12 TEM texto: V2 aprova, e e V8 que pega.
+        TextoExtraido vazio = new ExtratorPdfBox().extrair(comprovanteItau(false));
+        ok("A12 . V2 aprova o documento so com rotulos — nao e o que ela mede",
+                v.validar(vazio, false).aprovado());
+
+        ok("V2 . documento sem pagina nenhuma e reprovado",
+                v.validar(null, false).reprovado());
+        ok("V2 . o limiar de 50 caracteres e o que separa escaneado de nativo",
+                ValidacaoDeLegibilidade.MINIMO_POR_PAGINA == 50);
+    }
+
+    static void v4Competencia() {
+        ValidacaoDeCompetencia v = new ValidacaoDeCompetencia();
+        java.time.YearMonth ciclo = java.time.YearMonth.of(2026, 7);
+
+        // A guia do FGTS de um ciclo de julho traz 06/2026, e esta certa.
+        ok("V4 . guia do FGTS com defasagem M-1 e aprovada com a competencia anterior",
+                v.validar("06/2026", ciclo, Competencia.Defasagem.M_MENOS_1).aprovado());
+        ok("V4 . a mesma guia com a competencia do ciclo e reprovada",
+                v.validar("07/2026", ciclo, Competencia.Defasagem.M_MENOS_1).reprovado());
+        ok("V4 . folha com defasagem M usa a competencia do ciclo",
+                v.validar("07/2026", ciclo, Competencia.Defasagem.M).aprovado());
+
+        ok("V4 . a competencia por extenso da DCTFWeb e lida",
+                java.time.YearMonth.of(2026, 6).equals(Competencia.ler("Junho/2026")));
+        ok("V4 . e a numerica tambem",
+                java.time.YearMonth.of(2026, 6).equals(Competencia.ler("06/2026")));
+        ok("V4 . mes 13 nao e competencia", Competencia.ler("13/2026") == null);
+
+        ResultadoDeValidacao certidao =
+                v.validar(null, ciclo, Competencia.Defasagem.VIGENCIA_NF);
+        ok("V4 . certidao nao se valida por competencia",
+                certidao.veredito() == Veredito.NAO_APLICAVEL);
+        ok("V4 . e o motivo manda para V5", certidao.motivo().contains("V5"));
+
+        ResultadoDeValidacao errada =
+                v.validar("05/2026", ciclo, Competencia.Defasagem.M_MENOS_1);
+        ok("V4 . a mensagem diz as duas competencias e a distancia",
+                errada.motivo().contains("05/2026") && errada.motivo().contains("06/2026")
+                        && errada.motivo().contains("1 mês"));
+    }
+
+    static void v5Vigencia() {
+        ValidacaoDeVigencia v = new ValidacaoDeVigencia();
+        java.time.LocalDate nf = java.time.LocalDate.of(2026, 8, 10);
+
+        ok("V5 . certidao negativa vigente na data da NF e aprovada",
+                v.validar(java.time.LocalDate.of(2026, 11, 25),
+                        NaturezaDaCertidao.NEGATIVA, nf).aprovado());
+        ok("V5 . positiva com efeito de negativa tambem — premissa R-01",
+                v.validar(java.time.LocalDate.of(2026, 10, 24),
+                        NaturezaDaCertidao.POSITIVA_COM_EFEITO_NEGATIVA, nf).aprovado());
+
+        ResultadoDeValidacao vencida = v.validar(java.time.LocalDate.of(2026, 8, 9),
+                NaturezaDaCertidao.NEGATIVA, nf);
+        ok("V5 . certidao que vence antes da NF e reprovada", vencida.reprovado());
+        ok("V5 . e a mensagem diz quantos dias faltaram",
+                vencida.motivo().contains("1 dia"));
+
+        // Achado A9: o CRF do FGTS vale 30 dias e pode vencer dentro da competencia.
+        ResultadoDeValidacao curta = v.validar(java.time.LocalDate.of(2026, 8, 15),
+                NaturezaDaCertidao.NEGATIVA, nf);
+        ok("A9 . vigencia curta e aprovada mas avisa que vence logo",
+                curta.aprovado() && curta.detalhe().containsKey("aviso"));
+
+        ok("V5 . sem validade extraida nao se afirma vigencia",
+                v.validar(null, NaturezaDaCertidao.NEGATIVA, nf).reprovado());
+        ok("V5 . sem data prevista de NF, V5 nao se aplica",
+                v.validar(java.time.LocalDate.of(2026, 11, 25),
+                        NaturezaDaCertidao.NEGATIVA, null).veredito() == Veredito.NAO_APLICAVEL);
+    }
+
+    /** Achado A10: a natureza tem tres valores, e o terceiro e decisao de cadastro. */
+    static void v5NaturezaPositiva() {
+        ok("A10 . a certidao da Receita e positiva COM EFEITO de negativa",
+                NaturezaDaCertidao.ler("CERTIDÃO POSITIVA COM EFEITOS DE NEGATIVA")
+                        == NaturezaDaCertidao.POSITIVA_COM_EFEITO_NEGATIVA);
+        ok("A10 . a do TJDFT civel e criminal e POSITIVA",
+                NaturezaDaCertidao.ler("CERTIDÃO POSITIVA DE DISTRIBUIÇÃO")
+                        == NaturezaDaCertidao.POSITIVA);
+        ok("A10 . e a de falencias e NEGATIVA",
+                NaturezaDaCertidao.ler("CERTIDÃO NEGATIVA DE DISTRIBUIÇÃO")
+                        == NaturezaDaCertidao.NEGATIVA);
+        ok("A10 . positiva com efeito de negativa e regular",
+                NaturezaDaCertidao.POSITIVA_COM_EFEITO_NEGATIVA.regular()
+                        && !NaturezaDaCertidao.POSITIVA.regular());
+
+        java.time.LocalDate nf = java.time.LocalDate.of(2026, 8, 10);
+        java.time.LocalDate validade = java.time.LocalDate.of(2026, 11, 25);
+
+        ResultadoDeValidacao recusada = new ValidacaoDeVigencia(false)
+                .validar(validade, NaturezaDaCertidao.POSITIVA, nf);
+        ok("A10 . por padrao a positiva nao passa", recusada.reprovado());
+        ok("A10 . e a recusa aponta a decisao de cadastro que falta",
+                recusada.motivo().contains("cadastro deste tipo"));
+
+        ResultadoDeValidacao aceita = new ValidacaoDeVigencia(true)
+                .validar(validade, NaturezaDaCertidao.POSITIVA, nf);
+        ok("A10 . com o cadastro aceitando, ela passa", aceita.aprovado());
+        ok("A10 . mas a ressalva fica registrada, nao some",
+                aceita.detalhe().containsKey("ressalva"));
+    }
+
+    static void v6Formatos() {
+        ValidacaoDeFormatos v = new ValidacaoDeFormatos();
+
+        ok("V6 . todos os formatos entregues e coerentes e aprovado",
+                v.validar(List.of("pdf", "xlsx"),
+                        Map.of("pdf", "06/2026", "xlsx", "06/2026")).aprovado());
+
+        ResultadoDeValidacao parcial = v.validar(List.of("pdf", "xlsx"),
+                Map.of("pdf", "06/2026"));
+        ok("V6 . formato faltando reprova", parcial.reprovado());
+        ok("V6 . e a mensagem diz que os entregues continuam validos",
+                parcial.motivo().contains("continuam válidos"));
+        ok("V6 . o detalhe lista os pendentes para a exigencia parcial",
+                parcial.detalhe().get("formatos_pendentes").equals(List.of("xlsx")));
+
+        // O erro que so V6 pega: cada arquivo e valido sozinho.
+        ResultadoDeValidacao incoerente = v.validar(List.of("pdf", "xlsx"),
+                Map.of("pdf", "06/2026", "xlsx", "05/2026"));
+        ok("V6 . formatos de competencias diferentes reprovam", incoerente.reprovado());
+        ok("V6 . e a mensagem explica que o conjunto e que nao presta",
+                incoerente.motivo().contains("conjunto não é"));
+
+        ok("V6 . tipo sem formatos declarados nao se aplica",
+                v.validar(List.of(), Map.of()).veredito() == Veredito.NAO_APLICAVEL);
+    }
+
+    static void v7Unicidade() {
+        ValidacaoDeUnicidade v = new ValidacaoDeUnicidade();
+        String hash = "a".repeat(64);
+        String outro = "b".repeat(64);
+
+        ok("V7 . hash inedito e aprovado", v.validar(hash, java.util.Set.of(outro)).aprovado());
+        ok("V7 . o mesmo arquivo com outro nome e recusado",
+                v.validar(hash, java.util.Set.of(hash)).reprovado());
+        ok("V7 . e o motivo diz que o vinculo e ignorado, nao que o documento e ruim",
+                v.validar(hash, java.util.Set.of(hash)).motivo().contains("ignorado"));
+        ok("V7 . hash mal formado e recusado",
+                v.validar("nao-e-hash", java.util.Set.of()).reprovado());
     }
 
     // -------------------------------------------------------------------------

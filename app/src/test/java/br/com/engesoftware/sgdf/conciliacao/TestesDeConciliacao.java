@@ -40,6 +40,9 @@ public final class TestesDeConciliacao {
         executar("r08ComparaCustoTotalNaoDesconto",
                 TestesDeConciliacao::r08ComparaCustoTotalNaoDesconto);
         executar("r08AcusaQuemSoEstaDeUmLado", TestesDeConciliacao::r08AcusaQuemSoEstaDeUmLado);
+        executar("r02SeparaApuracaoDePagamento", TestesDeConciliacao::r02SeparaApuracaoDePagamento);
+        executar("r03OlhaOConjuntoDeCertidoes", TestesDeConciliacao::r03OlhaOConjuntoDeCertidoes);
+        executar("r04ElevaV6AoCiclo", TestesDeConciliacao::r04ElevaV6AoCiclo);
         executar("resultadoSemMotivoNaoEAceito", TestesDeConciliacao::resultadoSemMotivoNaoEAceito);
 
         System.out.println();
@@ -296,6 +299,136 @@ public final class TestesDeConciliacao {
                 recusa(() -> new ResultadoDaConciliacao("R09",
                         ResultadoDaConciliacao.Situacao.NAO_APLICAVEL,
                         ResultadoDaConciliacao.Modo.ALERTA, null, null, null, "  ", Map.of())));
+    }
+
+    /**
+     * R02 encadeia duas conferencias, e a mensagem tem de distinguir: declarar
+     * R$ 100 e emitir R$ 90 em DARF e erro de apuracao; emitir R$ 100 e pagar
+     * R$ 90 e inadimplencia. Quem resolve cada uma e uma area diferente.
+     */
+    static void r02SeparaApuracaoDePagamento() {
+        Obrigacao dctf = new Obrigacao("INS.DCTFWEB", "06/2026", new BigDecimal("1000.00"),
+                LocalDate.of(2026, 7, 20), "07.16.26196.1378103-1");
+        Obrigacao darf = new Obrigacao("INS.DARF", "06/2026", new BigDecimal("1000.00"),
+                LocalDate.of(2026, 7, 20), "111");
+        ComprovanteDePagamento pago = new ComprovanteDePagamento("CMP.DARF",
+                new BigDecimal("1000.00"), LocalDate.of(2026, 7, 18), "111", "RFB");
+
+        ok("R02 . declarado igual ao emitido e pago e conforme",
+                new R02DctfwebComDarf(ResultadoDaConciliacao.Modo.BLOQUEIO)
+                        .executar(DadosDoCiclo.de("06/2026").comObrigacao(dctf)
+                                .comObrigacao(darf).comComprovante(pago).construir(),
+                                UM_CENTAVO).conforme());
+
+        // Erro de apuracao: o DARF emitido nao cobre o declarado.
+        Obrigacao menor = new Obrigacao("INS.DARF", "06/2026", new BigDecimal("900.00"),
+                LocalDate.of(2026, 7, 20), "111");
+        ComprovanteDePagamento pagoMenor = new ComprovanteDePagamento("CMP.DARF",
+                new BigDecimal("900.00"), LocalDate.of(2026, 7, 18), "111", "RFB");
+        ResultadoDaConciliacao apuracao = new R02DctfwebComDarf(
+                ResultadoDaConciliacao.Modo.BLOQUEIO)
+                .executar(DadosDoCiclo.de("06/2026").comObrigacao(dctf).comObrigacao(menor)
+                        .comComprovante(pagoMenor).construir(), UM_CENTAVO);
+        ok("R02 . DARF menor que o declarado e erro de apuracao",
+                apuracao.mensagem().startsWith("apuração"));
+        ok("R02 . e nao de pagamento", !apuracao.mensagem().contains("pagamento:"));
+
+        // Inadimplencia: o DARF cobre o declarado, mas nao foi pago.
+        ResultadoDaConciliacao pagamento = new R02DctfwebComDarf(
+                ResultadoDaConciliacao.Modo.BLOQUEIO)
+                .executar(DadosDoCiclo.de("06/2026").comObrigacao(dctf).comObrigacao(darf)
+                        .construir(), UM_CENTAVO);
+        ok("R02 . DARF sem comprovante e problema de pagamento",
+                pagamento.mensagem().contains("pagamento:"));
+        ok("R02 . e a apuracao nao e acusada junto",
+                !pagamento.mensagem().startsWith("apuração"));
+
+        ok("R02 . ciclo sem DCTFWeb nao se aplica",
+                new R02DctfwebComDarf(ResultadoDaConciliacao.Modo.BLOQUEIO)
+                        .executar(DadosDoCiclo.de("06/2026").construir(), UM_CENTAVO)
+                        .resultado() == ResultadoDaConciliacao.Situacao.NAO_APLICAVEL);
+    }
+
+    /**
+     * R03 e V5 elevada ao conjunto, e o conjunto tem uma propriedade que
+     * nenhuma certidao sozinha tem: a primeira a vencer manda.
+     */
+    static void r03OlhaOConjuntoDeCertidoes() {
+        LocalDate nf = LocalDate.of(2026, 8, 10);
+        var rfb = new R03CertidoesVigentes.CertidaoDoCiclo("CER.CND_RFB",
+                LocalDate.of(2026, 10, 24),
+                br.com.engesoftware.sgdf.validacao.NaturezaDaCertidao.POSITIVA_COM_EFEITO_NEGATIVA,
+                false);
+        var crf = new R03CertidoesVigentes.CertidaoDoCiclo("CER.CRF_FGTS",
+                LocalDate.of(2026, 8, 9),
+                br.com.engesoftware.sgdf.validacao.NaturezaDaCertidao.NEGATIVA, false);
+        var cndt = new R03CertidoesVigentes.CertidaoDoCiclo("CER.CNDT",
+                LocalDate.of(2026, 11, 25),
+                br.com.engesoftware.sgdf.validacao.NaturezaDaCertidao.NEGATIVA, false);
+
+        DadosDoCiclo ciclo = DadosDoCiclo.de("06/2026").construir();
+
+        ResultadoDaConciliacao conforme = new R03CertidoesVigentes(List.of(rfb, cndt), nf,
+                ResultadoDaConciliacao.Modo.BLOQUEIO).executar(ciclo, UM_CENTAVO);
+        ok("R03 . certidoes vigentes na data da NF sao conformes", conforme.conforme());
+        ok("R03 . e o resultado diz qual vence primeiro",
+                conforme.itens().get("primeira_a_vencer").get(0).contains("CER.CND_RFB"));
+
+        ResultadoDaConciliacao vencida = new R03CertidoesVigentes(List.of(rfb, crf, cndt), nf,
+                ResultadoDaConciliacao.Modo.BLOQUEIO).executar(ciclo, UM_CENTAVO);
+        ok("R03 . uma certidao vencida faz o conjunto divergir",
+                vencida.resultado() == ResultadoDaConciliacao.Situacao.DIVERGENTE);
+        ok("R03 . e a mensagem nomeia quantas de quantas",
+                vencida.mensagem().startsWith("1 de 3"));
+        ok("R03 . nomeando qual", vencida.mensagem().contains("CER.CRF_FGTS"));
+
+        // Achado A10: a certidao POSITIVA aceita por cadastro passa com ressalva.
+        var civel = new R03CertidoesVigentes.CertidaoDoCiclo("CER.CND_CIVEL_CRIMINAL",
+                LocalDate.of(2026, 11, 25),
+                br.com.engesoftware.sgdf.validacao.NaturezaDaCertidao.POSITIVA, true);
+        ResultadoDaConciliacao comRessalva = new R03CertidoesVigentes(List.of(civel), nf,
+                ResultadoDaConciliacao.Modo.BLOQUEIO).executar(ciclo, UM_CENTAVO);
+        ok("A10 . certidao positiva aceita por cadastro nao trava o ciclo",
+                comRessalva.conforme());
+        ok("A10 . e a ressalva sobe para o resultado da conciliacao",
+                comRessalva.itens().containsKey("ressalvas"));
+    }
+
+    /** R04 e V6 elevada ao ciclo: distingue bloqueante de nao bloqueante. */
+    static void r04ElevaV6AoCiclo() {
+        DadosDoCiclo ciclo = DadosDoCiclo.de("06/2026").construir();
+
+        var completa = new R04CompletudeDeFormatos.ExigenciaDoCiclo("OPE.MEDICAO",
+                List.of("pdf", "xlsx"), Map.of("pdf", "06/2026", "xlsx", "06/2026"), true);
+        var faltaBloqueante = new R04CompletudeDeFormatos.ExigenciaDoCiclo("FGT.GUIA",
+                List.of("pdf", "xlsx"), Map.of("pdf", "06/2026"), true);
+        var faltaLeve = new R04CompletudeDeFormatos.ExigenciaDoCiclo("CER.SICAF",
+                List.of("pdf", "xlsx"), Map.of("pdf", "06/2026"), false);
+        var incoerente = new R04CompletudeDeFormatos.ExigenciaDoCiclo("FOL.FOPAG",
+                List.of("pdf", "xlsx"), Map.of("pdf", "06/2026", "xlsx", "05/2026"), true);
+
+        ok("R04 . ciclo com tudo completo e conforme",
+                new R04CompletudeDeFormatos(List.of(completa),
+                        ResultadoDaConciliacao.Modo.BLOQUEIO).executar(ciclo, UM_CENTAVO)
+                        .conforme());
+
+        ResultadoDaConciliacao r = new R04CompletudeDeFormatos(
+                List.of(completa, faltaBloqueante, faltaLeve, incoerente),
+                ResultadoDaConciliacao.Modo.BLOQUEIO).executar(ciclo, UM_CENTAVO);
+
+        ok("R04 . formato faltando faz o ciclo divergir",
+                r.resultado() == ResultadoDaConciliacao.Situacao.DIVERGENTE);
+        ok("R04 . a bloqueante e separada da nao bloqueante",
+                r.itens().containsKey("bloqueantes_pendentes")
+                        && r.itens().containsKey("nao_bloqueantes_pendentes"));
+        ok("R04 . a mensagem destaca a bloqueante",
+                r.mensagem().contains("BLOQUEANTE"));
+        ok("R04 . e a incoerencia de competencia aparece separada",
+                r.itens().containsKey("competencias_incoerentes"));
+        ok("R04 . ciclo sem exigencia nenhuma nao se aplica",
+                new R04CompletudeDeFormatos(List.of(), ResultadoDaConciliacao.Modo.BLOQUEIO)
+                        .executar(ciclo, UM_CENTAVO).resultado()
+                        == ResultadoDaConciliacao.Situacao.NAO_APLICAVEL);
     }
 
     // -------------------------------------------------------------------------

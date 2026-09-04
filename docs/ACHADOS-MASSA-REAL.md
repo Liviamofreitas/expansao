@@ -782,3 +782,44 @@ Uma regra cadastrada em modo `BLOQUEIO` **mas sem tolerância** opera em `ALERTA
 ### A tolerância da R09 tem de ser percentual
 
 Registrado na Parte I e agora exercitado: 8% da soma das bases deu R$ 3.975,45 e a soma do FGTS impresso deu R$ 3.975,44 — **um centavo**, de arredondamento por colaborador. Com oito colaboradores o erro é um centavo; com oitocentos, não é. Uma tolerância absoluta calibrada nesta folha reprovaria a próxima.
+
+---
+
+# Parte IV — fechando a lógica da fase 1a
+
+## 25. As oito validações unitárias (F1-04)
+
+O cap. 8.4 define V1–V7; V8 foi acrescentada pelo achado A12. Todas as oito existem agora, e três carregam correções que a massa real impôs.
+
+| # | O que confere | Falha gera |
+|---|---|---|
+| V1 | antivírus, MIME × extensão, tamanho | REJEITADO (segurança) |
+| V2 | camada de texto, ou OCR confirmado | REJEITADO (ilegível) |
+| V3 | titularidade por raiz e com máscara | REJEITADO (titularidade) |
+| V4 | competência após a defasagem do cap. 7.4 | REJEITADO (competência) |
+| V5 | vigência na data da NF e natureza aceita | REJEITADO (vigência) |
+| V6 | formatos exigidos presentes e coerentes | exigência parcial |
+| V7 | hash inédito para a exigência | ignorado com registro |
+| V8 | campos essenciais presentes e bem formados | REJEITADO (incompleto) |
+
+**V1 — antivírus indisponível não é antivírus limpo.** Quando o clamd não responde, o documento fica **sem veredito** (`NAO_APLICAVEL`), não aprovado. Tratar indisponibilidade como aprovação abriria a porta exatamente quando a porta não está sendo vigiada.
+
+**V2 e V8 medem coisas diferentes, e as duas são necessárias.** O comprovante vazio do achado A12 **passa em V2** — ele tem texto, são 603 caracteres de rótulos. Quem o pega é V8. Uma validação que perguntasse "tem texto?" e outra que perguntasse "tem conteúdo?" parecem redundantes até se encontrar o documento que responde sim à primeira e não à segunda.
+
+**V4 sem defasagem reprovaria toda guia de FGTS.** A guia de um ciclo de julho traz competência 06/2026, e está certa: a defasagem do tipo é M−1 (cap. 7.4). E a competência aparece como `06/2026` na guia e `Junho/2026` na DCTFWeb e na FOPAG — aceitar só a numérica deixaria metade dos documentos sem competência.
+
+**V5 e o terceiro valor da natureza (achado A10).** O cap. 8.4 escreve V5 com duas categorias. A certidão cível e criminal real do TJDFT é `CERTIDÃO POSITIVA DE DISTRIBUIÇÃO`, com uma execução constando — e está sendo usada no faturamento. Reprová-la automaticamente travaria um contrato regular; aprová-la em silêncio esconderia o fato. O cadastro decide, por tipo, se `POSITIVA` é aceitável; quando é, o resultado sai aprovado **com ressalva registrada**. É o princípio 7 do cap. 1: julgar se uma execução impede faturar é juízo jurídico, não conferência documental.
+
+**V5 avisa antes de vencer (achado A9).** O CRF do FGTS vale 30 dias. Uma certidão que vence dez dias depois da NF é aprovada — e o resultado carrega o aviso, porque a régua de cobrança precisa saber antes de o prazo estourar.
+
+**V6 é a única cuja falha não reprova o documento.** O PDF entregue está certo; o que falta é a planilha. A exigência fica parcial. E a parte que pega o erro real é a coerência de competência: quando o PDF é de junho e a planilha de maio, **cada arquivo é válido sozinho e o conjunto não é**.
+
+**V7 é a mesma armadilha do A17, num terceiro lugar.** A varredura é recursiva e o mesmo PDF aparece solto na raiz do mês e dentro da pasta do cliente, com nomes diferentes. Contá-lo duas vezes faria uma exigência de dois formatos parecer satisfeita por um arquivo só. Contar duas vezes o mesmo documento produz um resultado bonito e falso — na folha, no pareamento e aqui.
+
+## 26. R02, R03 e R04 (F1-05)
+
+**R02 encadeia duas conferências, e a mensagem as distingue.** Declarar R$ 1.000 e emitir R$ 900 em DARF é **erro de apuração**; emitir R$ 1.000 e pagar R$ 900 é **inadimplência**. Quem resolve cada uma é uma área diferente, e uma mensagem que misturasse as duas mandaria o problema para a pessoa errada.
+
+**R03 é V5 elevada ao conjunto**, e o conjunto tem uma propriedade que nenhuma certidão sozinha tem: **a primeira a vencer manda**. Um book com seis certidões vigentes e uma vencendo em três dias não está confortável — está a três dias de não poder ser reemitido. R03 devolve qual vence primeiro.
+
+**R04 é V6 elevada ao ciclo**, e a mudança de altitude muda para que a resposta serve. V6 diz que *esta* exigência está parcial; R04 diz que *o ciclo* não pode ser publicado e quantas exigências faltam — separando bloqueantes de não bloqueantes. Quem lê a primeira é quem entrega o documento; quem lê a segunda é quem decide fechar a competência.
