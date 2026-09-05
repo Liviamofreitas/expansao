@@ -30,6 +30,14 @@ echo "→ matriz: prazo e materialização (F0-04, F0-06, F0-07)"
 java -Dfile.encoding=UTF-8 -Dsgdf.raiz="$RAIZ" -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.matriz.TestesDeMatriz | filtrar
 
+echo "→ rascunho e publicação da matriz (F0-05)"
+java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.matriz.TestesDeRascunho | filtrar
+
+echo "→ cadastro (F0-02, F0-03)"
+java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.persistencia.TestesDeCadastro | filtrar
+
 echo "→ coleta (F1-01)"
 java -cp "$ALVO:$CP" br.com.engesoftware.sgdf.coleta.TestesDeColeta | filtrar
 

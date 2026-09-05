@@ -1,5 +1,7 @@
 package br.com.engesoftware.sgdf.web;
 
+import br.com.engesoftware.sgdf.persistencia.RepositorioDeCadastro;
+import br.com.engesoftware.sgdf.persistencia.RepositorioDeRascunho;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeTriagem;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -34,6 +36,47 @@ public class TratamentoDeErro {
     @ExceptionHandler(IllegalArgumentException.class)
     ResponseEntity<Map<String, String>> argumentoInvalido(IllegalArgumentException e) {
         return ResponseEntity.badRequest().body(Map.of("motivo", e.getMessage()));
+    }
+
+    /**
+     * Cap. 12: publicar criticidade bloqueante exige APROVADOR_DAF.
+     *
+     * <p>403, e o motivo VAI no corpo — ao contrário do 403 de escopo. Aqui não
+     * há nada a esconder: quem abriu o rascunho já vê os itens dele, e a
+     * mensagem diz exatamente qual mudança precisa de outra pessoa. Sem isso, a
+     * negativa vira "peça a alguém" sem dizer o quê.
+     */
+    @ExceptionHandler(RepositorioDeRascunho.ExigeAprovacaoDaf.class)
+    ResponseEntity<Map<String, String>> exigeDaf(RepositorioDeRascunho.ExigeAprovacaoDaf e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("motivo", e.getMessage()));
+    }
+
+    /** Unicidade do cadastro — 409, com o que fazer. */
+    @ExceptionHandler(RepositorioDeCadastro.JaCadastrado.class)
+    ResponseEntity<Map<String, String>> jaCadastrado(RepositorioDeCadastro.JaCadastrado e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("motivo", e.getMessage()));
+    }
+
+    @ExceptionHandler(RepositorioDeCadastro.CadastroInvalido.class)
+    ResponseEntity<Map<String, String>> cadastroInvalido(
+            RepositorioDeCadastro.CadastroInvalido e) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(Map.of("motivo", e.getMessage()));
+    }
+
+    @ExceptionHandler(RepositorioDeRascunho.RascunhoJaFechado.class)
+    ResponseEntity<Map<String, String>> rascunhoFechado(
+            RepositorioDeRascunho.RascunhoJaFechado e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("motivo", e.getMessage()));
+    }
+
+    @ExceptionHandler(RepositorioDeRascunho.NumeroJaUsado.class)
+    ResponseEntity<Map<String, String>> numeroJaUsado(RepositorioDeRascunho.NumeroJaUsado e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("motivo", e.getMessage()));
     }
 
     /**

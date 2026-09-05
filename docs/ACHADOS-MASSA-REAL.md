@@ -1378,3 +1378,98 @@ contra o mês, alocação de um dia) e 20 contra o PostgreSQL real (gravação,
 idempotência, F0-05, compartilhamento corporativo, trilha).
 
 As duas suítes em Python continuam passando 32/32 e 18/18 contra a referência.
+
+---
+
+## 34. F0-05, F0-02 e F0-03 — o rascunho, e a mudança que não é mudança
+
+### 34.1 O rascunho não pode ser um estado da versão
+
+A saída natural para "rascunho → publicação" seria acrescentar
+`situacao IN ('RASCUNHO','PUBLICADA')` a `versao_matriz` e virar o valor no
+clique. Não dá — e a impossibilidade é informativa.
+
+`versao_matriz` é append-only (a V002 revoga UPDATE e DELETE) exatamente porque
+`ciclo.versao_matriz_id` congela a versão da época e `regra_exigibilidade` aponta
+para ela. **Uma linha que muda de estado é uma linha que muda**, e a garantia da
+F0-05 depende de que não mude.
+
+Então o rascunho é uma área de trabalho separada e mutável. Publicar não promove o
+rascunho: publicar **cria** uma versão nova, copiando da base tudo o que o
+rascunho não toca e aplicando os itens. A base fica intacta — que é a mesma
+garantia provada do outro lado, em `TestesDeMatriz`, por quem *lê* a matriz.
+
+A versão nova é **completa**, não um delta: `regra_exigibilidade` é lida por
+`versao_matriz_id = ?`, e uma versão que só contivesse as mudanças faria o ciclo
+aberto nela enxergar três regras onde a matriz tem 176.
+
+### 34.2 O gate do DAF, e a leitura conservadora declarada
+
+Cap. 12: *"bloqueante pede aprovação DAF"*. O capítulo não diz em que sentido.
+Adotado o conservador, e está declarado no código: **qualquer item que toque uma
+criticidade BLOQUEANTE exige DAF** — criar, tornar-se, deixar de ser, e
+**remover**.
+
+Remover conta porque acrescentar exigência bloqueante *aperta* o portão e remover
+uma *afrouxa*. Das duas, a que deixa o faturamento passar sem documento é a
+segunda — seria estranho que a mudança perigosa fosse a que dispensa aprovação.
+
+### 34.3 Escrever o que já valia não é mudança — e o teste é que estava errado
+
+O primeiro `bloqueanteExigeDaf` alterava uma regra cujo **tipo** já é
+`BLOQUEANTE`, escrevendo `BLOQUEANTE` explicitamente na regra, e esperava que o
+gate pedisse DAF. O gate não pediu, e estava certo.
+
+`regra_exigibilidade.criticidade` nula significa "herda a do tipo" (V001). A
+criticidade **efetiva** era bloqueante antes e continuava depois: tornar
+explícito o valor herdado não muda nada. Se o gate contasse isso como mudança,
+toda edição de rotina passaria a exigir o APROVADOR_DAF, e a aprovação viraria
+carimbo — que é o modo como um controle de segurança morre sem ninguém notar.
+
+A comparação, por isso, é sempre `coalesce(regra.criticidade, tipo.criticidade)`
+dos dois lados. Comparar as nulas diretamente diria "nada mudou" quando o tipo por
+trás é bloqueante. O caso virou teste próprio.
+
+Verificado por quebra deliberada: forçando o gate a devolver lista vazia,
+**9 asserções caem**.
+
+### 34.4 O aviso do cap. 12 deixou de ser uma frase
+
+O capítulo pede um "aviso fixo: alterações não travam o faturamento". Como o
+ciclo congela a versão, isso é **demonstrável** — então a análise do rascunho e a
+resposta da publicação devolvem a lista **nomeada** dos ciclos abertos que
+continuam na versão antiga, com contrato e competência. Aviso fixo é uma frase
+que ninguém lê; a lista é evidência.
+
+### 34.5 F0-02 — por que a chave tem três colunas
+
+Critério de aceite: *"CAIXA cadastrada como 3 contratos-serviço distintos;
+unicidade (cliente, número, serviço)"*. O mesmo número de contrato, do mesmo
+cliente, existe três vezes — um por **serviço**. Um contrato guarda-chuva com três
+serviços tem três ciclos por competência, três pastas de origem e três medições, e
+colapsá-los perderia duas delas.
+
+### 34.6 F0-03 — o alias do cadastro usa a normalização da triagem
+
+`RepositorioDeCadastro.cadastrarAlias` chama o mesmo `PadraoDeNome` que a
+confirmação em triagem usa. Se cada um normalizasse do seu jeito, o alias digitado
+à mão e o aprendido seriam textos diferentes para o mesmo padrão — a unicidade
+global do achado E-02 deixaria de valer e o bônus de nome seria concedido duas
+vezes ao mesmo documento.
+
+Tipo se **desativa**, nunca se apaga: `tipo_alias`, `regra_exigibilidade` e as
+exigências já materializadas o referenciam, e apagar quebraria a leitura de
+ciclos antigos.
+
+### 34.7 O cadastro sai do `psql`
+
+Até aqui, destinatários, tolerâncias, tipos e regras entravam por SQL direto — e
+um ajuste feito assim não deixa quem, quando nem por quê. Todo método de
+`RepositorioDeCadastro` e de `RepositorioDeRascunho` grava na trilha **na mesma
+transação do efeito**, inclusive a tentativa **negada** de publicar sem DAF, que é
+o registro que mostra alguém insistindo.
+
+### 34.8 Cobertura
+
+31 asserções em `TestesDeRascunho` (7 sem banco, 24 contra o PostgreSQL),
+15 em `TestesDeCadastro` e 12 em `T007`.

@@ -1,6 +1,8 @@
 package br.com.engesoftware.sgdf.web;
 
 import br.com.engesoftware.sgdf.persistencia.ConsultaDoPainel;
+import br.com.engesoftware.sgdf.persistencia.RepositorioDeCadastro;
+import br.com.engesoftware.sgdf.persistencia.RepositorioDeRascunho;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeTriagem;
 import br.com.engesoftware.sgdf.persistencia.Sgdf;
 import java.sql.SQLException;
@@ -37,5 +39,17 @@ public class ConfiguracaoDoBanco {
     @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
     RepositorioDeTriagem repositorioDeTriagem(Sgdf sgdf) {
         return new RepositorioDeTriagem(sgdf);
+    }
+
+    @Bean
+    @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
+    RepositorioDeCadastro repositorioDeCadastro(Sgdf sgdf) {
+        return new RepositorioDeCadastro(sgdf);
+    }
+
+    @Bean
+    @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
+    RepositorioDeRascunho repositorioDeRascunho(Sgdf sgdf) {
+        return new RepositorioDeRascunho(sgdf);
     }
 }
