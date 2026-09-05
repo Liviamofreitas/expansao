@@ -3,6 +3,7 @@ package br.com.engesoftware.sgdf.web;
 import br.com.engesoftware.sgdf.persistencia.ConsultaDoPainel;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeCadastro;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeExcecao;
+import br.com.engesoftware.sgdf.persistencia.RepositorioDeOrganizacao;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeRascunho;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeTriagem;
 import br.com.engesoftware.sgdf.persistencia.Sgdf;
@@ -58,5 +59,11 @@ public class ConfiguracaoDoBanco {
     @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
     RepositorioDeExcecao repositorioDeExcecao(Sgdf sgdf) {
         return new RepositorioDeExcecao(sgdf);
+    }
+
+    @Bean
+    @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
+    RepositorioDeOrganizacao repositorioDeOrganizacao(Sgdf sgdf) {
+        return new RepositorioDeOrganizacao(sgdf);
     }
 }

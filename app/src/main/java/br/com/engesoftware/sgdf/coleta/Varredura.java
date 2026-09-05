@@ -121,7 +121,22 @@ public final class Varredura {
     private void processar(EntradaRemota entrada, EstadoConhecido conhecido,
                            ResultadoVarredura resultado) {
         PoliticaDeArquivos.Decisao decisao = politica.avaliar(entrada);
-        if (!decisao.aceito()) {
+
+        // A CÓPIA DE CONFLITO É A ÚNICA EXCEÇÃO A "FILTRAR ANTES DE BAIXAR".
+        //
+        // Para tudo o mais — temporário, oculto, extensão errada, tamanho — o
+        // nome basta e baixar seria desperdício. Para a cópia de conflito não
+        // basta, e o cap. 8.1 diz isso na própria definição: o critério é
+        // "padrão de nome + hash duplicado". Só o nome erra na direção
+        // perigosa — "Relatório (conflicted copy 2026-06-30).pdf" pode ser a
+        // ÚNICA versão que sobrou, se a sincronização substituiu o original por
+        // uma cópia vazia ou antiga. Descartá-la pelo nome perderia o documento
+        // em silêncio.
+        //
+        // Então ela é baixada, passa pelo antivírus como qualquer outra, é
+        // hasheada — e mesmo assim NUNCA vira documento.
+        boolean conflito = decisao.motivo() == PoliticaDeArquivos.Motivo.COPIA_DE_CONFLITO;
+        if (!decisao.aceito() && !conflito) {
             resultado.ignorados.add(new ResultadoVarredura.Ignorado(
                     entrada.caminho(), decisao.motivo(), decisao.detalhe()));
             return;
@@ -154,6 +169,15 @@ public final class Varredura {
             // volta na próxima varredura porque nada foi registrado como visto.
             resultado.falhas.add(new ResultadoVarredura.Falha(
                     entrada.caminho(), "antivírus indisponível: " + veredicto.detalhe()));
+            return;
+        }
+
+        if (conflito) {
+            // O conteúdo é descartado aqui de propósito: nada além do hash
+            // precisa dele, e carregar os bytes adiante criaria o caminho pelo
+            // qual alguém acabaria publicando a cópia.
+            resultado.conflitos.add(new ResultadoVarredura.Conflito(
+                    entrada.caminho(), versao, sha256(conteudo), conteudo.length));
             return;
         }
 

@@ -1,6 +1,7 @@
 package br.com.engesoftware.sgdf.web;
 
 import br.com.engesoftware.sgdf.persistencia.ConsultaDoPainel;
+import br.com.engesoftware.sgdf.persistencia.RepositorioDeOrganizacao;
 import br.com.engesoftware.sgdf.privacidade.Mascara;
 import br.com.engesoftware.sgdf.seguranca.Ator;
 import br.com.engesoftware.sgdf.seguranca.Autorizador;
@@ -33,10 +34,33 @@ public class PainelController {
 
     private final AtorDaRequisicao atores;
     private final ConsultaDoPainel consulta;
+    private final RepositorioDeOrganizacao organizacao;
 
-    public PainelController(AtorDaRequisicao atores, ConsultaDoPainel consulta) {
+    public PainelController(AtorDaRequisicao atores, ConsultaDoPainel consulta,
+                            RepositorioDeOrganizacao organizacao) {
         this.atores = atores;
         this.consulta = consulta;
+        this.organizacao = organizacao;
+    }
+
+    /**
+     * Tela 5, metade dos CONFLITOS — história F1-10.
+     *
+     * <p>Separado de {@code /desconhecidos} porque são dois problemas
+     * diferentes: ali estão arquivos que o motor não reconheceu (score abaixo do
+     * limiar); aqui, arquivos que ele reconheceu como <b>não sendo evidência</b>
+     * — cópia de conflito, temporário, checklist. O primeiro é falta de regra; o
+     * segundo é bagunça de pasta, e quem resolve cada um é outra pessoa.
+     *
+     * <p>Este tem recorte por contrato, e o de desconhecidos não: o achado nasce
+     * de uma varredura, e a varredura é de um contrato. Ver RA-04.
+     */
+    @GetMapping("/organizacao")
+    public List<RepositorioDeOrganizacao.Achado> organizacao(
+            @RequestParam(defaultValue = "50") int limite) {
+        Ator ator = exigir(Permissao.VER_PAINEL, Autorizador.Alvo.nenhum());
+        return organizacao.abertos(
+                ator.enxergaTodosOsContratos() ? null : ator.contratos(), limite);
     }
 
     /**

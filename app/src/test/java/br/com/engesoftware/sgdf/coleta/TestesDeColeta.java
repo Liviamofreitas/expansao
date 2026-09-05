@@ -53,6 +53,9 @@ public final class TestesDeColeta {
         parsingDeMultistatus();
         antivirusComEicar();
         varreduraCompleta();
+        conflitoEBaixadoEHasheado();
+        conflitoInfectadoNaoViraAchado();
+        nomeComEspacoEAcentoEBaixado();
         deltaPorEtag();
         antivirusIndisponivel();
         recursaoLimitada();
@@ -227,6 +230,94 @@ public final class TestesDeColeta {
             ok("Cap. 8.1 . nada e descartado em silencio", r.visitados() == 6);
             ok("Cap. 8.1 . o hash do conteudo e calculado",
                     r.coletados.stream().allMatch(c -> c.sha256().length() == 64));
+        }
+    }
+
+    // =========================================================================
+    // Copia de conflito: baixada e hasheada, nunca coletada (F1-10)
+    // =========================================================================
+    /**
+     * O cap. 8.1 define a copia de conflito por "padrao de nome + hash
+     * duplicado". So o nome erra na direcao perigosa: a copia pode ser a UNICA
+     * versao que sobrou, se a sincronizacao substituiu o original. Por isso ela
+     * e a unica excecao a "filtrar antes de baixar".
+     */
+    static void conflitoEBaixadoEHasheado() throws Exception {
+        byte[] guia = "guia de fgts".getBytes(StandardCharsets.UTF_8);
+        Map<String, byte[]> arquivos = new HashMap<>();
+        arquivos.put("/BNB/2026/04/guia.pdf", guia);
+        arquivos.put("/BNB/2026/04/guia (conflicted copy 2026-04-01).pdf", guia);
+        arquivos.put("/BNB/2026/04/relatorio (conflicted copy 2026-04-01).pdf",
+                "conteudo que so existe aqui".getBytes(StandardCharsets.UTF_8));
+        arquivos.put("/BNB/2026/04/~$temp.xlsx", "temp".getBytes(StandardCharsets.UTF_8));
+
+        try (WebDavSimulado servidor = new WebDavSimulado(arquivos);
+             ClamdSimulado clamd = new ClamdSimulado()) {
+
+            ResultadoVarredura r = varredura(servidor, clamd)
+                    .varrer("/BNB", "2026-04", caminho -> null);
+
+            ok("F1-10 . a copia de conflito NAO e coletada", r.coletados.size() == 1
+                    && r.coletados.get(0).caminho().endsWith("/guia.pdf"));
+            ok("F1-10 . mas tambem nao vira um ignorado qualquer — sai em conflitos",
+                    r.conflitos.size() == 2 && r.ignorados.size() == 1);
+            ok("Cap. 8.1 . as duas copias foram BAIXADAS e hasheadas",
+                    r.conflitos.stream().allMatch(c -> c.hashSha256().length() == 64));
+
+            String hashDaGuia = r.coletados.get(0).sha256();
+            ok("Cap. 8.1 . a copia identica tem o mesmo hash do original — e redundante",
+                    r.conflitos.stream().anyMatch(c -> c.caminho().contains("guia")
+                            && c.hashSha256().equals(hashDaGuia)));
+            ok("Cap. 8.1 . a outra tem hash proprio — pode ser a unica versao que sobrou",
+                    r.conflitos.stream().anyMatch(c -> c.caminho().contains("relatorio")
+                            && !c.hashSha256().equals(hashDaGuia)));
+            ok("Cap. 8.1 . o temporario continua sendo descartado sem baixar",
+                    r.ignorados.get(0).caminho().endsWith("~$temp.xlsx"));
+            ok("Cap. 8.1 . nada some em silencio", r.visitados() == 4);
+        }
+    }
+
+    /**
+     * REGRESSAO. O caminho chega decodificado de CaminhoRemoto.canonicalizar, e
+     * entrega-lo cru a URI.resolve estoura em qualquer nome com espaco,
+     * parentese ou acento. A massa real traz os tres — "052.190.471-40
+     * folha.pdf" e um nome de verdade. O defeito estava em F1-01 desde o inicio e
+     * so apareceu na F1-10, porque copia de conflito TEM espaco por construcao.
+     */
+    static void nomeComEspacoEAcentoEBaixado() throws Exception {
+        Map<String, byte[]> arquivos = Map.of(
+                "/BNB/2026/04/052.190.471-40 folha.pdf",
+                "folha".getBytes(StandardCharsets.UTF_8),
+                "/BNB/2026/04/RELACAO DE VA VR (mensal).pdf",
+                "relacao".getBytes(StandardCharsets.UTF_8));
+
+        try (WebDavSimulado servidor = new WebDavSimulado(arquivos);
+             ClamdSimulado clamd = new ClamdSimulado()) {
+
+            ResultadoVarredura r = varredura(servidor, clamd)
+                    .varrer("/BNB", "2026-04", caminho -> null);
+
+            ok("F1-01 . arquivo com espaco no nome e baixado", r.coletados.size() == 2);
+            ok("F1-01 . inclusive com parentese", r.falhas.isEmpty());
+            ok("F1-01 . e o hash sai correto",
+                    r.coletados.stream().allMatch(c -> c.sha256().length() == 64));
+        }
+    }
+
+    /** O antivirus roda tambem na copia de conflito: ler bytes hostis nao e de graca. */
+    static void conflitoInfectadoNaoViraAchado() throws Exception {
+        Map<String, byte[]> arquivos = Map.of(
+                "/BNB/2026/04/nota (conflicted copy 2026-04-01).pdf",
+                EICAR.getBytes(StandardCharsets.US_ASCII));
+
+        try (WebDavSimulado servidor = new WebDavSimulado(arquivos);
+             ClamdSimulado clamd = new ClamdSimulado()) {
+
+            ResultadoVarredura r = varredura(servidor, clamd)
+                    .varrer("/BNB", "2026-04", caminho -> null);
+
+            ok("F1-10 . copia de conflito infectada e rejeitada, nao sinalizada",
+                    r.infectados.size() == 1 && r.conflitos.isEmpty());
         }
     }
 

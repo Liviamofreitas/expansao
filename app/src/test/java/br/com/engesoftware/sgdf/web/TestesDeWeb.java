@@ -301,7 +301,9 @@ public final class TestesDeWeb {
     // -------------------------------------------------------------------------
 
     static PainelController controlador(Ator ator, ConexaoDeMentira banco) {
-        return new PainelController(atores(ator), new ConsultaDoPainel(new Sgdf(banco.conexao())));
+        Sgdf sgdf = new Sgdf(banco.conexao());
+        return new PainelController(atores(ator), new ConsultaDoPainel(sgdf),
+                new br.com.engesoftware.sgdf.persistencia.RepositorioDeOrganizacao(sgdf));
     }
 
     static AtorDaRequisicao atores(Ator ator) {

@@ -113,8 +113,35 @@ public final class ClienteWebDav {
         return corpo;
     }
 
+    /**
+     * Monta a URI reencodando o caminho.
+     *
+     * <p><b>O caminho chega DECODIFICADO.</b> {@code CaminhoRemoto.canonicalizar}
+     * decodifica o href do PROPFIND para poder validar {@code ..} e caracteres de
+     * controle — e devolve, por exemplo, {@code /BNB/2026/04/052.190.471-40
+     * folha.pdf}. Entregar isso a {@code URI.resolve} estoura com
+     * "Illegal character in path": espaço, parêntese e acento não são válidos numa
+     * URI crua, e nome de arquivo digitado por gente tem os três.
+     *
+     * <p>Não era hipótese: apareceu ao baixar a primeira cópia de conflito
+     * (F1-10), cujo nome tem espaço e parêntese por construção. A massa real já
+     * traz nomes com espaço, então o defeito atingia arquivos legítimos — só não
+     * tinha sido exercitado porque os testes de F1-01 usavam nomes sem espaço.
+     *
+     * <p>O construtor de sete argumentos de {@link URI} é quem faz o quoting
+     * certo: montar a string à mão erraria em {@code +} e {@code %}.
+     */
+    private URI alvo(String caminho) {
+        try {
+            return new URI(base.getScheme(), null, base.getHost(), base.getPort(),
+                    caminho, null, null);
+        } catch (java.net.URISyntaxException e) {
+            throw new IllegalArgumentException("caminho remoto inválido: " + caminho, e);
+        }
+    }
+
     private HttpRequest.Builder requisicao(String caminho) {
-        HttpRequest.Builder b = HttpRequest.newBuilder(base.resolve(caminho)).timeout(timeout);
+        HttpRequest.Builder b = HttpRequest.newBuilder(alvo(caminho)).timeout(timeout);
         if (autorizacao != null) {
             b.header("Authorization", autorizacao);
         }

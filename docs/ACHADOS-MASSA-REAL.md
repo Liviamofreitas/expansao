@@ -1553,3 +1553,86 @@ Registrado como **RA-08**.
 
 25 asserções em `TestesDeExcecao` e 8 em `T008`. Com isso a **fase 0 fecha**:
 F0-01 a F0-09, todas com critério de aceite exercitado.
+
+---
+
+## 36. F1-10 — o nome não bastava, e o cliente WebDAV não baixava o que tem espaço
+
+Critério de aceite: *"cópia em conflito aparece sinalizada e nunca vinculada"*.
+
+### 36.1 Metade do critério do cap. 8.1 não era verificada
+
+O capítulo define a cópia de conflito por **"padrão de nome + hash duplicado"**.
+A F1-01 implementou só o nome: `PoliticaDeArquivos` reconhecia
+`(conflicted copy …)` e o arquivo era descartado antes de qualquer download.
+
+Só o nome erra na direção perigosa. `Relatório (conflicted copy 2026-06-30).pdf`
+**pode ser a única versão que sobrou** — se a sincronização substituiu o original
+por uma cópia vazia ou antiga, a "cópia" é o documento. Descartá-la pelo nome o
+perde em silêncio.
+
+Então a cópia de conflito passou a ser a **única exceção** à regra "filtrar antes
+de baixar": ela é baixada, passa pelo antivírus como qualquer outra, é hasheada —
+e mesmo assim nunca vira documento. Para todo o resto (temporário, oculto,
+extensão errada, tamanho) o nome continua bastando, e baixar seria desperdício.
+
+Com o hash, o alerta fica acionável:
+
+| Nome de conflito | Hash | Severidade | O que o painel diz |
+|---|---|---|---|
+| sim | igual a um documento conhecido | INFORMATIVO | "cópia redundante: o mesmo conteúdo já está no sistema" |
+| sim | inédito | **ATENÇÃO** | "pode ser a única versão que sobrou — conferir antes de apagar" |
+
+### 36.2 "Nunca vinculada" virou propriedade estrutural
+
+Marcar `documento.status_triagem = 'CONFLITO'` seria mais barato — e seria a
+maneira de, um dia, uma cópia acabar vinculada: bastaria uma consulta esquecer o
+filtro.
+
+O achado vive em `achado_de_organizacao`, que **não é** `documento`. Como
+`vinculo_exigencia_documento` referencia `documento`, não existe consulta capaz de
+vincular um achado. **Não há filtro para alguém esquecer.**
+
+O `documento_original_id` aponta para o documento cujo hash coincide — o
+*original*, nunca a cópia — e o banco recusa afirmar duplicata sem hash: sem ter
+comparado conteúdo, a única coisa que se sabe é que o nome parecia de conflito.
+
+### 36.3 O defeito que isto desenterrou: o WebDAV não baixava nome com espaço
+
+Ao rodar o primeiro teste de ponta a ponta com uma cópia de conflito:
+
+```
+IllegalArgumentException: Illegal character in path at index 17:
+/BNB/2026/04/guia (conflicted copy 2026-04-01).pdf
+```
+
+`CaminhoRemoto.canonicalizar` **decodifica** o href do PROPFIND — precisa, para
+validar `..` e caracteres de controle. `ClienteWebDav` então entregava esse
+caminho decodificado a `URI.resolve`, que rejeita espaço, parêntese e acento.
+
+**Não é um problema de cópias de conflito.** É um defeito da F1-01 que atingia
+qualquer arquivo legítimo com espaço no nome — e a massa real tem vários;
+`052.190.471-40 folha.pdf` é um nome de verdade. Passou despercebido porque todos
+os testes de varredura usavam nomes sem espaço. A cópia de conflito só o
+encontrou porque **tem espaço e parêntese por construção**.
+
+Corrigido com o construtor de sete argumentos de `URI`, que faz o quoting certo —
+montar a string à mão erraria em `+` e `%`. Regressão fixada com dois nomes reais.
+Verificado por quebra deliberada: voltando a `base.resolve`, a suíte estoura.
+
+### 36.4 Duas telas, dois problemas
+
+`/api/desconhecidos` e `/api/organizacao` ficaram separados de propósito: ali
+estão arquivos que o motor **não reconheceu** (score abaixo do limiar); aqui,
+arquivos que ele reconheceu como **não sendo evidência**. O primeiro é falta de
+regra; o segundo é bagunça de pasta, e quem resolve cada um é outra pessoa.
+
+O painel de organização **tem** recorte por contrato — ao contrário do de
+desconhecidos (RA-04) — porque o achado nasce de uma varredura, e a varredura é de
+um contrato.
+
+### 36.5 Cobertura
+
+23 asserções em `TestesDeOrganizacao` e 11 novas em `TestesDeColeta` (conflito
+baixado e hasheado, conflito infectado rejeitado, nome com espaço e parêntese).
+Com isso a **fase 1a fecha**: F1-01 a F1-10.

@@ -45,6 +45,10 @@ java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
 echo "→ coleta (F1-01)"
 java -cp "$ALVO:$CP" br.com.engesoftware.sgdf.coleta.TestesDeColeta | filtrar
 
+echo "→ organização e conflitos (F1-10)"
+java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.persistencia.TestesDeOrganizacao | filtrar
+
 echo "→ extração (F1-02)"
 java -cp "$ALVO:$CP" br.com.engesoftware.sgdf.extracao.TestesDeExtracao | filtrar
 
