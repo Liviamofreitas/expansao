@@ -113,6 +113,157 @@ public final class ConsultaDoPainel {
         return motivos;
     }
 
+    /**
+     * Completude por tipo — história F2-03, cap. 12.
+     *
+     * <p>Critério de aceite: <i>"«faltam 3 contracheques de 42» calculado e
+     * exibido"</i>. Sem isto, uma exigência de escopo PROFISSIONAL vira 42 linhas
+     * soltas no painel, uma por trabalhador, e a tela fica ilegível justamente no
+     * contrato maior — que é onde ela mais precisa ser lida.
+     *
+     * <p><b>Quatro baldes, não dois.</b> "Faltam 3 de 42" parece uma subtração e
+     * não é. Um documento pode estar em quatro situações diferentes, e juntá-las
+     * manda a pessoa errada atrás da coisa errada:
+     *
+     * <ul>
+     *   <li><b>Entregue</b> — chegou e vale (RECEBIDO, VALIDADO, CONCILIADO,
+     *       PUBLICADO).</li>
+     *   <li><b>Ausente</b> — não chegou, ou chegou e foi recusado (PENDENTE,
+     *       REJEITADO). É o que a AP cobra.</li>
+     *   <li><b>Com problema</b> — chegou e está travado em outra mesa
+     *       (EM_TRIAGEM, DIVERGENTE). Cobrar a área por isso é cobrar quem já
+     *       entregou.</li>
+     *   <li><b>Dispensada</b> — exceção aprovada (DISPENSADO). Contá-la como
+     *       falta faz alguém correr atrás de um documento formalmente
+     *       dispensado, contra a decisão do APROVADOR_DAF.</li>
+     * </ul>
+     *
+     * <p><b>O grupo condicional entra na conta, e tem de entrar.</b> Cap. 7.5:
+     * exigências do mesmo grupo são satisfeitas por qualquer uma — o termo de não
+     * adesão satisfaz o vale-transporte daquele profissional. Contar sem isso
+     * exibiria "faltam 12 relações de VT" com os 12 termos de não adesão
+     * entregues ao lado. O agrupamento é <b>por profissional</b>: um termo de
+     * fulano não satisfaz o VT de sicrano.
+     */
+    public List<Completude> completudePorTipo(UUID cicloId) {
+        String sql = """
+                WITH base AS (
+                    SELECT ec.exigencia_id, ec.profissional_id, ec.status,
+                           ec.condicional_grupo, t.codigo, t.nome, t.escopo
+                    FROM   exigencia_do_ciclo ec
+                    JOIN   tipo_documental t ON t.id = ec.tipo_id
+                    WHERE  ec.ciclo_id = ?
+                ),
+                grupo_satisfeito AS (
+                    SELECT condicional_grupo, profissional_id
+                    FROM   base
+                    WHERE  condicional_grupo IS NOT NULL
+                      AND  status IN ('RECEBIDO', 'VALIDADO', 'CONCILIADO', 'PUBLICADO')
+                    GROUP  BY 1, 2
+                ),
+                efetivo AS (
+                    SELECT b.*,
+                           CASE WHEN g.condicional_grupo IS NOT NULL THEN 'SATISFEITA'
+                                ELSE b.status END AS efetivo
+                    FROM   base b
+                    LEFT   JOIN grupo_satisfeito g
+                           ON g.condicional_grupo = b.condicional_grupo
+                          AND g.profissional_id IS NOT DISTINCT FROM b.profissional_id
+                )
+                SELECT codigo, nome, escopo,
+                       count(*)                                                AS esperadas,
+                       count(*) FILTER (WHERE efetivo IN ('RECEBIDO', 'VALIDADO',
+                                        'CONCILIADO', 'PUBLICADO', 'SATISFEITA')) AS entregues,
+                       count(*) FILTER (WHERE efetivo IN ('EM_TRIAGEM', 'DIVERGENTE'))
+                                                                                AS com_problema,
+                       count(*) FILTER (WHERE efetivo = 'DISPENSADO')           AS dispensadas,
+                       count(*) FILTER (WHERE efetivo IN ('PENDENTE', 'REJEITADO'))
+                                                                                AS ausentes
+                FROM   efetivo
+                GROUP  BY codigo, nome, escopo
+                ORDER  BY escopo, codigo
+                """;
+        try (PreparedStatement ps = sgdf.conexao().prepareStatement(sql)) {
+            ps.setObject(1, cicloId);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<Completude> completude = new ArrayList<>();
+                while (rs.next()) {
+                    completude.add(new Completude(rs.getString(1), rs.getString(2),
+                            rs.getString(3), rs.getInt(4), rs.getInt(5), rs.getInt(6),
+                            rs.getInt(7), rs.getInt(8)));
+                }
+                return completude;
+            }
+        } catch (SQLException e) {
+            throw new Sgdf.FalhaDePersistencia("falha ao calcular a completude do ciclo", e);
+        }
+    }
+
+    /**
+     * Quem falta, por matrícula — só para quem pode ver escopo profissional.
+     *
+     * <p>A contagem serve a todo mundo; a lista nominal, não. Matrícula identifica
+     * uma pessoa, e "faltam os contracheques de 100787, 100792 e 100801" numa
+     * tela aberta é dado pessoal exibido a quem o cap. 15.1 não autorizou. Quem
+     * chama decide se pede, e o controlador só pede quando o ator tem
+     * {@code VER_DOCUMENTO_PROFISSIONAL}.
+     */
+    public List<String> matriculasFaltantes(UUID cicloId, String tipoCodigo, int limite) {
+        String sql = """
+                SELECT p.matricula
+                FROM   exigencia_do_ciclo ec
+                JOIN   tipo_documental t ON t.id = ec.tipo_id
+                JOIN   profissional p ON p.id = ec.profissional_id
+                WHERE  ec.ciclo_id = ? AND t.codigo = ?
+                  AND  ec.status IN ('PENDENTE', 'REJEITADO')
+                ORDER  BY p.matricula
+                LIMIT  ?
+                """;
+        try (PreparedStatement ps = sgdf.conexao().prepareStatement(sql)) {
+            ps.setObject(1, cicloId);
+            ps.setString(2, tipoCodigo);
+            ps.setInt(3, limite);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<String> matriculas = new ArrayList<>();
+                while (rs.next()) {
+                    matriculas.add(rs.getString(1));
+                }
+                return matriculas;
+            }
+        } catch (SQLException e) {
+            throw new Sgdf.FalhaDePersistencia("falha ao listar as matrículas faltantes", e);
+        }
+    }
+
+    /**
+     * A linha da tela: "CONTRACHEQUE — 39 de 42".
+     *
+     * @param esperadas   quantas exigências deste tipo o ciclo materializou
+     * @param comProblema chegou e travou noutra mesa; não é falta da área
+     * @param ausentes    o que a AP cobra
+     */
+    public record Completude(String tipo, String nome, String escopo, int esperadas,
+                             int entregues, int comProblema, int dispensadas, int ausentes) {
+
+        /**
+         * O texto do critério de aceite.
+         *
+         * <p>Diz "faltam N de M" só quando falta; dizer "faltam 0 de 42" obriga
+         * quem lê a fazer a subtração para descobrir que está tudo lá.
+         */
+        public String resumo() {
+            if (ausentes == 0) {
+                return esperadas + " de " + esperadas + " — completo";
+            }
+            return "faltam " + ausentes + " de " + esperadas;
+        }
+
+        /** Só é completo quando nada falta E nada está travado noutra mesa. */
+        public boolean completo() {
+            return ausentes == 0 && comProblema == 0;
+        }
+    }
+
     // A fila de triagem saiu daqui na F1-06.
     //
     // Ela era lida de `documento` sozinho, e `documento` não tem contrato — era

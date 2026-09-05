@@ -74,6 +74,10 @@ echo "→ persistência"
 java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.persistencia.TestesDePersistencia | filtrar
 
+echo "→ completude por equipe (F2-03)"
+java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.persistencia.TestesDeCompletude | filtrar
+
 echo "→ derivação de eventos (F2-02)"
 java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.folha.TestesDeEventos | filtrar

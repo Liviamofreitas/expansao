@@ -87,6 +87,48 @@ public class PainelController {
                 ator.nome());
     }
 
+    /**
+     * Completude por tipo — história F2-03.
+     *
+     * <p>A contagem é para todo mundo que vê o painel; a lista de matrículas
+     * faltantes, não. Ela só é preenchida para quem tem
+     * {@code VER_DOCUMENTO_PROFISSIONAL} (cap. 15.1) — matrícula identifica uma
+     * pessoa, e a decisão de mostrá-la é a mesma que decide abrir o contracheque.
+     */
+    @GetMapping("/ciclos/{cicloId}/completude")
+    public List<Linha> completude(@PathVariable UUID cicloId) {
+        UUID contrato = consulta.contratoDoCiclo(cicloId);
+        if (contrato == null) {
+            throw new AcessoNegado("ciclo " + cicloId + " não existe");
+        }
+        Ator ator = exigir(Permissao.VER_PAINEL, Autorizador.Alvo.doContrato(contrato));
+        boolean veProfissional = Autorizador.pode(ator, Permissao.VER_DOCUMENTO_PROFISSIONAL)
+                .permitida();
+
+        return consulta.completudePorTipo(cicloId).stream()
+                .map(c -> new Linha(c,
+                        veProfissional && "PROFISSIONAL".equals(c.escopo()) && c.ausentes() > 0
+                                ? consulta.matriculasFaltantes(cicloId, c.tipo(), 200)
+                                : List.of()))
+                .toList();
+    }
+
+    /**
+     * @param faltantes matrículas de quem não entregou; vazia para quem não pode
+     *                  ver escopo profissional — e vazia também quando não falta
+     *                  ninguém, para não confundir "não posso ver" com "não há"
+     */
+    public record Linha(ConsultaDoPainel.Completude completude, List<String> faltantes) {
+
+        public Linha {
+            faltantes = List.copyOf(faltantes);
+        }
+
+        public String resumo() {
+            return completude.tipo() + " — " + completude.resumo();
+        }
+    }
+
     /** Tela 5: arquivos desconhecidos e conflitos de sincronização (F1-10). */
     @GetMapping("/desconhecidos")
     public List<ItemDeTriagem> desconhecidos(@RequestParam(defaultValue = "50") int limite) {

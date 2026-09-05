@@ -1732,3 +1732,76 @@ Registrado como **RA-09**.
 ### 37.7 Cobertura
 
 31 asserções em `TestesDeEventos` (22 sem banco, 9 contra o PostgreSQL).
+
+---
+
+## 38. F2-03 — "faltam 3 de 42" parece uma subtração e não é
+
+Critério de aceite: *"«faltam 3 contracheques de 42» calculado e exibido"*.
+
+### 38.1 Quatro baldes, não dois
+
+O número é fácil; o difícil é que ele seja **verdade**. Quatro situações
+diferentes se escondem atrás de "falta", e juntá-las manda a pessoa errada atrás
+da coisa errada:
+
+| Balde | Estados | Quem age |
+|---|---|---|
+| **Entregue** | RECEBIDO, VALIDADO, CONCILIADO, PUBLICADO | ninguém |
+| **Ausente** | PENDENTE, **REJEITADO** | a área que entrega — é o que a AP cobra |
+| **Com problema** | EM_TRIAGEM, DIVERGENTE | outra mesa: chegou e travou |
+| **Dispensada** | DISPENSADO | ninguém — o DAF já decidiu |
+
+Duas escolhas dentro disso merecem ser ditas:
+
+**REJEITADO conta como ausente.** O documento chegou e foi recusado — a
+exigência continua sem documento válido, e quem entrega precisa entregar de novo.
+Contá-lo como "entregue" faria o painel dizer que está tudo lá.
+
+**EM_TRIAGEM e DIVERGENTE não contam como falta.** Chegaram. Cobrar a área por
+eles é cobrar quem já entregou — e o efeito prático é a área parar de responder à
+cobrança, porque ela deixou de ser confiável.
+
+Contar a **dispensada** como falta é o pior dos quatro: faz alguém correr atrás
+de um documento formalmente dispensado, contra a decisão do APROVADOR_DAF que a
+F0-09 protegeu com três camadas de segregação.
+
+Verificado por quebra deliberada: juntando os quatro num balde só, **3 asserções
+caem**.
+
+### 38.2 O grupo condicional tinha de entrar na conta
+
+Cap. 7.5: exigências do mesmo grupo são satisfeitas por qualquer uma — o termo de
+não adesão satisfaz o vale-transporte **daquele** profissional. Contar sem isso
+exibiria *"faltam 12 relações de VT"* com os 12 termos de não adesão entregues ao
+lado, e o painel estaria mentindo sobre o trabalho que resta.
+
+O agrupamento é **por profissional**: um termo de fulano não satisfaz o VT de
+sicrano. Sem essa cláusula a conta erraria para o lado oposto, dando por
+satisfeito o que ninguém entregou.
+
+### 38.3 O grupo que vale é o da exigência, não o do tipo
+
+Os três testes de grupo falharam na primeira execução. A causa foi o fixture, e
+ela é informativa: `exigencia.condicional_grupo` é uma **cópia**, feita na
+materialização, e a consulta lê a cópia — não o valor atual de
+`tipo_documental`. Meu fixture só tinha preenchido o tipo.
+
+É a mesma lógica do `versao_matriz_id` congelado (F0-05): o ciclo responde pela
+regra da época, e mudar o cadastro hoje não reescreve o que já foi
+materializado. Virou teste próprio — tirar o VT do grupo no cadastro, depois de o
+ciclo materializar, não muda a completude daquele ciclo.
+
+### 38.4 A contagem é para todos; a lista nominal, não
+
+"Faltam 3 de 42" pode aparecer para quem vê o painel. *"Faltam os contracheques
+de 100787, 100792 e 100801"* é dado pessoal: matrícula identifica uma pessoa. A
+lista só é preenchida para quem tem `VER_DOCUMENTO_PROFISSIONAL` — a mesma
+permissão que decide abrir o contracheque.
+
+E ela vem vazia também quando não falta ninguém, de propósito: se viesse vazia só
+por falta de permissão, "não posso ver" e "não há" ficariam indistinguíveis.
+
+### 38.5 Cobertura
+
+20 asserções em `TestesDeCompletude`, contra o PostgreSQL real.
