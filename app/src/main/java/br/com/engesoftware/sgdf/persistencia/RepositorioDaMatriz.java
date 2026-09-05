@@ -94,6 +94,138 @@ public final class RepositorioDaMatriz {
     }
 
     /**
+     * Materializa as exigências de um EVENTO, só para as matrículas que o tiveram
+     * — cap. 7.2, história F2-02.
+     *
+     * <p>Critério de aceite: <i>"rescisão na folha de teste instancia as 6
+     * exigências do conjunto, SÓ PARA AQUELA MATRÍCULA"</i>. As duas metades
+     * importam: instanciar de menos deixa passar documento que o cliente cobra;
+     * instanciar para todo mundo enche o painel de exigências que nunca serão
+     * atendidas, porque o documento não existe — e um painel cheio de pendências
+     * impossíveis é um painel que ninguém olha.
+     *
+     * <p>As exigências nascem {@code origem = 'DERIVADA'}, que é o que as separa
+     * das da matriz na trilha e no painel.
+     *
+     * @param evento    o valor de {@code tipo_documental.evento} — 13O, FERIAS,
+     *                  RESCISAO, ADMISSAO
+     * @param porMatricula matrícula → data do evento; a data pode ser nula, e
+     *                  então a âncora EVENTO fica sem prazo (cap. 7.3)
+     */
+    public Materializacao materializarEvento(UUID cicloId, String evento,
+                                             Map<String, LocalDate> porMatricula, String ator) {
+        Ciclo ciclo = ciclo(cicloId);
+        Map<String, TipoDoCadastro> tipos = tipos();
+        Calendario calendario = calendario(ciclo.calendarioUf());
+        Map<String, UUID> profissionais = profissionaisDoContrato(ciclo.contratoId());
+
+        // As regras do evento, da VERSÃO QUE O CICLO CONGELOU — a mesma garantia
+        // da F0-05 vale para as derivadas.
+        List<Regra> doEvento = new ArrayList<>();
+        for (Regra r : regrasDaVersao(ciclo.versaoMatrizId())) {
+            TipoDoCadastro tipo = tipos.get(r.tipo());
+            boolean alcanca = "MODALIDADE".equals(r.alvo())
+                    && ciclo.modalidade().equals(r.alvoId())
+                    || "CONTRATO".equals(r.alvo()) && ciclo.numero().equals(r.alvoId());
+            if (alcanca && tipo != null && evento.equals(tipo.evento())
+                    && !"DISPENSADO".equals(r.obrigatoriedade())) {
+                doEvento.add(r);
+            }
+        }
+
+        return sgdf.emTransacao(conexao -> {
+            int criadas = 0;
+            int pendencias = 0;
+            List<String> alertas = new ArrayList<>();
+            for (Map.Entry<String, LocalDate> e : porMatricula.entrySet()) {
+                UUID profissionalId = profissionais.get(e.getKey());
+                if (profissionalId == null) {
+                    // A folha traz alguém que não está alocado no contrato. Não é
+                    // erro do sistema — é a folha e o cadastro divergindo — e
+                    // criar a exigência mesmo assim inventaria uma cobrança sem
+                    // dono. Vira alerta, que é o que alguém precisa conferir.
+                    alertas.add("matrícula " + e.getKey() + " tem evento " + evento
+                            + " na folha mas não está alocada neste contrato");
+                    continue;
+                }
+                Map<String, String> contexto = new HashMap<>();
+                contexto.put("competencia", ciclo.competencia());
+                if (e.getValue() != null) {
+                    contexto.put("evento", e.getValue().toString());
+                }
+                for (Regra regra : doEvento) {
+                    TipoDoCadastro tipo = tipos.get(regra.tipo());
+                    LocalDate prazo = prazoOuNulo(regra, contexto, calendario);
+                    UUID id = gravarDerivada(conexao, ciclo, regra, tipo, profissionalId,
+                            prazo, ator);
+                    if (id != null) {
+                        criadas++;
+                        if (prazo != null && abrirPendencia(conexao, id, prazo)) {
+                            pendencias++;
+                        }
+                    }
+                }
+            }
+            TrilhaDeAuditoria.registrar(conexao, TrilhaDeAuditoria.Registro.sucesso(
+                    ator, "SVC_FOLHA", "EVENTO_MATERIALIZAR", "ciclo", cicloId.toString(),
+                    Map.of("evento", List.of(evento),
+                            "matriculas", List.copyOf(porMatricula.keySet()),
+                            "criadas", List.of(String.valueOf(criadas)),
+                            "alertas", alertas)));
+            return new Materializacao(cicloId, ciclo.versaoMatrizId(),
+                    doEvento.size() * porMatricula.size(), criadas, pendencias, alertas);
+        });
+    }
+
+    /** Prazo do evento; nulo quando a âncora ainda aguarda a data (cap. 7.3). */
+    private LocalDate prazoOuNulo(Regra regra, Map<String, String> contexto,
+                                  Calendario calendario) {
+        try {
+            return Prazo.resolver(regra.prazo(), contexto, calendario).data();
+        } catch (br.com.engesoftware.sgdf.matriz.PrazoInvalido e) {
+            if ("ANCORA_SEM_EVENTO".equals(e.codigo())) {
+                return null;
+            }
+            throw new Sgdf.FalhaDePersistencia("prazo inválido em " + regra.tipo() + ": "
+                    + e.codigo(), e);
+        }
+    }
+
+    private UUID gravarDerivada(Connection conexao, Ciclo ciclo, Regra regra,
+                                TipoDoCadastro tipo, UUID profissionalId, LocalDate prazo,
+                                String ator) {
+        String sql = """
+                INSERT INTO exigencia (ciclo_id, tipo_id, evento, profissional_id, status,
+                                       prazo_calculado, criticidade, condicional_grupo,
+                                       responsavel, origem, criado_por)
+                SELECT ?, t.id, ?, ?, 'PENDENTE', ?, ?, ?, ?, 'DERIVADA', ?
+                FROM   tipo_documental t WHERE t.codigo = ?
+                ON CONFLICT (ciclo_id, tipo_id, evento, profissional_id)
+                    WHERE ciclo_id IS NOT NULL
+                DO NOTHING
+                RETURNING id
+                """;
+        try (PreparedStatement ps = conexao.prepareStatement(sql)) {
+            ps.setObject(1, ciclo.id());
+            ps.setString(2, tipo.evento());
+            ps.setObject(3, profissionalId);
+            ps.setObject(4, prazo != null ? prazo : fimDaCompetencia(ciclo));
+            ps.setString(5, regra.criticidade() != null ? regra.criticidade()
+                    : tipo.criticidade());
+            ps.setString(6, tipo.condicionalGrupo());
+            ps.setString(7, regra.responsavel());
+            ps.setString(8, ator);
+            ps.setString(9, regra.tipo());
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getObject(1, UUID.class) : null;
+            }
+        } catch (SQLException e) {
+            throw new Sgdf.FalhaDePersistencia("falha ao gravar a exigência derivada "
+                    + regra.tipo(), e);
+        }
+    }
+
+    /**
      * Grava uma exigência, no endereçamento que o escopo pede (V004).
      *
      * @return o id quando criou; nulo quando já existia

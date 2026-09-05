@@ -74,6 +74,10 @@ echo "→ persistência"
 java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.persistencia.TestesDePersistencia | filtrar
 
+echo "→ derivação de eventos (F2-02)"
+java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.folha.TestesDeEventos | filtrar
+
 echo "→ conciliação (fase 1b)"
 java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.conciliacao.TestesDeConciliacao | filtrar

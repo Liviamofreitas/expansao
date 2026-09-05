@@ -1636,3 +1636,99 @@ um contrato.
 23 asserções em `TestesDeOrganizacao` e 11 novas em `TestesDeColeta` (conflito
 baixado e hasheado, conflito infectado rejeitado, nome com espaço e parêntese).
 Com isso a **fase 1a fecha**: F1-01 a F1-10.
+
+---
+
+## 37. F2-02 — a proibição que virou assinatura
+
+Critério de aceite: *"rescisão na folha de teste instancia as 6 exigências do
+conjunto, **só para aquela matrícula**"*.
+
+### 37.1 "Nunca por calendário" não pode ser um comentário
+
+O cap. 7.2 abre com *"executada quando a folha estruturada da competência chega.
+**Nunca por calendário**"*, e o cap. 5.2 repete no comentário de
+`exigencia.origem`. É a decisão D-04, e é fácil de violar sem perceber: uma
+rotina noturna que "abre as exigências de rescisão do mês" parece útil e cobra
+documento de quem não foi demitido.
+
+A proteção não é um sinalizador — alguém o inverte. É a **assinatura**:
+
+```java
+detectar(FolhaDeCompetencia folha, DeParaDeRubricas dePara,
+         Map<String, Movimentacao> movimentacoes)
+```
+
+Não há data, não há relógio, não há `Clock`. Derivar por calendário exigiria
+mudar a assinatura, o que quebra a compilação de quem chama. O teste fixa a lista
+exata de parâmetros: se ela mudar, alguém terá de decidir de novo em vez de
+passar numa revisão distraída.
+
+A competência sai da própria folha; as datas de evento saem da movimentação.
+Ambas são **dado**, não relógio — ler a data de desligamento que alguém registrou
+é o oposto de derivar por calendário.
+
+### 37.2 O de-para saiu do código-fonte
+
+O cap. 7.2 termina com *"os códigos de rubrica são cadastro (tabela de-para por
+sistema de folha), não código-fonte"*. Os nove códigos que o `LeitorDeFopag`
+carregava em constante Java — todos lidos da FOPAG real de 06/2026 — foram para
+`rubrica_de_para`. A razão é operacional: com o código em constante, "o RH mudou
+o plano de contas" vira release de software.
+
+**Duas formas de mapear, e a segunda existe por causa do A05.** A FOPAG imprime o
+código; o contracheque não. Como a folha da fase 1b é derivada dos contracheques
+enquanto o export do cap. 14.3 não existe, um de-para só por código não
+reconheceria nada na fonte que temos. A linha aceita mapear por código **ou** por
+descrição normalizada — e o código, quando existe, vence: a descrição varia de
+grafia entre competências ("Vale Alimentação", "VALE ALIMENTACAO", "V.
+ALIMENTACAO"), o código não.
+
+Rubrica fora do cadastro vira `OUTRA`, **não erro**: a folha tem dezenas de linhas
+e o de-para só precisa das que alguma regra usa. Tratar o desconhecido como erro
+faria a chegada de uma rubrica nova travar a competência inteira, contra o
+princípio 1 do cap. 1.
+
+### 37.3 Admissão não se supõe pela primeira aparição
+
+Tentador: "quem aparece na folha desta competência e não estava na anterior foi
+admitido". Erra em toda migração de sistema, que faz todo mundo aparecer de uma
+vez — e instanciaria `ADM.DOCUMENTACAO` para o quadro inteiro.
+
+Admissão só é afirmada quando a **movimentação** traz a data e ela cai na
+competência. Sem a data, não há evento — e isso é dizer menos, não errar mais.
+
+### 37.4 O outro lado do critério de aceite
+
+"Instancia as 6" e "só para aquela matrícula" falham de formas diferentes, e as
+duas importam. Instanciar de menos deixa passar documento que o cliente cobra;
+instanciar para todo mundo enche o painel de exigências que nunca serão
+atendidas, **porque o documento não existe** — e um painel cheio de pendências
+impossíveis é um painel que ninguém olha.
+
+Verificado por quebra deliberada: trocando a matrícula do evento por qualquer
+alocado, **4 asserções caem**.
+
+Matrícula que a folha traz e o contrato não tem vira **alerta**, não exigência: a
+folha e o cadastro divergindo é fato a conferir, e criar a cobrança mesmo assim
+inventaria uma pendência sem dono.
+
+### 37.5 Uma expectativa minha estava errada
+
+O teste do prazo esperava `2026-04-27` — cinco dias úteis após 20/04. O valor
+correto é **28/04**: 21/04 é Tiradentes, está na carga do calendário, e a
+contagem pula. Eu havia contado sem o feriado. A correção deixou o teste melhor
+do que se tivesse passado de primeira: agora ele prova que o calendário da UF
+está sendo consultado de verdade.
+
+### 37.6 O que ficou de fora, e por quê
+
+Os códigos de 13º, férias e rescisão **da FOPAG** não estão no seed. A massa tem
+uma competência de folha mensal comum, sem esses eventos — os códigos deles nunca
+foram observados, e inventá-los seria adivinhar. O de-para por descrição cobre a
+detecção pelo contracheque; os códigos da FOPAG são cadastro da área demandante.
+Registrado como **RA-09**.
+
+### 37.7 Cobertura
+
+31 asserções em `TestesDeEventos` (22 sem banco, 9 contra o PostgreSQL).

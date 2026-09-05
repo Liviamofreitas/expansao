@@ -1,0 +1,3 @@
+BEGIN;
+DROP TABLE IF EXISTS rubrica_de_para;
+COMMIT;
