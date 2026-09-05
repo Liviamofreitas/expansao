@@ -1473,3 +1473,83 @@ o registro que mostra alguém insistindo.
 
 31 asserções em `TestesDeRascunho` (7 sem banco, 24 contra o PostgreSQL),
 15 em `TestesDeCadastro` e 12 em `T007`.
+
+---
+
+## 35. F0-09 — a negativa que sumia, e as três camadas medidas
+
+Critério de aceite: *"solicitante não consegue aprovar a própria exceção;
+aprovação exige APROVADOR_DAF"*.
+
+### 35.1 A tabela não tinha onde registrar um "não"
+
+`excecao` nasceu na V001 com `aprovador`, `aprovado_em` e a restrição de
+segregação de funções. Faltava o estado NEGADA: nulo em `aprovador` significa
+"ainda não decidida", e depois de o DAF recusar a linha continuava parecendo
+pendente.
+
+As consequências não são estéticas. A exigência fica esperando por uma decisão já
+tomada; quem solicitou pede de novo sem saber que foi negado, e sem saber por quê
+— que é a informação que faria a próxima solicitação ser melhor; e a trilha do
+cap. 16 guarda as aprovações e perde as recusas, que são justamente as decisões
+que alguém questiona depois.
+
+**A migração expôs um defeito da própria migração.** O `DEFAULT 'SOLICITADA'`
+punha esse valor em toda linha existente, **inclusive nas que já tinham
+aprovador** — e essas passariam a dizer "ainda não decidida" sobre uma decisão
+tomada. A V012 teria criado a ambiguidade que veio remover. Descoberto porque a
+nova restrição recusou as linhas do `T001`; corrigido com um `UPDATE` de backfill
+antes da restrição.
+
+### 35.2 A negativa era gravada dentro da transação que a negativa aborta
+
+O bug do dia, e o teste que o encontrou afirmava sobre a trilha.
+
+`decidir` registrava a recusa por SoD e em seguida levantava a exceção — as duas
+coisas dentro do mesmo `emTransacao`. O rollback levava junto o registro de que
+alguém tentou. **O fato mais auditável do fluxo somia exatamente por ser
+negativo.**
+
+A correção move as checagens de SoD para fora do bloco transacional, com o
+registro da recusa em transação própria. Sem a asserção sobre a trilha, o caminho
+pareceria correto para sempre: a exceção era levantada, a mensagem estava certa, e
+nada indicava que o log não existia.
+
+### 35.3 A entrega que chega enquanto a exceção espera
+
+Uma exceção espera decisão humana, e nesse meio-tempo o documento pode chegar.
+Aprovar sobre um estado que já não é o atual empurraria a exigência de RECEBIDO
+para DISPENSADO — **apagando do book um documento que existe**.
+
+A aprovação relê a exigência e recusa quando ela saiu de
+`PENDENTE|DIVERGENTE|REJEITADO`, dizendo que a entrega chegou. A decisão foi
+tomada sobre um estado que mudou, e a resposta certa é dizer isso, não aplicá-la.
+
+### 35.4 As três camadas de SoD, medidas em vez de afirmadas
+
+O comentário do repositório diz que a segregação é verificada em três lugares e
+que cada um cobre uma classe diferente de erro. Isso é fácil de escrever e fácil
+de estar errado, então foi medido, derrubando uma camada por vez:
+
+| Cenário | Resultado |
+|---|---|
+| Java **e** banco | 25/25 |
+| Só Java (restrição `excecao_sod` removida) | **25/25** — o serviço segura sozinho |
+| Só banco (checagem em Java neutralizada) | **24/25** — o banco recusa; cai só a asserção da trilha |
+| Nenhum dos dois | **o critério de aceite quebra**: o solicitante aprova a própria exceção |
+
+A leitura é precisa: a contribuição da camada Java **não é a proteção** — o banco
+já a dá. É a **mensagem** e o **registro da tentativa**. Vale saber qual é qual
+antes de alguém "simplificar" a duplicação.
+
+### 35.5 O que a SoD não cobre
+
+A comparação é entre strings de identidade. Se a mesma pessoa autenticar com dois
+identificadores — o `sub` do OIDC hoje, um e-mail amanhã — as três camadas
+concordam que são duas pessoas. A defesa está no provedor de identidade, não aqui.
+Registrado como **RA-08**.
+
+### 35.6 Cobertura
+
+25 asserções em `TestesDeExcecao` e 8 em `T008`. Com isso a **fase 0 fecha**:
+F0-01 a F0-09, todas com critério de aceite exercitado.

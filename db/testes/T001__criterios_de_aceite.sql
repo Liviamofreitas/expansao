@@ -126,10 +126,10 @@ END $$;
 -- =============================================================================
 DO $$
 BEGIN
-    INSERT INTO excecao (exigencia_id, motivo, solicitante, aprovador, aprovado_em)
+    INSERT INTO excecao (exigencia_id, motivo, solicitante, aprovador, aprovado_em, situacao)
     VALUES ('77777777-7777-7777-7777-777777777777',
             'Documento inexistente por decisao judicial documentada nos autos',
-            'joao.silva', 'joao.silva', now());
+            'joao.silva', 'joao.silva', now(), 'APROVADA');
     PERFORM teste_falhou('F0-09: o banco aceitou aprovador = solicitante');
 EXCEPTION WHEN check_violation THEN
     PERFORM teste_ok('F0-09 · aprovador igual ao solicitante é rejeitado (SoD)');
@@ -137,10 +137,10 @@ END $$;
 
 DO $$
 BEGIN
-    INSERT INTO excecao (exigencia_id, motivo, solicitante, aprovador, aprovado_em)
+    INSERT INTO excecao (exigencia_id, motivo, solicitante, aprovador, aprovado_em, situacao)
     VALUES ('77777777-7777-7777-7777-777777777777',
             'Documento inexistente por decisao judicial documentada nos autos',
-            'joao.silva', 'maria.andrade', now());
+            'joao.silva', 'maria.andrade', now(), 'APROVADA');
     PERFORM teste_ok('F0-09 · aprovador diferente do solicitante é aceito');
 END $$;
 

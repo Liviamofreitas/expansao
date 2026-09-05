@@ -1,6 +1,7 @@
 package br.com.engesoftware.sgdf.web;
 
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeCadastro;
+import br.com.engesoftware.sgdf.persistencia.RepositorioDeExcecao;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeRascunho;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeTriagem;
 import java.util.Map;
@@ -49,6 +50,32 @@ public class TratamentoDeErro {
     @ExceptionHandler(RepositorioDeRascunho.ExigeAprovacaoDaf.class)
     ResponseEntity<Map<String, String>> exigeDaf(RepositorioDeRascunho.ExigeAprovacaoDaf e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("motivo", e.getMessage()));
+    }
+
+    /**
+     * Cap. 15.1: quem solicitou não decide; decidir exige APROVADOR_DAF.
+     *
+     * <p>403 com motivo no corpo, como o do DAF na matriz: quem recebe já sabe
+     * que a exceção existe — ele a solicitou. Esconder o motivo aqui só faria
+     * a pessoa tentar de novo sem entender.
+     */
+    @ExceptionHandler(RepositorioDeExcecao.SegregacaoDeFuncoes.class)
+    ResponseEntity<Map<String, String>> segregacao(RepositorioDeExcecao.SegregacaoDeFuncoes e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("motivo", e.getMessage()));
+    }
+
+    @ExceptionHandler(RepositorioDeExcecao.ExcecaoInvalida.class)
+    ResponseEntity<Map<String, String>> excecaoInvalida(RepositorioDeExcecao.ExcecaoInvalida e) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(Map.of("motivo", e.getMessage()));
+    }
+
+    @ExceptionHandler(RepositorioDeExcecao.ExcecaoJaDecidida.class)
+    ResponseEntity<Map<String, String>> excecaoDecidida(
+            RepositorioDeExcecao.ExcecaoJaDecidida e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(Map.of("motivo", e.getMessage()));
     }
 
