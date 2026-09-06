@@ -57,6 +57,10 @@ public final class TestesDeWeb {
         executar("oMotivoNaoVaiNoCorpo", TestesDeWeb::oMotivoNaoVaiNoCorpo);
         executar("escritaDaTriagemTambemEAutorizada",
                 TestesDeWeb::escritaDaTriagemTambemEAutorizada);
+        executar("oCicloTemDuasPermissoesDiferentes",
+                TestesDeWeb::oCicloTemDuasPermissoesDiferentes);
+        executar("oIndicadorAgregadoNaoSaiRecortado",
+                TestesDeWeb::oIndicadorAgregadoNaoSaiRecortado);
 
         System.out.println();
         falhas.forEach(f -> System.out.println("  FALHA " + f));
@@ -298,7 +302,84 @@ public final class TestesDeWeb {
                 negou(() -> triagemControlador(gestor, minha).confirmar(candidatura)));
     }
 
+    // --- ciclo (F3-03, F3-04) -------------------------------------------------
+
+    /**
+     * Ateste e conducao do ciclo sao permissoes DIFERENTES, e a diferenca e do
+     * cap. 15.1.
+     *
+     * <p>O GESTOR_CONTRATO "registra ateste; acompanha seu ciclo" — e nao move o
+     * ciclo. Uma permissao so para as duas coisas o deixaria FECHAR o ciclo, que
+     * nao e o que o capitulo lhe da. O PUBLICADOR_FIN e o inverso: conduz e nao
+     * atesta.
+     */
+    static void oCicloTemDuasPermissoesDiferentes() {
+        Ator gestor = ator("gestor", Papel.GESTOR_CONTRATO, CONTRATO_DO_ATOR);
+        Ator financeiro = ator("fin", Papel.PUBLICADOR_FIN, CONTRATO_DO_ATOR);
+
+        ok("Cap. 15.1 . o GESTOR_CONTRATO nao move o ciclo",
+                negou(() -> cicloControlador(gestor, bancoDoCiclo(CONTRATO_DO_ATOR))
+                        .mover(CICLO, new CicloController.Movimento("FECHADO",
+                                "encerrando a competencia por conta propria"))));
+        ok("Cap. 15.1 . e o PUBLICADOR_FIN nao registra o ateste",
+                negou(() -> cicloControlador(financeiro, bancoDoCiclo(CONTRATO_DO_ATOR))
+                        .ateste(CICLO, new CicloController.Ateste(
+                                java.time.OffsetDateTime.now(), "e-mail", null))));
+
+        ConexaoDeMentira alheio = bancoDoCiclo(CONTRATO_ALHEIO);
+        ok("F0-01 . e o ciclo de outro contrato recebe 403 mesmo com o papel certo",
+                negou(() -> cicloControlador(financeiro, alheio)
+                        .mover(CICLO, new CicloController.Movimento("EM_COLETA",
+                                "iniciando a varredura da competencia"))));
+        ok("F0-01 . tendo lido so o contrato antes de negar",
+                alheio.consultasFeitas().size() == 1);
+
+        ok("F0-01 . ciclo inexistente recebe o mesmo 403, nao 404",
+                negou(() -> cicloControlador(financeiro,
+                        bancoQueExplode().respondendo("FROM ciclo WHERE id"))
+                        .estado(CICLO)));
+    }
+
+    /**
+     * O indicador do cap. 21 e agregado da competencia.
+     *
+     * <p>Filtra-lo pelos contratos do ator daria um percentual diferente com o
+     * mesmo nome — e dois numeros chamados "D+3" e pior que um so. Quem tem
+     * recorte nao recebe esta visao; recebe o painel do seu ciclo.
+     */
+    static void oIndicadorAgregadoNaoSaiRecortado() {
+        Ator recortado = ator("fin", Papel.PUBLICADOR_FIN, CONTRATO_DO_ATOR);
+        ok("Cap. 21 . ator com recorte de contrato nao recebe o agregado",
+                negou(() -> cicloControlador(recortado, bancoQueExplode()).d3("2026-06")));
+
+        Ator daf = ator("daf", Papel.APROVADOR_DAF);
+        ConexaoDeMentira banco = bancoQueExplode()
+                // O fragmento precisa distinguir as DUAS consultas: ambas dizem
+                // "FROM   ciclo", e casar pelo prefixo faria o indicador
+                // responder tambem a consulta por contrato — com tres colunas
+                // onde ela le seis.
+                .respondendo("count(*) FILTER",
+                        linha(2, 2, new java.math.BigDecimal("1.50")))
+                .respondendo("JOIN   contrato_servico");
+        Map<String, Object> visao = cicloControlador(daf, banco).d3("2026-06");
+        ok("Cap. 21 . e quem tem visao global recebe o percentual e a meta",
+                "100.00".equals(visao.get("percentual"))
+                        && Boolean.TRUE.equals(visao.get("atinge_a_meta")));
+    }
+
     // -------------------------------------------------------------------------
+
+    static CicloController cicloControlador(Ator ator, ConexaoDeMentira banco) {
+        Sgdf sgdf = new Sgdf(banco.conexao());
+        return new CicloController(atores(ator),
+                new br.com.engesoftware.sgdf.persistencia.RepositorioDeCiclo(sgdf),
+                new ConsultaDoPainel(sgdf));
+    }
+
+    /** So a consulta do contrato do ciclo responde: negar nao deve ler mais nada. */
+    static ConexaoDeMentira bancoDoCiclo(UUID contrato) {
+        return bancoQueExplode().respondendo("FROM ciclo WHERE id", linha(contrato));
+    }
 
     static PainelController controlador(Ator ator, ConexaoDeMentira banco) {
         Sgdf sgdf = new Sgdf(banco.conexao());
@@ -340,6 +421,11 @@ public final class TestesDeWeb {
 
     static Ator ator(String id, Papel papel, UUID contrato) {
         return new Ator(id, "Fulano", Set.of(papel), Set.of(contrato));
+    }
+
+    /** Papel de visao global: sem recorte de contrato (cap. 15.1). */
+    static Ator ator(String id, Papel papel) {
+        return new Ator(id, "Fulano", Set.of(papel), Set.of());
     }
 
     static Jwt token(String sujeito, List<String> grupos, List<String> contratos) {

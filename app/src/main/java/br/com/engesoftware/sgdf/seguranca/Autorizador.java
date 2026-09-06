@@ -66,6 +66,7 @@ public final class Autorizador {
                 Permissao.VER_PAINEL,
                 Permissao.VER_CONTEUDO_DOCUMENTO,
                 Permissao.TRIAR,
+                Permissao.CONDUZIR_CICLO,
                 Permissao.SOLICITAR_EXCECAO));
 
         // "Registrar ateste; acompanhar seu ciclo; depositar documentos
@@ -80,6 +81,7 @@ public final class Autorizador {
                 Permissao.VER_PAINEL,
                 Permissao.VER_CONTEUDO_DOCUMENTO,
                 Permissao.APROVAR_EXCECAO,
+                Permissao.CONDUZIR_CICLO,
                 Permissao.ALTERAR_CRITICIDADE));
 
         // "Leitura global + trilha + exportações." Qualquer escrita é negada.

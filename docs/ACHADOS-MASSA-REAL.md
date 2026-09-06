@@ -1949,3 +1949,124 @@ de fulano passa a satisfazer o VT de sicrano e 2 asserções caem.
 ### 40.5 Cobertura
 
 12 asserções novas em `TestesDeCompletude` (32 na suíte).
+
+## 41. F3-03 e F3-04 — o indicador que melhora porque o dado piorou
+
+O cap. 6.2 descreve o ciclo numa linha e a linha esconde duas coisas diferentes:
+um conjunto de estados e uma ordem entre eles. O `CHECK` do V001 já garantia o
+primeiro — `status` é um dos oito — e não garantia nada do segundo. Um ciclo
+podia ir de ABERTO a FECHADO num salto, e chegar a FATURADO sem ateste nenhum.
+
+### 41.1 A circularidade que não existe, e os dois portões que existem
+
+Ler o cap. 6.2 e o cap. 13 juntos sugere um nó: PRONTO exige toda bloqueante em
+PUBLICADO, publicar o book exige o ciclo pronto, e nada anda. A ordem desfaz — o
+book publica sobre exigências **CONCILIADAS**, e é a publicação que move
+CONCILIADO → PUBLICADO (cap. 6.1, última linha). São dois portões, e a diferença
+importa:
+
+| Pergunta | Quem responde | Aceita |
+|---|---|---|
+| Posso publicar o book? | `ConsultaDoPainel.motivosDeBloqueio` | PUBLICADO, DISPENSADO, **CONCILIADO** |
+| Posso declarar o ciclo PRONTO? | `RepositorioDeCiclo.bloqueantesEmAberto` | PUBLICADO, DISPENSADO |
+
+Usar o portão frouxo no lugar do rígido deixaria a medição sair ao cliente com
+documento ainda não publicado no book — exatamente o que a F3-04 existe para
+impedir. Quebra deliberada: fazendo `bloqueantesEmAberto` aceitar CONCILIADO,
+**2 asserções caem**, e nenhuma delas é do painel.
+
+### 41.2 O que a suíte mede, e o que ela não mede
+
+Cada transição é checada duas vezes: em Java, com mensagem, e dentro do próprio
+`UPDATE`, como cláusula do `WHERE`. As quebras deliberadas mediram cada camada
+isolada:
+
+| Quebra | Resultado | O que isso diz |
+|---|---|---|
+| Sem a guarda Java de PRONTO | 53/55 | O banco continua barrando; a recusa perde o tipo e a **lista do que falta** — 2 asserções caem, 2 nem rodam |
+| Sem o `WHERE` do banco | 57/57 | **A suíte não mede esta cláusula.** Ver abaixo |
+| `bloqueantesEmAberto` aceitando CONCILIADO | 55/57 | O portão frouxo no lugar do rígido |
+| Denominador = atestados, não faturados | 55/57 | O ciclo que ainda tem prazo entraria como descumprimento |
+| Tabela de transições aberta | 52/57 | 5 asserções caem — é a tabela que impede os saltos |
+| Ateste sobrescrevível | 55/57 | Mover o marco depois de o relógio começar |
+
+A segunda linha está registrada e não foi corrigida. O que o `WHERE` cobre é a
+janela entre a leitura em Java e a gravação, e reproduzir essa janela num teste
+exigiria pausar o código **dentro** da transação — o que o código não expõe, e
+expor só para o teste seria pior que não medir. A cláusula fica pelo que o banco
+garante, não pelo que o teste prova; dizê-lo aqui evita que ela seja lida como
+garantia verificada.
+
+### 41.3 O indicador que melhora porque o dado piorou
+
+Removendo a guarda de Java, o banco aceitava FATURADO sem `ateste_em`. O efeito
+não é um estado feio no painel: é uma distorção silenciosa do KPI do cap. 21.
+
+O denominador do D+3 filtra por `ateste_em IS NOT NULL`. Um ciclo faturado sem
+ateste **sai do numerador e do denominador ao mesmo tempo** — e o ciclo com mais
+chance de ter sido remendado à mão é justamente o que mais demorou. O percentual
+sobe porque o pior caso desapareceu da conta.
+
+A V016 fecha isso no banco, que é por onde um `UPDATE` manual em produção passa
+sem ver o Java:
+
+- `ciclo_ateste_antes_de_atestado` — ATESTADO/FATURADO/FECHADO exigem `ateste_em`
+- `ciclo_nf_antes_de_faturado` — FATURADO/FECHADO exigem `nf_emitida_em`
+- `ciclo_nf_nao_antecede_ateste` — NF anterior ao ateste satisfaria "dentro de
+  D+3" com folga negativa
+
+**Sem backfill, e é deliberado.** A V015 preencheu antes de restringir porque a
+linha antiga tinha um valor correto e conhecido. Aqui não há: um ciclo em
+FATURADO sem ateste não tem data "provável", e escrever `now()` no lugar
+produziria um D+3 calculado sobre uma data fabricada. Se houver linha assim, a
+migração falha — e falhar é a resposta certa.
+
+Medido em três configurações:
+
+| Configuração | Resultado |
+|---|---|
+| Só a V016 (sem a guarda Java), **antes** de traduzir o SQLState | 50/52 — o ciclo fica protegido, mas a recusa chega como `FalhaDePersistencia` |
+| Nem V016 nem guarda Java | 52/57 — **5 asserções caem**: o ciclo fatura sem ateste |
+| Só a V016, **depois** de traduzir 23514 → `TransicaoInvalida` | 57/57 |
+
+A linha do meio é a que justifica a migração. A primeira é a que justifica a
+tradução: sem ela, uma recusa legítima virava HTTP 500 — "o sistema falhou" onde
+o certo é "o pedido é inválido" —, e quem investigasse procuraria defeito no
+banco. É a mesma lição do `Sgdf.emTransacao` que reembrulhava recusa de domínio,
+aparecendo agora do lado do SQLState.
+
+A terceira linha diz uma coisa desconfortável e verdadeira: para ATESTADO e
+FATURADO, o `WHERE` em Java é **provadamente redundante** com a V016. Fica
+porque a mensagem nomeia o marco que falta, enquanto a do banco nomeia a
+restrição — mas a garantia é do banco, não dele.
+
+### 41.4 O que um CHECK não consegue garantir
+
+Nenhuma restrição enxerga o valor **anterior** da linha, então ABERTO → FECHADO
+continua passando no banco desde que os marcos estejam gravados. A ordem vive no
+`EstadoDoCiclo`, e o T009 afirma isso explicitamente — para que ninguém leia a
+V016 como se fosse a máquina de estados.
+
+### 41.5 Registrar não é transitar
+
+`registrarAteste` grava o ateste e **não** move o ciclo. Fundir os dois
+apagaria a diferença entre "o cliente atestou" e "nós consideramos o ciclo
+atestado" — e é do primeiro fato, não do segundo, que o relógio do D+3 conta.
+Pelo mesmo motivo o ateste não se sobrescreve: corrigir a data é reabrir o
+ciclo, não editar o marco depois de o relógio ter começado.
+
+### 41.6 Um `?AND` que só aparecia num caminho
+
+O `WHERE` extra de PRONTO era um bloco de texto Java concatenado ao SQL base. O
+bloco remove a indentação comum de **todas** as linhas, inclusive a primeira, e
+o resultado era `c.status = ?AND NOT EXISTS` — recusado pelo Postgres com
+*trailing junk after parameter*. As outras duas pré-condições eram literais com
+espaço e funcionavam. Uma suíte que exercitasse só ATESTADO e FATURADO nunca
+veria o defeito.
+
+### 41.7 Cobertura
+
+57 asserções em `TestesDeCiclo` (15 delas sem banco, sobre a tabela de
+transições), 7 novas em `TestesDeWeb` (as duas permissões separadas e o
+agregado que não sai recortado) e 8 no `T009__marcos_do_ciclo.sql`.
+Total: **946 Java, 113 SQL**.

@@ -41,6 +41,19 @@ public enum Permissao {
     /** Registrar o ateste do contrato. */
     REGISTRAR_ATESTE,
 
+    /**
+     * Registrar a emissão da NF e mover o ciclo pelo cap. 6.2.
+     *
+     * <p><b>Leitura declarada, não literal.</b> O cap. 15.1 nomeia
+     * REGISTRAR_ATESTE e não nomeia o registro da NF nem as transições do
+     * ciclo. Deixá-las sem permissão as tornaria impossíveis — negar é o padrão
+     * do {@code Autorizador} —, e concedê-las a todos contradiria o capítulo.
+     * A leitura conservadora é a adotada: quem publica o faturamento
+     * (PUBLICADOR_FIN) e quem tem visão global de aprovação (APROVADOR_DAF).
+     * Registrado em PENDENCIAS para confirmação da DAF.
+     */
+    CONDUZIR_CICLO,
+
     /** Configuração técnica: integrações, parâmetros, regras de reconhecimento. */
     CONFIGURAR_SISTEMA,
 

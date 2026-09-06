@@ -38,6 +38,10 @@ echo "→ cadastro (F0-02, F0-03)"
 java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.persistencia.TestesDeCadastro | filtrar
 
+echo "→ ciclo e indicador D+3 (F3-03, F3-04)"
+java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.ciclo.TestesDeCiclo | filtrar
+
 echo "→ exceção com SoD (F0-09)"
 java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.persistencia.TestesDeExcecao | filtrar

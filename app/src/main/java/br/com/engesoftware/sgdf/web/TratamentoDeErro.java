@@ -1,6 +1,7 @@
 package br.com.engesoftware.sgdf.web;
 
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeCadastro;
+import br.com.engesoftware.sgdf.persistencia.RepositorioDeCiclo;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeExcecao;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeRascunho;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeTriagem;
@@ -77,6 +78,33 @@ public class TratamentoDeErro {
             RepositorioDeExcecao.ExcecaoJaDecidida e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(Map.of("motivo", e.getMessage()));
+    }
+
+    /**
+     * Cap. 6.2: o movimento não existe, ou a pré-condição deixou de valer.
+     *
+     * <p>422 e não 409: o pedido é sobre um ciclo que existe, e o que não vale
+     * é o movimento em si. A mensagem diz de onde o ciclo pode sair, porque a
+     * tela precisa se corrigir e não adivinhar.
+     */
+    @ExceptionHandler(RepositorioDeCiclo.TransicaoInvalida.class)
+    ResponseEntity<Map<String, String>> transicaoInvalida(
+            RepositorioDeCiclo.TransicaoInvalida e) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(Map.of("motivo", e.getMessage()));
+    }
+
+    /**
+     * F3-04: ciclo com bloqueante em aberto não vai a PRONTO.
+     *
+     * <p>409 com a LISTA no corpo, e a lista é o ponto. "Não pode" manda a
+     * pessoa procurar; "faltam FGT.GUIA e DCT.DECLARACAO" manda a pessoa
+     * resolver — ou pedir exceção, que é a saída que o cap. 6.1 prevê.
+     */
+    @ExceptionHandler(RepositorioDeCiclo.BloqueantesEmAberto.class)
+    ResponseEntity<Map<String, Object>> bloqueantes(RepositorioDeCiclo.BloqueantesEmAberto e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("motivo", e.getMessage(), "bloqueantes", e.abertas()));
     }
 
     /** Unicidade do cadastro — 409, com o que fazer. */
