@@ -170,6 +170,12 @@ public final class RepositorioDeTriagem {
                 """, c.exigenciaId(), ator, c.documentoId());
 
         String status = moverExigencia(conexao, c.exigenciaId(), "RECEBIDO", "EM_TRIAGEM", ator);
+
+        // Cap. 7.5, história F2-05: o documento que chega satisfaz a irmã do
+        // grupo condicional. Aqui dentro, na mesma transação do vínculo — se a
+        // vinculação for desfeita, a satisfação da irmã vai junto.
+        List<UUID> irmas = GrupoCondicional.satisfazerIrmas(conexao, c.exigenciaId(), ator);
+
         Alias alias = aprenderAlias(conexao, c.tipoPropostoId(), c.nomeArquivo(), ator);
         fecharCandidatura(conexao, c.id(), "CONFIRMADA", null, ator);
 
@@ -177,6 +183,8 @@ public final class RepositorioDeTriagem {
                 ator, papel, "TRIAGEM_CONFIRMAR", "candidatura", c.id().toString(),
                 Map.of("documento", List.of(c.documentoId().toString()),
                         "exigencia", List.of(c.exigenciaId().toString()),
+                        "condicional_satisfeita",
+                        irmas.stream().map(UUID::toString).toList(),
                         "alias", List.of(alias.descricao()))));
 
         return new ResultadoDaTriagem(c.id(), "CONFIRMADA", status, alias.gravado(),

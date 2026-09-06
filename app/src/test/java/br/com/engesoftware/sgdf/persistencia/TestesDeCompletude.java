@@ -46,6 +46,12 @@ public final class TestesDeCompletude {
                 executar("oGrupoQueValeEODaExigencia", () -> oGrupoQueValeEODaExigencia(sgdf));
                 executar("aCorporativaApareceUmaVezSo",
                         () -> aCorporativaApareceUmaVezSo(sgdf));
+                executar("oTermoSatisfazOVtNoBanco", () -> oTermoSatisfazOVtNoBanco(sgdf));
+                executar("aDispensaCondicionalNaoEExcecao",
+                        () -> aDispensaCondicionalNaoEExcecao(sgdf));
+                executar("aSatisfacaoNaoAtravessaProfissional",
+                        () -> aSatisfacaoNaoAtravessaProfissional(sgdf));
+                executar("semGrupoNaoSatisfazNada", () -> semGrupoNaoSatisfazNada(sgdf));
                 executar("asMatriculasFaltantesSaoAsQueFaltam",
                         () -> asMatriculasFaltantesSaoAsQueFaltam(sgdf));
             } finally {
@@ -190,6 +196,130 @@ public final class TestesDeCompletude {
                 faltantes.stream().noneMatch(m -> m.endsWith("-1")));
     }
 
+    /**
+     * O CRITERIO DE ACEITE DA F2-05, e a metade que faltava.
+     *
+     * <p>A F2-03 fazia a CONTAGEM certa na consulta, mas a exigencia de VT
+     * continuava PENDENTE no banco — e e esse estado que a regua le, que bloqueia
+     * o book e que mantem a pendencia aberta. A tela dizia que estava tudo bem e
+     * o e-mail saia assim mesmo.
+     */
+    static void oTermoSatisfazOVtNoBanco(Sgdf sgdf) {
+        Fixture f = fixture(sgdf);
+        UUID vt = umTipo(sgdf, "TST.VT5_" + f.seq, "PROFISSIONAL", "VT_ADESAO5");
+        UUID termo = umTipo(sgdf, "TST.TERMO5_" + f.seq, "PROFISSIONAL", "VT_ADESAO5");
+        UUID pessoa = profissional(sgdf, f, 1);
+        umaExigencia(sgdf, f, vt, pessoa, "PENDENTE");
+        umaExigencia(sgdf, f, termo, pessoa, "PENDENTE");
+        UUID exigenciaDoVt = idDaExigencia(sgdf, f, vt);
+        UUID exigenciaDoTermo = idDaExigencia(sgdf, f, termo);
+        executar(sgdf, "INSERT INTO pendencia (exigencia_id, prazo) VALUES ('" + exigenciaDoVt
+                + "', DATE '2026-05-05'), ('" + exigenciaDoTermo + "', DATE '2026-05-05')");
+
+        // O termo chega e e vinculado — o que a triagem faz na confirmacao.
+        executar(sgdf, "UPDATE exigencia SET status = 'RECEBIDO' WHERE id = '"
+                + exigenciaDoTermo + "'");
+        List<UUID> irmas = new Sgdf(sgdf.conexao()).emTransacao(c ->
+                GrupoCondicional.satisfazerIrmas(c, exigenciaDoTermo, "triagem"));
+
+        ok("F2-05 . a irma do grupo e satisfeita", irmas.size() == 1
+                && irmas.get(0).equals(exigenciaDoVt));
+        ok("F2-05 . o VT sai de PENDENTE — nao e mais isso que a regua le",
+                "DISPENSADO".equals(escalar(sgdf, "SELECT status FROM exigencia WHERE id = '"
+                        + exigenciaDoVt + "'")));
+        ok("V015 . e a dispensa diz que foi CONDICIONAL, nao excecao da DAF",
+                "CONDICIONAL".equals(escalar(sgdf, "SELECT dispensa_motivo FROM exigencia"
+                        + " WHERE id = '" + exigenciaDoVt + "'")));
+        ok("Cap. 11 . a pendencia do VT fecha, e a regua para de cobrar",
+                0 == contar(sgdf, "pendencia WHERE exigencia_id = '" + exigenciaDoVt
+                        + "' AND resolvida_em IS NULL"));
+        ok("F2-05 . a pendencia fecha como ENTREGA — algo FOI entregue, a alternativa",
+                "ENTREGA".equals(escalar(sgdf, "SELECT resolucao FROM pendencia"
+                        + " WHERE exigencia_id = '" + exigenciaDoVt + "'")));
+        ok("Cap. 16 . a satisfacao fica na trilha",
+                1 == contar(sgdf, "log_auditoria WHERE acao = 'CONDICIONAL_SATISFEITA'"
+                        + " AND objeto_id = '" + exigenciaDoVt + "'"));
+    }
+
+    /**
+     * V015. Dispensa por excecao e dispensa por condicional sao fatos
+     * diferentes: uma e decisao de governanca com SoD, a outra e rotina. Contar
+     * as duas juntas faria o indicador de excecoes aprovadas (cap. 21) contar
+     * substituicoes de vale-transporte.
+     */
+    static void aDispensaCondicionalNaoEExcecao(Sgdf sgdf) {
+        Fixture f = fixture(sgdf);
+        UUID vt = umTipo(sgdf, "TST.VT6_" + f.seq, "PROFISSIONAL", "VT_ADESAO6");
+        UUID termo = umTipo(sgdf, "TST.TERMO6_" + f.seq, "PROFISSIONAL", "VT_ADESAO6");
+        UUID outro = umTipo(sgdf, "TST.OUTRO6_" + f.seq, "PROFISSIONAL", null);
+        UUID pessoa = profissional(sgdf, f, 1);
+        umaExigencia(sgdf, f, vt, pessoa, "PENDENTE");
+        umaExigencia(sgdf, f, termo, pessoa, "RECEBIDO");
+        umaExigencia(sgdf, f, outro, pessoa, "PENDENTE");
+        UUID exigenciaDoOutro = idDaExigencia(sgdf, f, outro);
+
+        new Sgdf(sgdf.conexao()).emTransacao(c ->
+                GrupoCondicional.satisfazerIrmas(c, idDaExigencia(sgdf, f, termo), "triagem"));
+        // E uma excecao aprovada, no outro tipo.
+        executar(sgdf, "UPDATE exigencia SET status = 'DISPENSADO',"
+                + " dispensa_motivo = 'EXCECAO' WHERE id = '" + exigenciaDoOutro + "'");
+
+        ok("V015 . as duas dispensas convivem e se distinguem",
+                1 == contar(sgdf, "exigencia WHERE ciclo_id = '" + f.ciclo
+                        + "' AND dispensa_motivo = 'CONDICIONAL'")
+                        && 1 == contar(sgdf, "exigencia WHERE ciclo_id = '" + f.ciclo
+                        + "' AND dispensa_motivo = 'EXCECAO'"));
+
+        ok("F2-03 . a condicional conta como ENTREGUE, nao como dispensada",
+                daLinha(sgdf, f.ciclo, "TST.VT6_" + f.seq).entregues() == 1
+                        && daLinha(sgdf, f.ciclo, "TST.VT6_" + f.seq).dispensadas() == 0);
+        ok("F2-03 . e a excecao continua contando como dispensada",
+                daLinha(sgdf, f.ciclo, "TST.OUTRO6_" + f.seq).dispensadas() == 1);
+    }
+
+    /** Um termo de fulano nao satisfaz o VT de sicrano — nem no banco. */
+    static void aSatisfacaoNaoAtravessaProfissional(Sgdf sgdf) {
+        Fixture f = fixture(sgdf);
+        UUID vt = umTipo(sgdf, "TST.VT7_" + f.seq, "PROFISSIONAL", "VT_ADESAO7");
+        UUID termo = umTipo(sgdf, "TST.TERMO7_" + f.seq, "PROFISSIONAL", "VT_ADESAO7");
+        UUID fulano = profissional(sgdf, f, 1);
+        UUID sicrano = profissional(sgdf, f, 2);
+        umaExigencia(sgdf, f, termo, fulano, "RECEBIDO");
+        umaExigencia(sgdf, f, vt, fulano, "PENDENTE");
+        umaExigencia(sgdf, f, vt, sicrano, "PENDENTE");
+
+        new Sgdf(sgdf.conexao()).emTransacao(c ->
+                GrupoCondicional.satisfazerIrmas(c, idDaExigencia(sgdf, f, termo), "triagem"));
+
+        ok("Cap. 7.5 . so o VT de quem entregou o termo foi satisfeito",
+                1 == contar(sgdf, "exigencia WHERE ciclo_id = '" + f.ciclo
+                        + "' AND dispensa_motivo = 'CONDICIONAL'"));
+        ok("Cap. 7.5 . e o do outro continua PENDENTE",
+                1 == contar(sgdf, "exigencia e WHERE e.ciclo_id = '" + f.ciclo
+                        + "' AND e.profissional_id = '" + sicrano + "'"
+                        + " AND e.status = 'PENDENTE'"));
+    }
+
+    /** Exigencia sem grupo nao arrasta ninguem. */
+    static void semGrupoNaoSatisfazNada(Sgdf sgdf) {
+        Fixture f = fixture(sgdf);
+        UUID tipo = umTipo(sgdf, "TST.SOZINHO" + f.seq, "PROFISSIONAL", null);
+        UUID outro = umTipo(sgdf, "TST.SOZINHO2_" + f.seq, "PROFISSIONAL", null);
+        UUID pessoa = profissional(sgdf, f, 1);
+        umaExigencia(sgdf, f, tipo, pessoa, "RECEBIDO");
+        umaExigencia(sgdf, f, outro, pessoa, "PENDENTE");
+
+        List<UUID> irmas = new Sgdf(sgdf.conexao()).emTransacao(c ->
+                GrupoCondicional.satisfazerIrmas(c, idDaExigencia(sgdf, f, tipo), "triagem"));
+        ok("Cap. 7.5 . exigencia sem condicional_grupo nao satisfaz nenhuma outra",
+                irmas.isEmpty());
+    }
+
+    static UUID idDaExigencia(Sgdf sgdf, Fixture f, UUID tipo) {
+        return UUID.fromString(escalar(sgdf, "SELECT id::text FROM exigencia WHERE ciclo_id = '"
+                + f.ciclo + "' AND tipo_id = '" + tipo + "' LIMIT 1"));
+    }
+
     // -------------------------------------------------------------------------
 
     static ConsultaDoPainel.Completude daLinha(Sgdf sgdf, UUID ciclo, String tipo) {
@@ -247,14 +377,16 @@ public final class TestesDeCompletude {
      * A primeira versao deste fixture nao copiava, e os tres testes de grupo
      * falharam por isso.
      */
+    /** V015: DISPENSADO exige motivo. No fixture generico, a dispensa e por excecao. */
     static void umaExigencia(Sgdf sgdf, Fixture f, UUID tipo, UUID profissional, String status) {
         executar(sgdf, "INSERT INTO exigencia (ciclo_id, tipo_id, evento, profissional_id,"
                 + " status, prazo_calculado, criticidade, condicional_grupo, responsavel,"
-                + " origem, criado_por)"
+                + " origem, dispensa_motivo, criado_por)"
                 + " SELECT '" + f.ciclo + "', t.id, 'MENSAL', '" + profissional + "', '"
                 + status + "', DATE '2026-05-05', 'BLOQUEANTE', t.condicional_grupo, 'AP',"
-                + " 'MATRIZ', '" + MARCA + "' FROM tipo_documental t WHERE t.id = '"
-                + tipo + "'");
+                + " 'MATRIZ', "
+                + ("DISPENSADO".equals(status) ? "'EXCECAO'" : "NULL")
+                + ", '" + MARCA + "' FROM tipo_documental t WHERE t.id = '" + tipo + "'");
     }
 
     /** O grupo que vale e o da exigencia, nao o do tipo hoje. */
@@ -292,8 +424,23 @@ public final class TestesDeCompletude {
         }
     }
 
+    static String escalar(Sgdf sgdf, String sql) {
+        try (Statement st = sgdf.conexao().createStatement();
+             ResultSet rs = st.executeQuery(sql)) {
+            return rs.next() ? rs.getString(1) : null;
+        } catch (SQLException e) {
+            throw new IllegalStateException("falha ao ler " + sql, e);
+        }
+    }
+
+    static long contar(Sgdf sgdf, String de) {
+        return Long.parseLong(escalar(sgdf, "SELECT count(*) FROM " + de));
+    }
+
     static void limpar(Connection conexao) throws SQLException {
         String[] comandos = {
+            "DELETE FROM pendencia WHERE exigencia_id IN (SELECT id FROM exigencia"
+                    + " WHERE criado_por = '" + MARCA + "')",
             "DELETE FROM exigencia WHERE criado_por = '" + MARCA + "'",
             "DELETE FROM ciclo WHERE criado_por = '" + MARCA + "'",
             "DELETE FROM profissional WHERE criado_por = '" + MARCA + "'",

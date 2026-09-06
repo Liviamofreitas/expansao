@@ -156,8 +156,9 @@ public final class RepositorioDeExcecao {
                             + "dispensá-la agora apagaria um documento que existe");
                 }
                 atualizar(conexao, """
-                        UPDATE exigencia SET status = 'DISPENSADO', atualizado_em = now(),
-                                             atualizado_por = ?
+                        UPDATE exigencia SET status = 'DISPENSADO',
+                                             dispensa_motivo = 'EXCECAO',
+                                             atualizado_em = now(), atualizado_por = ?
                         WHERE id = ? AND status IN ('PENDENTE', 'DIVERGENTE', 'REJEITADO')
                         """, ator, s.exigenciaId());
                 statusFinal = "DISPENSADO";

@@ -148,9 +148,16 @@ public final class ConsultaDoPainel {
     public List<Completude> completudePorTipo(UUID cicloId) {
         String sql = """
                 WITH base AS (
-                    SELECT ec.exigencia_id, ec.profissional_id, ec.status,
+                    SELECT ec.exigencia_id, ec.profissional_id,
+                           -- A dispensa por CONDICIONAL conta como ENTREGUE: a
+                           -- alternativa do grupo foi entregue, e chamá-la de
+                           -- dispensa faria o painel sugerir uma decisão da DAF
+                           -- onde houve substituição de rotina (V015).
+                           CASE WHEN e.dispensa_motivo = 'CONDICIONAL' THEN 'SATISFEITA'
+                                ELSE ec.status END AS status,
                            ec.condicional_grupo, t.codigo, t.nome, t.escopo
                     FROM   exigencia_do_ciclo ec
+                    JOIN   exigencia e ON e.id = ec.exigencia_id
                     JOIN   tipo_documental t ON t.id = ec.tipo_id
                     WHERE  ec.ciclo_id = ?
                 ),

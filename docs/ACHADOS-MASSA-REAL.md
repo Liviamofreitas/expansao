@@ -1881,3 +1881,71 @@ esconderia o atraso do outro documento.
 ### 39.5 Cobertura
 
 18 asserções novas em `TestesDeConciliacao` (73 no total da suíte).
+
+---
+
+## 40. F2-05 — contar certo e cobrar errado é pior que os dois errados juntos
+
+Critério de aceite: *"termo de não adesão satisfaz a exigência de VT do
+profissional"*.
+
+### 40.1 A F2-03 tinha corrigido a metade visível
+
+A completude já não dizia *"faltam 12 relações de VT"* com os 12 termos entregues
+ao lado — mas fazia isso **na consulta**, e a exigência de VT continuava
+`PENDENTE` no banco.
+
+Esse estado é lido por mais três lugares: a régua de cobrança, o bloqueio de
+publicação do book e a pendência aberta. **A tela dizia que estava tudo bem e o
+e-mail saía assim mesmo** — que é pior do que os dois errados juntos, porque
+quando os dois erram alguém percebe.
+
+Corrigir isso em cada consulta seria repetir a mesma regra em três lugares que
+ninguém lembra de manter juntos. A satisfação do grupo virou um **fato gravado**:
+a irmã vai para DISPENSADO e a pendência dela fecha, dentro da mesma transação
+que vinculou o documento — se a vinculação for desfeita, a satisfação vai junto.
+
+### 40.2 DISPENSADO já significava outra coisa
+
+Marcar a irmã como DISPENSADO esbarra num problema que valia a pena expor: o
+cap. 6.1 só chega a DISPENSADO por um caminho — *"exceção aprovada · Aprovador
+DAF"*. É decisão de governança, com motivo, evidência e segregação de funções
+(F0-09).
+
+A substituição condicional não é nada disso: é rotina, decidida pelo próprio
+documento que chegou. Pôr as duas no mesmo estado, sem distinção, teria dois
+efeitos:
+
+- o auditor que lê o book não consegue dizer se um documento foi **formalmente
+  dispensado pela DAF** ou apenas **substituído pela alternativa**;
+- o indicador de exceções aprovadas do cap. 21 passaria a contar substituições de
+  vale-transporte.
+
+`exigencia.dispensa_motivo` separa as duas (`EXCECAO` / `CONDICIONAL`), e a
+restrição impede DISPENSADO sem motivo. Com backfill antes da restrição — a lição
+da V012, que quase repeti.
+
+E a distinção ganha uso imediato: na completude, `CONDICIONAL` conta como
+**entregue** (a alternativa foi entregue) e `EXCECAO` continua contando como
+**dispensada**.
+
+### 40.3 A pendência fecha como ENTREGA
+
+O enum tem `ENTREGA | EXCECAO | CANCELAMENTO`. Cancelamento diria que a obrigação
+deixou de existir, e ela foi **cumprida** — por outro documento. Entrega é o que
+aconteceu.
+
+### 40.4 `IS NOT DISTINCT FROM`, e não `=`
+
+O grupo é por profissional no escopo PROFISSIONAL e por ciclo no escopo de
+contrato, onde `profissional_id` é nulo. Comparar com `=` não casaria nada quando
+os dois lados são nulos — a condicional de contrato ficaria **silenciosamente sem
+efeito**, e o sintoma seria uma exigência que nunca é satisfeita sem nenhum erro
+em lugar nenhum.
+
+Verificado por quebra deliberada: removendo a cláusula por profissional, um termo
+de fulano passa a satisfazer o VT de sicrano e 2 asserções caem.
+
+### 40.5 Cobertura
+
+12 asserções novas em `TestesDeCompletude` (32 na suíte).
