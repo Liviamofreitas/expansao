@@ -2070,3 +2070,132 @@ veria o defeito.
 transições), 7 novas em `TestesDeWeb` (as duas permissões separadas e o
 agregado que não sai recortado) e 8 no `T009__marcos_do_ciclo.sql`.
 Total: **946 Java, 113 SQL**.
+
+## 42. O pipeline ponta a ponta, e o gabarito que media o nome da pasta
+
+Cada etapa — varredura, extração, classificação, validação, conciliação —
+existia e era verificada isoladamente. Nada as ligava. O `Pipeline` liga as que
+não precisam de ciclo, e a ligação tem um retorno próprio: permite rodar o
+sistema sobre os documentos reais e **medir** a precisão de classificação que o
+cap. 19 exige. É metade da F3-01, e a metade que não depende de conferência
+manual nova.
+
+### 42.1 O resultado
+
+Sobre os 27 documentos reais de 06 e 07/2026, com gabarito humano:
+
+| Recorte | Arquivos | Acertos | Erros | Abstenções | Precisão | Cobertura |
+|---|---:|---:|---:|---:|---:|---:|
+| **Bloco corporativo** (cap. 19) | 10 | 10 | 0 | 0 | **100,0%** | 100,0% |
+| Massa completa | 27 | 24 | 0 | 3 | 100,0% | 88,9% |
+
+**A meta do cap. 19 — ≥ 95% no bloco corporativo antes da 1b — está atingida,
+com folga e com cobertura total.** E o número que mais importa não é a precisão:
+é o **zero na coluna de erros**. Nenhum documento da massa seria vinculado à
+obrigação errada, que é o único jeito de o sistema satisfazer uma exigência com
+o papel de outra.
+
+As três abstenções são todas explicáveis, e nenhuma é falha de classificação:
+
+| Arquivo | Por quê |
+|---|---|
+| `COMPROVANTE_PG_IRRF` | **Sem extensão.** V1 barra antes de abrir — ver 42.4 |
+| `COMPROVANTE_PG_FOLHA_6/7` | O SISPAG **vazio** do achado A12: rótulos sem valores. Não reconhecer é a resposta certa |
+
+### 42.2 O gabarito estava errado, e errado do jeito mais fácil
+
+A primeira medição deu **78,3%** de precisão e **cinco erros**, todos em
+comprovantes bancários, todos com score 1,00. Antes de mexer nas regras, fui ler
+os documentos. O classificador estava certo nos cinco:
+
+| Arquivo | Gabarito que eu escrevi | O que o documento diz | Certo |
+|---|---|---|---|
+| `COMPROVANTE_PG_FGTS` | CMP.BOLETO | `tipo pagamento: pix copia e cola`, destinatário CEF | CMP.TRANSFERENCIA |
+| `COMPROVANTE_PG_ALIMENTACAO` | CMP.TRANSFERENCIA | `pagamento de boleto`, `linha digitavel: 34191…` | CMP.BOLETO |
+| `COMPROVANTE_PG_VA_VR_1` e `_2` | CMP.TRANSFERENCIA | idem | CMP.BOLETO |
+| `C2_COMPROVANTE_PG_FOLHA` | CMP.LOTE_SALARIOS | transferência CC→CC para **um** beneficiário | CMP.TRANSFERENCIA |
+
+Eu montei o gabarito a partir dos **nomes dos arquivos** — que é exatamente
+aquilo de que a medição existe para não depender. Um gabarito tirado do nome não
+mede o classificador: mede a convenção de nomes da pasta, e pune o sistema
+justamente quando ele lê o documento melhor do que quem o nomeou.
+
+O caso do FGTS é o mais instrutivo: "FGTS se paga por guia, guia tem código de
+barras, logo é boleto" é uma inferência razoável e falsa — a Engesoftware pagou
+por PIX. A regra que sobrou disso vale para o resto do sistema: **quando o
+gabarito e o documento discordam, abra o documento antes de mexer na regra.**
+
+### 42.3 A medição que media a coisa errada
+
+Corrigido o gabarito, restava uma abstenção estranha: o `COMPROVANTE_PG_INSS`
+aparecia como "sistema não afirmou nada" tendo sido classificado `CMP.DARF` com
+decisão AUTOMÁTICA. A causa: eu media a precisão pelo **encaminhamento** do
+pipeline, e o encaminhamento mistura classificação com validação — V2 reprovou
+uma página quase em branco entre as oito, o documento foi para triagem, e a
+abstenção foi debitada do classificador.
+
+O cap. 19 mede *precisão de classificação*. Quem afirmou o tipo foi o
+classificador, e é a `Decisao` que diz se ele afirmou. Corrigido, o INSS volta a
+ser o acerto que sempre foi.
+
+**A massa real achou este defeito; a suíte de unidade não.** Só depois de
+encontrá-lo escrevi o teste que o guarda — e a quebra deliberada mostra a
+assimetria com precisão:
+
+| Quebra | Suíte de unidade | Massa real |
+|---|---|---|
+| V1 depois da extração (arquivo infectado é aberto) | 27/30 — **3 caem** | 4/4 — a massa não tem arquivo infectado |
+| Abstenção contada como acerto | 25/30 — **5 caem** | 3/4 — **a massa pega** |
+| Precisão lida do encaminhamento (o defeito original) | 29/30 — **1 cai**, o teste que escrevi depois | 4/4 |
+
+A terceira linha é o registro honesto: sem o teste que a descoberta produziu,
+essa quebra passaria pela suíte inteira. É o argumento para a massa continuar
+sendo rodada, e não substituída por fixtures.
+
+### 42.4 Um documento real sem extensão, barrado antes de ser lido
+
+`COMPROVANTE_PG_IRRF` — sem `.pdf`, exatamente como está no repositório de
+origem — é reprovado por V1: *"extensão '' não está entre as aceitas [xls, csv,
+pdf, xlsx]"*. O arquivo é um PDF válido: a assinatura binária diz isso, e a
+assinatura é evidência mais forte que a extensão.
+
+V1 hoje trata dois fatos diferentes como o mesmo: **a extensão mente sobre o
+conteúdo** (um `.pdf` que é um executável — o ataque que a validação existe para
+barrar) e **não há extensão** (não há o que mentir). O efeito do segundo é um
+documento legítimo descartado sem chegar nem ao painel de organização.
+
+**Não alterei V1.** Afrouxar uma validação de segurança é decisão de governança,
+não de engenharia, e a leitura conservadora é a que fica valendo até a DAF
+decidir. Registrado como **RA-13**, com a recomendação: sem extensão, aceitar o
+MIME da assinatura e gravar o fato; extensão que contradiz a assinatura continua
+reprovando.
+
+Fica também **RA-14**: V2 reprova um documento de 8 páginas porque a página 6
+tem 25 caracteres. Numa folha de comprovantes, uma página de separação quase em
+branco é normal — e reprovar o conjunto por causa dela cobra reenvio de um
+documento que está inteiro.
+
+### 42.5 O que o pipeline deliberadamente não faz
+
+Ele para antes de tudo que precisa de um ciclo. Não vincula exigência
+(vincular depende da matriz materializada), não roda V4, V5 nem V3 (comparam o
+documento com a competência, a data da NF e o CNPJ do ciclo — sem ciclo não há
+com o que comparar, e rodá-las contra um valor inventado produziria vereditos
+falsos), e não grava. As três que ficam — V1, V2 e V7 — não são uma lista
+arbitrária: são exatamente as que se decidem **só com o arquivo**.
+
+Duas propriedades estruturais valem a pena registrar:
+
+- **O nome do arquivo não chega ao classificador.** A assinatura de
+  `Classificador.classificar` recebe `TextoExtraido`, e nada mais. Verificado
+  dando a uma CND o nome `CONTRACHEQUE_DO_FULANO.pdf`: o tipo não muda.
+- **V1 roda antes de o PDFBox abrir o arquivo.** A prova não é o veredito
+  REPROVADO — é que o documento barrado sai sem texto e sem classificação.
+  Invertida a ordem, 3 asserções caem.
+
+### 42.6 Cobertura
+
+30 asserções em `TestesDePipeline` (sem banco e sem massa) e 4 em
+`MedirPrecisao`, que se pula com um aviso quando `SGDF_MASSA` não é informado —
+silêncio esconderia que a precisão não foi medida.
+Total: **980 Java** (976 sem a massa), **113 SQL**.

@@ -24,7 +24,7 @@ javac -Xlint:all -encoding UTF-8 -cp "$CP" -d "$ALVO" $(find "$RAIZ/app/src" -na
 
 # PDFBox emite avisos de cache de fonte na primeira execução; são ruído de
 # ambiente, não do código, e não devem esconder o resultado dos testes.
-filtrar() { grep -viE 'picked up|^(WARNING|INFO|SEVERE):|^[A-Z][a-z]{2} [0-9]{2}, [0-9]{4}'; }
+filtrar() { grep -viE 'picked up|^(WARNING|INFO|SEVERE):|^[A-Z][a-z]{2} [0-9]{2}, [0-9]{4}|PDSimpleFont|commons-logging|\] WARN '; }
 
 echo "→ matriz: prazo e materialização (F0-04, F0-06, F0-07)"
 java -Dfile.encoding=UTF-8 -Dsgdf.raiz="$RAIZ" -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
@@ -104,6 +104,16 @@ java -Dfile.encoding=UTF-8 -Dsgdf.raiz="$RAIZ" -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp 
 
 echo "→ fronteira HTTP (F0-01, F1-07, F1-10)"
 java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" br.com.engesoftware.sgdf.web.TestesDeWeb | filtrar
+
+echo "→ pipeline ponta a ponta (F3-01, metade)"
+java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.pipeline.TestesDePipeline | filtrar
+
+# A MASSA REAL NÃO VIVE NO REPOSITÓRIO (cap. 19). Sem SGDF_MASSA a medição se
+# pula e diz isso — silêncio esconderia que a precisão não foi medida.
+echo "→ precisão de classificação sobre a massa real (cap. 19)"
+java -Dfile.encoding=UTF-8 -Dsgdf.raiz="$RAIZ" -Dsgdf.massa="${SGDF_MASSA:-}" \
+    -cp "$ALVO:$CP" br.com.engesoftware.sgdf.pipeline.MedirPrecisao | filtrar
 
 echo "→ classificação (F1-03)"
 java -Dfile.encoding=UTF-8 -Dsgdf.raiz="$RAIZ" -cp "$ALVO:$CP" \
