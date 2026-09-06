@@ -1,11 +1,14 @@
 package br.com.engesoftware.sgdf.conciliacao;
 
 import br.com.engesoftware.sgdf.documento.FolhaDeCompetencia;
+import br.com.engesoftware.sgdf.matriz.Alocacao;
 import br.com.engesoftware.sgdf.documento.RelacaoDeBeneficio;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * O que um ciclo de faturamento tem, no momento em que a conciliação roda.
@@ -23,13 +26,42 @@ import java.util.Map;
  *                       recorte de um contrato — ver {@link EscopoDaFolha}
  * @param obrigacoes     guias e tributos devidos
  * @param comprovantes   o que o banco atesta ter sido pago
+ * @param alocacoes       quem está alocado e em que período — a base da janela
+ *                        pró-rata da R05 (história F2-04)
+ * @param comContracheque matrículas com FOL.CONTRACHEQUE vinculado
+ * @param eventos         eventos derivados (cap. 7.2) e o conjunto documental de
+ *                        cada um — insumo da R06
  * @param relacoes       relações de benefício por tipo documental
  */
 public record DadosDoCiclo(String competencia, String centroDeCusto, FolhaDeCompetencia folha,
                            EscopoDaFolha escopoDaFolha,
                            List<Obrigacao> obrigacoes,
                            List<ComprovanteDePagamento> comprovantes,
-                           Map<String, RelacaoDeBeneficio> relacoes) {
+                           Map<String, RelacaoDeBeneficio> relacoes,
+                           List<Alocacao> alocacoes, Set<String> comContracheque,
+                           List<ConjuntoDoEvento> eventos) {
+
+    /**
+     * O conjunto documental de um evento derivado — insumo da R06.
+     *
+     * @param prazo    o prazo do EVENTO (cap. 7.3, âncora EVENTO)
+     * @param faltando tipos do conjunto que ainda não chegaram
+     * @param aso      se o conjunto inclui o ASO demissional, que tem prazo
+     *                 próprio: +10 dias corridos (tolerância do cap. 9)
+     */
+    public record ConjuntoDoEvento(String matricula, String evento, java.time.LocalDate prazo,
+                                   List<String> esperados, List<String> faltando,
+                                   boolean aso) {
+
+        public ConjuntoDoEvento {
+            esperados = List.copyOf(esperados);
+            faltando = List.copyOf(faltando);
+        }
+
+        public boolean completo() {
+            return faltando.isEmpty();
+        }
+    }
 
     /**
      * Que população a folha do ciclo cobre.
@@ -52,6 +84,9 @@ public record DadosDoCiclo(String competencia, String centroDeCusto, FolhaDeComp
         obrigacoes = List.copyOf(obrigacoes);
         comprovantes = List.copyOf(comprovantes);
         relacoes = Map.copyOf(relacoes);
+        alocacoes = List.copyOf(alocacoes);
+        comContracheque = Set.copyOf(comContracheque);
+        eventos = List.copyOf(eventos);
     }
 
     public static Construtor de(String competencia) {
@@ -71,6 +106,9 @@ public record DadosDoCiclo(String competencia, String centroDeCusto, FolhaDeComp
         private final List<Obrigacao> obrigacoes = new ArrayList<>();
         private final List<ComprovanteDePagamento> comprovantes = new ArrayList<>();
         private final Map<String, RelacaoDeBeneficio> relacoes = new LinkedHashMap<>();
+        private final List<Alocacao> alocacoes = new ArrayList<>();
+        private final Set<String> comContracheque = new LinkedHashSet<>();
+        private final List<ConjuntoDoEvento> eventos = new ArrayList<>();
 
         private Construtor(String competencia) {
             this.competencia = competencia;
@@ -110,9 +148,24 @@ public record DadosDoCiclo(String competencia, String centroDeCusto, FolhaDeComp
             return this;
         }
 
+        public Construtor comAlocacao(Alocacao a) {
+            alocacoes.add(a);
+            return this;
+        }
+
+        public Construtor comContrachequeDe(String matricula) {
+            comContracheque.add(matricula);
+            return this;
+        }
+
+        public Construtor comEvento(ConjuntoDoEvento evento) {
+            eventos.add(evento);
+            return this;
+        }
+
         public DadosDoCiclo construir() {
             return new DadosDoCiclo(competencia, centroDeCusto, folha, escopoDaFolha,
-                    obrigacoes, comprovantes, relacoes);
+                    obrigacoes, comprovantes, relacoes, alocacoes, comContracheque, eventos);
         }
     }
 }

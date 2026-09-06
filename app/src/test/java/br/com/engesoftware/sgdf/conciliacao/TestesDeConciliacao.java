@@ -2,6 +2,7 @@ package br.com.engesoftware.sgdf.conciliacao;
 
 import br.com.engesoftware.sgdf.documento.BeneficiarioDaRelacao;
 import br.com.engesoftware.sgdf.documento.FolhaDeCompetencia;
+import br.com.engesoftware.sgdf.matriz.Alocacao;
 import br.com.engesoftware.sgdf.documento.ItemDaFolha;
 import br.com.engesoftware.sgdf.documento.RelacaoDeBeneficio;
 import br.com.engesoftware.sgdf.documento.Rubrica;
@@ -43,6 +44,15 @@ public final class TestesDeConciliacao {
         executar("r02SeparaApuracaoDePagamento", TestesDeConciliacao::r02SeparaApuracaoDePagamento);
         executar("r03OlhaOConjuntoDeCertidoes", TestesDeConciliacao::r03OlhaOConjuntoDeCertidoes);
         executar("r04ElevaV6AoCiclo", TestesDeConciliacao::r04ElevaV6AoCiclo);
+        executar("r05AdmitidoNoMeioDoMesNaoEFalsoPositivo",
+                TestesDeConciliacao::r05AdmitidoNoMeioDoMesNaoEFalsoPositivo);
+        executar("r05AssimetriaDasDuasFaltas",
+                TestesDeConciliacao::r05AssimetriaDasDuasFaltas);
+        executar("r05RecusaFolhaDaEmpresa", TestesDeConciliacao::r05RecusaFolhaDaEmpresa);
+        executar("r06IncompletoNoPrazoNaoDiverge",
+                TestesDeConciliacao::r06IncompletoNoPrazoNaoDiverge);
+        executar("r06ACarenciaDoAsoNaoEscondeOutroAtraso",
+                TestesDeConciliacao::r06ACarenciaDoAsoNaoEscondeOutroAtraso);
         executar("resultadoSemMotivoNaoEAceito", TestesDeConciliacao::resultadoSemMotivoNaoEAceito);
 
         System.out.println();
@@ -436,6 +446,187 @@ public final class TestesDeConciliacao {
     static Obrigacao guia() {
         return new Obrigacao("FGT.GUIA", "06/2026", new BigDecimal("119301.51"),
                 LocalDate.of(2026, 7, 20), "0126071549847969-2");
+    }
+
+    // =========================================================================
+    // R05 e R06 — janelas pro-rata (F2-04)
+    // =========================================================================
+
+    /**
+     * O CRITERIO DE ACEITE DA F2-04. Quem foi admitido no dia 20 esta na folha
+     * com contracheque proporcional, e a regra tem de dizer CONFORME — sem
+     * ressalva sobre valor, sem divergencia por "conjunto diferente".
+     */
+    static void r05AdmitidoNoMeioDoMesNaoEFalsoPositivo() {
+        DadosDoCiclo ciclo = DadosDoCiclo.de("06/2026")
+                .noCentroDeCusto("104501")
+                .comFolhaDoContrato(folhaDeMatriculas("0001", "0002"))
+                .comAlocacao(new Alocacao("0001", LocalDate.of(2024, 1, 1), null))
+                .comAlocacao(new Alocacao("0002", LocalDate.of(2026, 6, 20), null))
+                .comContrachequeDe("0001")
+                .comContrachequeDe("0002")
+                .construir();
+
+        ResultadoDaConciliacao r = new R05AlocadosNaFolha(ResultadoDaConciliacao.Modo.BLOQUEIO)
+                .executar(ciclo, Tolerancia.deCentavos(1));
+
+        ok("F2-04 . admitido no meio do mes, presente na folha, e CONFORME",
+                r.conforme());
+        ok("F2-04 . e nao aparece ressalva, porque ele esta na folha",
+                !r.itens().containsKey("janela_pro_rata"));
+        ok("F2-04 . os dois contam como alocados no mes",
+                r.itens().get("alocados_no_mes").size() == 2);
+
+        // O desligado no dia 3 que JA saiu da folha: janela parcial, ausencia
+        // esperada — ressalva, nao divergencia.
+        DadosDoCiclo comDesligado = DadosDoCiclo.de("06/2026")
+                .noCentroDeCusto("104501")
+                .comFolhaDoContrato(folhaDeMatriculas("0001"))
+                .comAlocacao(new Alocacao("0001", LocalDate.of(2024, 1, 1), null))
+                .comAlocacao(new Alocacao("0003", LocalDate.of(2024, 1, 1),
+                        LocalDate.of(2026, 6, 3)))
+                .comContrachequeDe("0001")
+                .construir();
+        ResultadoDaConciliacao comRessalva =
+                new R05AlocadosNaFolha(ResultadoDaConciliacao.Modo.BLOQUEIO)
+                        .executar(comDesligado, Tolerancia.deCentavos(1));
+
+        ok("F2-04 . desligado no dia 3 e ausente da folha nao e divergencia",
+                comRessalva.conforme());
+        ok("F2-04 . mas vira ressalva, porque quem confere precisa ver a movimentacao",
+                comRessalva.itens().get("janela_pro_rata").size() == 1);
+        ok("F2-04 . e a ressalva diz a janela",
+                comRessalva.itens().get("janela_pro_rata").get(0).contains("2026-06-03"));
+    }
+
+    /**
+     * As duas faltas nao sao a mesma coisa. "Na folha sem alocacao" e a mais
+     * grave: pode ser custo alocado ao contrato errado.
+     */
+    static void r05AssimetriaDasDuasFaltas() {
+        DadosDoCiclo semPagamento = DadosDoCiclo.de("06/2026")
+                .noCentroDeCusto("104501")
+                .comFolhaDoContrato(folhaDeMatriculas("0001"))
+                .comAlocacao(new Alocacao("0001", LocalDate.of(2024, 1, 1), null))
+                .comAlocacao(new Alocacao("0002", LocalDate.of(2024, 1, 1), null))
+                .comContrachequeDe("0001")
+                .construir();
+        ResultadoDaConciliacao r1 = new R05AlocadosNaFolha(ResultadoDaConciliacao.Modo.BLOQUEIO)
+                .executar(semPagamento, Tolerancia.deCentavos(1));
+
+        ok("R05 . alocado o mes inteiro e ausente da folha e divergencia",
+                !r1.conforme() && r1.itens().get("alocado_sem_pagamento").size() == 1);
+
+        DadosDoCiclo pagoSemAlocacao = DadosDoCiclo.de("06/2026")
+                .noCentroDeCusto("104501")
+                .comFolhaDoContrato(folhaDeMatriculas("0001", "0009"))
+                .comAlocacao(new Alocacao("0001", LocalDate.of(2024, 1, 1), null))
+                .comContrachequeDe("0001")
+                .comContrachequeDe("0009")
+                .construir();
+        ResultadoDaConciliacao r2 = new R05AlocadosNaFolha(ResultadoDaConciliacao.Modo.BLOQUEIO)
+                .executar(pagoSemAlocacao, Tolerancia.deCentavos(1));
+
+        ok("R05 . na folha do contrato SEM alocacao e divergencia",
+                !r2.conforme() && r2.itens().get("na_folha_sem_alocacao").size() == 1);
+        ok("R05 . e a mensagem manda conferir o contrato, nao cobrar documento",
+                r2.mensagem().contains("contrato certo"));
+
+        DadosDoCiclo semContracheque = DadosDoCiclo.de("06/2026")
+                .noCentroDeCusto("104501")
+                .comFolhaDoContrato(folhaDeMatriculas("0001"))
+                .comAlocacao(new Alocacao("0001", LocalDate.of(2024, 1, 1), null))
+                .construir();
+        ok("R05 . na folha mas sem contracheque vinculado tambem diverge",
+                !new R05AlocadosNaFolha(ResultadoDaConciliacao.Modo.BLOQUEIO)
+                        .executar(semContracheque, Tolerancia.deCentavos(1))
+                        .conforme());
+    }
+
+    /** Mesmo erro de populacao que a R09 sofreria — ver DadosDoCiclo.EscopoDaFolha. */
+    static void r05RecusaFolhaDaEmpresa() {
+        DadosDoCiclo ciclo = DadosDoCiclo.de("06/2026")
+                .comFolhaDaEmpresa(folhaDeMatriculas("0001", "9999"))
+                .comAlocacao(new Alocacao("0001", LocalDate.of(2024, 1, 1), null))
+                .comContrachequeDe("0001")
+                .construir();
+        ResultadoDaConciliacao r = new R05AlocadosNaFolha(ResultadoDaConciliacao.Modo.BLOQUEIO)
+                .executar(ciclo, Tolerancia.deCentavos(1));
+
+        ok("R05 . com a folha da empresa a regra se declara NAO APLICAVEL",
+                r.resultado() == ResultadoDaConciliacao.Situacao.NAO_APLICAVEL);
+        ok("R05 . em vez de acusar todo colaborador dos outros contratos",
+                r.mensagem().contains("recorte por centro de custo"));
+    }
+
+    /**
+     * Um conjunto de rescisao aberto ontem esta incompleto e nao devia acusar
+     * nada: o prazo e do evento, e o evento acabou de acontecer.
+     */
+    static void r06IncompletoNoPrazoNaoDiverge() {
+        DadosDoCiclo.ConjuntoDoEvento incompleto = new DadosDoCiclo.ConjuntoDoEvento(
+                "0001", "RESCISAO", LocalDate.of(2026, 6, 30),
+                List.of("RES.TRCT", "RES.ASO_DEMISSIONAL"), List.of("RES.TRCT"), true);
+
+        ResultadoDaConciliacao noPrazo = new R06ConjuntoDoEvento(
+                ResultadoDaConciliacao.Modo.BLOQUEIO, LocalDate.of(2026, 6, 25))
+                .executar(DadosDoCiclo.de("06/2026").comEvento(incompleto).construir(),
+                        Tolerancia.deCentavos(1));
+        ok("R06 . conjunto incompleto ANTES do prazo nao diverge", noPrazo.conforme());
+        ok("R06 . mas aparece como incompleto no prazo, para quem acompanha",
+                noPrazo.itens().get("incompletos_no_prazo").size() == 1);
+
+        ResultadoDaConciliacao vencido = new R06ConjuntoDoEvento(
+                ResultadoDaConciliacao.Modo.BLOQUEIO, LocalDate.of(2026, 7, 5))
+                .executar(DadosDoCiclo.de("06/2026").comEvento(incompleto).construir(),
+                        Tolerancia.deCentavos(1));
+        ok("R06 . depois do prazo, diverge", !vencido.conforme());
+    }
+
+    /**
+     * A carencia de 10 dias e do ASO. Estende-la quando falta TAMBEM o TRCT
+     * esconderia o atraso do outro documento.
+     */
+    static void r06ACarenciaDoAsoNaoEscondeOutroAtraso() {
+        LocalDate prazo = LocalDate.of(2026, 6, 30);
+        LocalDate seteDiasDepois = LocalDate.of(2026, 7, 7);
+
+        DadosDoCiclo soAso = DadosDoCiclo.de("06/2026").comEvento(
+                new DadosDoCiclo.ConjuntoDoEvento("0001", "RESCISAO", prazo,
+                        List.of("RES.TRCT", "RES.ASO_DEMISSIONAL"),
+                        List.of("RES.ASO_DEMISSIONAL"), true)).construir();
+        ok("Cap. 9 . faltando so o ASO, a carencia de 10 dias vale",
+                new R06ConjuntoDoEvento(ResultadoDaConciliacao.Modo.BLOQUEIO, seteDiasDepois)
+                        .executar(soAso, Tolerancia.deCentavos(1))
+                        .conforme());
+
+        DadosDoCiclo asoETrct = DadosDoCiclo.de("06/2026").comEvento(
+                new DadosDoCiclo.ConjuntoDoEvento("0001", "RESCISAO", prazo,
+                        List.of("RES.TRCT", "RES.ASO_DEMISSIONAL"),
+                        List.of("RES.TRCT", "RES.ASO_DEMISSIONAL"), true)).construir();
+        ok("Cap. 9 . mas faltando tambem o TRCT o conjunto ja esta atrasado",
+                !new R06ConjuntoDoEvento(ResultadoDaConciliacao.Modo.BLOQUEIO, seteDiasDepois)
+                        .executar(asoETrct, Tolerancia.deCentavos(1))
+                        .conforme());
+
+        DadosDoCiclo completo = DadosDoCiclo.de("06/2026").comEvento(
+                new DadosDoCiclo.ConjuntoDoEvento("0001", "RESCISAO", prazo,
+                        List.of("RES.TRCT"), List.of(), false)).construir();
+        ok("R06 . conjunto completo e conforme, mesmo depois do prazo",
+                new R06ConjuntoDoEvento(ResultadoDaConciliacao.Modo.BLOQUEIO,
+                        LocalDate.of(2026, 12, 1))
+                        .executar(completo, Tolerancia.deCentavos(1))
+                        .conforme());
+    }
+
+    static FolhaDeCompetencia folhaDeMatriculas(String... matriculas) {
+        List<ItemDaFolha> itens = new java.util.ArrayList<>();
+        for (String m : matriculas) {
+            itens.add(new ItemDaFolha(m, "TRABALHADOR " + m, null, "06/2026",
+                    List.of(), List.of(), null, null, null, null, null, null, null,
+                    Map.of(), "104501"));
+        }
+        return new FolhaDeCompetencia("06/2026", itens);
     }
 
     static DadosDoCiclo cicloComGuiaSemComprovante() {

@@ -1805,3 +1805,79 @@ por falta de permissão, "não posso ver" e "não há" ficariam indistinguíveis
 ### 38.5 Cobertura
 
 20 asserções em `TestesDeCompletude`, contra o PostgreSQL real.
+
+---
+
+## 39. F2-04 — comparar conjuntos é o erro; comparar períodos é a regra
+
+Critério de aceite: *"admitido no meio do mês não gera falso positivo"*.
+
+### 39.1 A diferença de conjuntos acusa toda a rotatividade
+
+O cap. 9 escreve a R05 como continência de conjuntos:
+*"conjunto(matrículas em OPE.RELACAO_ALOCADOS) ⊆ conjunto(matrículas na folha)"*.
+Implementada literalmente, ela acusa divergência **a cada admissão e a cada
+desligamento** — num contrato de 42 pessoas com rotatividade normal, vários por
+mês, todo mês.
+
+É o risco **P01** ("falso positivo em massa → abandono") na sua forma mais
+previsível: a regra estaria certa segundo a letra e inútil na operação, porque
+depois do terceiro mês ninguém olha mais.
+
+O que decide não é estar nos dois conjuntos: é a **alocação intersetar a
+competência** — o mesmo critério do achado E-10 que a materialização já usava.
+A própria linha do capítulo prevê isso na coluna de tolerância
+("exceções: admitidos/desligados no mês, janela pró-rata"); o que faltava era
+tratá-la como parte da lógica, não como nota de rodapé.
+
+Verificado por quebra deliberada: removendo a janela e voltando à diferença de
+conjuntos pura, o teste do critério de aceite falha.
+
+### 39.2 As duas faltas não são a mesma coisa
+
+A leitura de conjuntos esconde que a R05 é **assimétrica**:
+
+| Situação | Leitura | Quem age |
+|---|---|---|
+| Alocado o mês inteiro, ausente da folha | trabalhou e não foi pago, ou a folha está incompleta | AP / folha |
+| **Na folha do contrato, sem alocação** | alguém foi pago por este contrato sem estar nele | **gestor — custo no contrato errado** |
+| Alocado por janela parcial, ausente da folha | admitido no fim ou desligado no início | ninguém: ressalva |
+
+A segunda é a mais grave e a que a diferença de conjuntos mais disfarça — ela
+aparece como "sobrou um nome", e o que pode significar é **custo alocado ao
+contrato errado**, que é dinheiro no lugar errado, não papel faltando. Por isso a
+mensagem manda *conferir se o custo está no contrato certo*, e não cobrar
+documento.
+
+Conforme **com ressalva** continua conforme: a ressalva é observação, não
+pendência. Escondê-la seria pior — quem confere precisa saber que houve
+movimentação no mês.
+
+### 39.3 A R05 também é uma regra de população
+
+Como a R09 (achado da fase 1b), a R05 compara a equipe **de um contrato**.
+Rodá-la sobre a folha da empresa acusaria todo colaborador dos outros contratos
+como "na folha sem alocação" — dezenas de divergências com os dois lados
+corretos. A regra se declara NÃO APLICÁVEL e diz que precisa do recorte por
+centro de custo.
+
+### 39.4 R06: incompleto não é atrasado, e a diferença é o dia de hoje
+
+Um conjunto de rescisão aberto ontem está incompleto e não devia acusar nada — o
+prazo é do evento, e o evento acabou de acontecer. A regra só diverge quando o
+prazo **passou**.
+
+Isso obriga a R06 a conhecer uma data de referência, e ela é **parâmetro
+explícito**: uma regra que lesse o relógio deixaria de ser reproduzível, e o
+cap. 16 exige que reexecutar uma conciliação de seis meses atrás sobre os mesmos
+documentos dê o mesmo resultado.
+
+**A carência do ASO tem escopo.** O cap. 9 dá +10 dias corridos ao ASO
+demissional — o exame depende de agenda de clínica, que não obedece ao prazo do
+TRCT. Mas a carência vale **só quando o ASO é o que falta**: se faltam o TRCT e o
+ASO, o conjunto já está atrasado pelo TRCT, e estender o prazo por causa do ASO
+esconderia o atraso do outro documento.
+
+### 39.5 Cobertura
+
+18 asserções novas em `TestesDeConciliacao` (73 no total da suíte).
