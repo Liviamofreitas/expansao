@@ -61,6 +61,7 @@ public final class TestesDeWeb {
                 TestesDeWeb::oCicloTemDuasPermissoesDiferentes);
         executar("oIndicadorAgregadoNaoSaiRecortado",
                 TestesDeWeb::oIndicadorAgregadoNaoSaiRecortado);
+        executar("aTrilhaSoAbreParaAuditoria", TestesDeWeb::aTrilhaSoAbreParaAuditoria);
 
         System.out.println();
         falhas.forEach(f -> System.out.println("  FALHA " + f));
@@ -367,7 +368,55 @@ public final class TestesDeWeb {
                         && Boolean.TRUE.equals(visao.get("atinge_a_meta")));
     }
 
+    /**
+     * A permissao AUDITAR passa a ter endpoint — e so ela abre a trilha.
+     *
+     * <p>Uma permissao sem uso e pior que uma permissao faltando: ela aparece
+     * na matriz de acesso, passa na recertificacao e nao da acesso a nada. A
+     * organizacao acredita ter um controle que nao tem.
+     */
+    static void aTrilhaSoAbreParaAuditoria() {
+        Ator auditoria = ator("aud", Papel.AUDITORIA);
+        Ator daf = ator("daf", Papel.APROVADOR_DAF);
+        Ator admin = ator("adm", Papel.ADMIN_SISTEMA);
+
+        ok("Cap. 15.1 . o APROVADOR_DAF nao le a trilha",
+                negou(() -> indicadorControlador(daf, bancoQueExplode())
+                        .trilha("ciclo", null, null, null, null, 10)));
+        ok("Cap. 15.1 . nem o ADMIN_SISTEMA — visao global de configuracao nao e "
+                        + "visao global de trilha",
+                negou(() -> indicadorControlador(admin, bancoQueExplode())
+                        .trilha("ciclo", null, null, null, null, 10)));
+
+        ConexaoDeMentira banco = bancoQueExplode().respondendo("FROM   log_auditoria");
+        ok("Cap. 13 . e a AUDITORIA le",
+                indicadorControlador(auditoria, banco)
+                        .trilha("ciclo", null, null, null, null, 10).isEmpty());
+
+        // O indicador e a trilha sao permissoes diferentes: quem audita ve os
+        // dois, quem aprova excecao ve so o indicador.
+        ConexaoDeMentira comIndicadores = bancoQueExplode()
+                .respondendo("count(*) FILTER", linha(0, 0))
+                .respondendo("SELECT count(*), avg", linha(0, null))
+                .respondendo("FROM   exigencia e", linha(0, 0))
+                .respondendo("FROM   pendencia p", linha(0))
+                .respondendo("FROM   excecao x", linha(0))
+                .respondendo("FROM   conciliacao k", linha(0))
+                .respondendo("SELECT count(*), min", linha(0, null))
+                .respondendo("FROM   candidatura k", linha(0, 0))
+                .respondendo("FROM   book b", linha(0));
+        ok("Cap. 21 . o APROVADOR_DAF ve os indicadores, que sao outra permissao",
+                indicadorControlador(daf, comIndicadores).daCompetencia("2026-06").size() == 9);
+    }
+
     // -------------------------------------------------------------------------
+
+    static IndicadorController indicadorControlador(Ator ator, ConexaoDeMentira banco) {
+        Sgdf sgdf = new Sgdf(banco.conexao());
+        return new IndicadorController(atores(ator),
+                new br.com.engesoftware.sgdf.persistencia.ConsultaDeIndicadores(sgdf),
+                new br.com.engesoftware.sgdf.persistencia.ConsultaDeAuditoria(sgdf));
+    }
 
     static CicloController cicloControlador(Ator ator, ConexaoDeMentira banco) {
         Sgdf sgdf = new Sgdf(banco.conexao());

@@ -2199,3 +2199,139 @@ Duas propriedades estruturais valem a pena registrar:
 `MedirPrecisao`, que se pula com um aviso quando `SGDF_MASSA` não é informado —
 silêncio esconderia que a precisão não foi medida.
 Total: **980 Java** (976 sem a massa), **113 SQL**.
+
+## 43. F3-05 — "monitorar" não é uma meta, e o CSV é uma superfície de ataque
+
+Critério de aceite: *"KPI/KRI calculados por competência, exportáveis em CSV"*.
+Os nove indicadores do cap. 21, mais o endpoint de auditoria do cap. 13 — que
+usa a mesma máquina de exportação e é onde o risco mora.
+
+### 43.1 Quatro situações, não duas
+
+Metade da tabela do cap. 21 não tem alvo: "tendência ↑", "tendência ↓" e
+"monitorar" pedem que se olhe a série, não que se bata um número. Um
+`boolean atingiu()` obrigaria cada KRI a responder sim ou não, e **qualquer das
+duas respostas seria inventada** — pior, a resposta "sim" faria o painel
+declarar sucesso sobre "exceções aprovadas", cuja alta significa exatamente
+controle contornado.
+
+| Situação | Quando |
+|---|---|
+| `ATINGIDA` / `NAO_ATINGIDA` | há meta e há população |
+| `MONITORADO` | KRI: a leitura é a série |
+| `SEM_POPULACAO` | não houve o que contar — nem sucesso nem falha |
+
+`Meta.monitorar()` recusa receber limite: se há número a atingir, o sentido é
+outro. Quebra deliberada tratando MONITORADO como ATINGIDA: **1 asserção cai**.
+
+E há uma assimetria que parece inconsistência e não é: **razão sem população
+devolve nulo; contagem zero devolve zero**. "Zero de zero" não afirma nada — um
+mês que começou hoje não descumpriu o D+3. "Nenhuma exceção aprovada nesta
+competência" é informação, e devolver nulo a esconderia. A diferença é que na
+segunda *houve o que contar*. Quebra devolvendo 0% no lugar do nulo: **4
+asserções caem**.
+
+### 43.2 Cada indicador tem uma população, e é sempre ali que a conta erra
+
+O erro nunca aparece como número absurdo. Aparece como número bonito.
+
+| Indicador | O que ficou fora do denominador, e por quê |
+|---|---|
+| NF em D+3 | Ciclos não faturados. Incluí-los faria o percentual cair no começo do mês e subir sozinho no fim — mediria o calendário |
+| Precisão de classificação | **ILEGÍVEL.** "Este documento está ilegível" não é veredito sobre o *tipo* — é sobre a digitalização. Somá-la debitaria do classificador um defeito de scanner, e a métrica pioraria quando a origem mandasse fotocópia ruim. REJEITADA entra: dizer "não é desta exigência" **é** julgar a sugestão |
+
+Quebra somando ILEGÍVEL ao denominador: **2 asserções caem**. O teste prova a
+exclusão de forma positiva — trocando as duas ILEGÍVEL por REJEITADA, o
+denominador *muda*, o que só acontece se a distinção for real.
+
+**Folga da certidão é o mínimo, não a média.** Nove certidões com 60 dias e uma
+com 1 dão média 54 — e é a de um dia que vence antes de o cliente pagar. O
+risco é do pior caso, então o indicador tem de ser o pior caso. Quebra usando
+`avg` no lugar de `min`: **2 asserções caem**.
+
+### 43.3 Um filtro que lia zero e dizia "não havia"
+
+A primeira versão da folga da certidão filtrava `t.familia = 'CERTIDAO'`. A
+carga real grava **"Certidões e regularidade"**. A consulta lia zero linha, o
+`min()` devolvia nulo, e o indicador respondia `SEM_POPULACAO` — que se lê como
+*"não havia certidão nesta competência"* e não como *"meu filtro está errado"*.
+
+O conserto não foi corrigir a string: foi parar de usar rótulo de exibição como
+chave. Um nome de família muda por decisão de quem cadastra, e a consulta
+quebraria em silêncio de novo. O filtro passou a ser **ter `validade_extraida`**
+— que é a propriedade que o indicador realmente precisa, porque é o vencimento
+que cria o risco.
+
+### 43.4 A completude que daria 100% por nada ter acontecido
+
+O capítulo pede "exigências satisfeitas na 1ª varredura pós-prazo". Não há
+registro de varredura por exigência, e a leitura óbvia — "pendência nunca
+escalonada" — seria **pior que não medir**: quem escalona é a régua de
+notificação, ela não roda (RA-07), e o indicador daria **100% justamente porque
+nada aconteceu**.
+
+A leitura adotada não depende de agendador nenhum: *documento vinculado até a
+data do prazo*. É observável só com o que está gravado, responde à mesma
+pergunta — chegou a tempo ou foi preciso cobrar — e está declarada no campo
+`observacao`, que viaja junto do número no JSON e no CSV.
+
+### 43.5 O CSV executa fórmula, e o vetor foi medido em vez de suposto
+
+Excel, LibreOffice e Google Sheets tratam célula iniciada por `=`, `+`, `-`,
+`@` ou tabulação como **fórmula**. `=cmd|'/c calc'!A1` chega a executar comando
+no Windows. O texto entra por um campo legítimo — o motivo que o cap. 16 exige
+que exista — e sai pela exportação que o cap. 13 exige que exista; nenhuma das
+duas está errada, o que faltava era o escape na fronteira.
+
+**Aspas não resolvem:** `"=1+1"` continua fórmula, porque as aspas são
+consumidas pelo parser de CSV antes de o interpretador de fórmulas ver o
+conteúdo. A defesa é o apóstrofo, que o Excel lê como "isto é texto".
+
+**E prefixar tudo seria pior:** a coluna de valores viraria texto e a planilha
+perderia soma e ordenação — que é o motivo de alguém exportar CSV. Só a célula
+iniciada por caractere perigoso é neutralizada.
+
+Fui medir qual campo está *de fato* exposto hoje, em vez de repetir a ameaça
+genérica:
+
+| Campo | Chega ao início da célula? |
+|---|---|
+| `detalhe` (onde vivem os motivos escritos por pessoas) | **Não** — sai como JSON e já começa com `{"`. O envelope o desarma **por acidente, não por projeto** |
+| `ator` | **Sim.** Vem do `sub` do provedor de identidade — externo. Verificado: um ator `=cmd|'/c calc'!A1` sai como `'=cmd|'/c calc'!A1` |
+
+O escape fica na fronteira e não no campo, e é o que faz a defesa sobreviver à
+próxima exportação — a hora em que alguém acrescentar uma coluna de motivo em
+texto puro é exatamente a hora em que ninguém vai lembrar disto. Quebra
+removendo a neutralização: **10 asserções caem**.
+
+O negativo é o caso incômodo: `-3` precisa ser neutralizado (o Excel lê `-` como
+início de fórmula) e isso custa a soma da coluna. Entre executar fórmula e
+perder a soma de uma coluna que hoje não tem negativo nenhum, a escolha é óbvia
+— e fica registrada em vez de descoberta depois.
+
+### 43.6 Uma permissão que existia e não abria nada
+
+`AUDITAR` estava no `Autorizador` desde a F0-01 e **nenhum endpoint a usava**.
+Uma permissão sem uso é pior que uma permissão faltando: ela aparece na matriz
+de acesso, passa na recertificação (F3-06) e não dá acesso a nada — a
+organização acredita ter um controle que não tem. O `/auditoria` do cap. 13
+fecha isso, e os testes confirmam que nem APROVADOR_DAF nem ADMIN_SISTEMA a
+abrem: visão global de configuração não é visão global de trilha.
+
+Duas decisões que vêm junto:
+
+- **O filtro é obrigatório.** A trilha cresce sem limite (append-only, V002), e
+  um `GET /auditoria` sem recorte devolveria a tabela inteira. Não é carga: é
+  que uma exportação completa da trilha, num sistema que registra CPF em detalhe
+  de decisão, é o pior arquivo possível para sair sem justificativa. Quebra
+  removendo a exigência: **2 asserções caem**.
+- **Exportar a trilha entra na trilha.** Sem isso, a única operação que produz
+  um arquivo com o histórico inteiro seria a única que não deixa registro — e
+  quem investigasse um vazamento não saberia quem baixou o quê. O registro grava
+  o **filtro**, não o conteúdo: reconstrói o recorte sem duplicar o dado pessoal
+  dentro da própria trilha. Quebra removendo o registro: **2 asserções caem**.
+
+### 43.7 Cobertura
+
+60 asserções em `TestesDeIndicadores` (15 sem banco, sobre CSV e metas) e 4
+novas em `TestesDeWeb`. Total: **1044 Java** (1040 sem a massa), **113 SQL**.

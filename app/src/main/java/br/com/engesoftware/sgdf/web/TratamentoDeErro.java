@@ -1,5 +1,6 @@
 package br.com.engesoftware.sgdf.web;
 
+import br.com.engesoftware.sgdf.persistencia.ConsultaDeAuditoria;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeCadastro;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeCiclo;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeExcecao;
@@ -105,6 +106,18 @@ public class TratamentoDeErro {
     ResponseEntity<Map<String, Object>> bloqueantes(RepositorioDeCiclo.BloqueantesEmAberto e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(Map.of("motivo", e.getMessage(), "bloqueantes", e.abertas()));
+    }
+
+    /**
+     * Cap. 13: consultar a trilha exige recorte.
+     *
+     * <p>400 e não 403: quem pediu tem o papel. O que falta é o filtro, e a
+     * mensagem diz qual — sem ela a pessoa tentaria de novo igual.
+     */
+    @ExceptionHandler(ConsultaDeAuditoria.FiltroObrigatorio.class)
+    ResponseEntity<Map<String, String>> filtroObrigatorio(
+            ConsultaDeAuditoria.FiltroObrigatorio e) {
+        return ResponseEntity.badRequest().body(Map.of("motivo", e.getMessage()));
     }
 
     /** Unicidade do cadastro — 409, com o que fazer. */

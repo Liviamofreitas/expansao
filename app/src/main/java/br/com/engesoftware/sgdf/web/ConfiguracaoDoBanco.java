@@ -1,5 +1,7 @@
 package br.com.engesoftware.sgdf.web;
 
+import br.com.engesoftware.sgdf.persistencia.ConsultaDeAuditoria;
+import br.com.engesoftware.sgdf.persistencia.ConsultaDeIndicadores;
 import br.com.engesoftware.sgdf.persistencia.ConsultaDoPainel;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeCadastro;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeCiclo;
@@ -72,5 +74,17 @@ public class ConfiguracaoDoBanco {
     @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
     RepositorioDeCiclo repositorioDeCiclo(Sgdf sgdf) {
         return new RepositorioDeCiclo(sgdf);
+    }
+
+    @Bean
+    @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
+    ConsultaDeIndicadores consultaDeIndicadores(Sgdf sgdf) {
+        return new ConsultaDeIndicadores(sgdf);
+    }
+
+    @Bean
+    @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
+    ConsultaDeAuditoria consultaDeAuditoria(Sgdf sgdf) {
+        return new ConsultaDeAuditoria(sgdf);
     }
 }
