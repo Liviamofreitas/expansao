@@ -3,6 +3,7 @@ package br.com.engesoftware.sgdf.web;
 import br.com.engesoftware.sgdf.indicadores.Indicador;
 import br.com.engesoftware.sgdf.persistencia.ConsultaDeAuditoria;
 import br.com.engesoftware.sgdf.persistencia.ConsultaDeIndicadores;
+import br.com.engesoftware.sgdf.persistencia.ConsultaDeRecertificacao;
 import br.com.engesoftware.sgdf.seguranca.Ator;
 import br.com.engesoftware.sgdf.seguranca.Autorizador;
 import br.com.engesoftware.sgdf.seguranca.Permissao;
@@ -36,12 +37,15 @@ public class IndicadorController {
     private final AtorDaRequisicao atores;
     private final ConsultaDeIndicadores indicadores;
     private final ConsultaDeAuditoria auditoria;
+    private final ConsultaDeRecertificacao recertificacao;
 
     public IndicadorController(AtorDaRequisicao atores, ConsultaDeIndicadores indicadores,
-                               ConsultaDeAuditoria auditoria) {
+                               ConsultaDeAuditoria auditoria,
+                               ConsultaDeRecertificacao recertificacao) {
         this.atores = atores;
         this.indicadores = indicadores;
         this.auditoria = auditoria;
+        this.recertificacao = recertificacao;
     }
 
     /** Os nove do capítulo, com população e situação. */
@@ -97,6 +101,42 @@ public class IndicadorController {
         return comoAnexo("auditoria.csv", auditoria.csv(
                 new ConsultaDeAuditoria.Filtro(objetoTipo, objetoId, ator, desde, ate), limite,
                 quem.identificador(), papelDe(quem)));
+    }
+
+    /**
+     * Recertificação trimestral — história F3-06, requisito SEC-10.
+     *
+     * <p>Exige AUDITAR, e não CONFIGURAR_SISTEMA: quem administra o sistema não
+     * é quem revisa quem tem acesso a ele. Dar ao ADMIN_SISTEMA o relatório dos
+     * próprios acessos seria pedir que ele se recertificasse.
+     */
+    @GetMapping("/recertificacao")
+    public Map<String, Object> recertificacao(
+            @RequestParam java.time.LocalDate desde,
+            @RequestParam java.time.LocalDate ate) {
+        exigir(Permissao.AUDITAR);
+        List<ConsultaDeRecertificacao.Acesso> acessos = recertificacao.relatorio(desde, ate);
+        return Map.of(
+                // A RESSALVA VEM PRIMEIRO NO JSON TAMBÉM.
+                //
+                // Não é decoração: um relatório de acesso que não declara a
+                // própria cobertura convida quem aprova a lê-lo como completo, e
+                // assinar uma revisão parcial acreditando ter revisto tudo
+                // produz a evidência de conformidade sem o controle.
+                "cobertura", ConsultaDeRecertificacao.RESSALVA,
+                "periodo", Map.of("desde", desde, "ate", ate),
+                "atores_observados", acessos.size(),
+                "a_revisar", acessos.stream().filter(a -> !a.atencao().isEmpty()).count(),
+                "acessos", acessos);
+    }
+
+    @GetMapping(value = "/recertificacao.csv", produces = "text/csv")
+    public ResponseEntity<String> recertificacaoCsv(
+            @RequestParam java.time.LocalDate desde,
+            @RequestParam java.time.LocalDate ate) {
+        exigir(Permissao.AUDITAR);
+        return comoAnexo("recertificacao-" + desde + "-a-" + ate + ".csv",
+                recertificacao.csv(desde, ate));
     }
 
     // -------------------------------------------------------------------------

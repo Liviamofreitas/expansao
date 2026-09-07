@@ -2436,3 +2436,117 @@ Fica o comportamento que continua certo depois.
 
 26 asserções em `TestesDeAtivacao` (11 sem banco, sobre a decisão) e 3 novas em
 `TestesDeWeb`. Total: **1073 Java** (1069 sem a massa), **113 SQL**.
+
+## 45. F3-06 — o auditor que não apareceria na própria recertificação
+
+Critério de aceite: *"relatório gerado e enviado à DAF"*. SEC-10:
+*"recertificação trimestral de acessos por contrato, com relatório para a
+DAF"*.
+
+### 45.1 A trilha registra quem escreve, e o auditor não escreve
+
+O relatório seria montado sobre `log_auditoria`, que já grava ator e papel em
+toda operação. Só que a trilha grava **quem escreve** — e o cap. 15.1 define o
+papel AUDITORIA pela coluna "não pode": *"qualquer escrita"*. O auditor nunca
+apareceria na própria recertificação.
+
+E a omissão inverte o propósito do controle. Uma revisão de acessos existe para
+achar **a conta que ninguém usa**: é ela que sobrevive a um desligamento, e é
+ela que um atacante quer. Um relatório montado só sobre escrita lista
+exatamente os ativos e omite exatamente os dormentes — entrega ao aprovador a
+metade que não precisava ser revista.
+
+`acesso_observado` (V017) grava **quem entra**. Uma linha por ator, por dia, por
+conjunto de concessões — não uma por requisição: seria escrita a cada leitura, e
+o custo não compraria informação, porque quantas vezes o acesso foi exercido a
+trilha já responde. Pôr papéis e contratos na chave faz a **mudança** aparecer:
+quem ganha um papel no meio do dia produz a segunda linha, e a deriva fica
+visível na série em vez de ser sobrescrita.
+
+Quebra deliberada montando o relatório só sobre a trilha: **6 asserções caem**.
+
+### 45.2 SEC-10 pede "por contrato", e o escopo não estava em lugar nenhum
+
+O recorte de contrato do ator vem de um claim do token. O sistema sabia
+**decidir** com ele — o `Autorizador` o usa em toda operação — e não sabia
+**relatá-lo**: nada o gravava. Agora está em `acesso_observado.contratos`, e
+visão global aparece como zero contratos, não como ausência de dado.
+
+### 45.3 Um defeito invisível dentro de uma execução
+
+O array de papéis é ordenado antes de gravar, para que `{A,B}` e `{B,A}` sejam a
+mesma concessão. Escrevi um teste que observava o mesmo ator duas vezes com a
+ordem trocada e conferia que dava uma concessão só.
+
+**A quebra deliberada não o derrubou.** O teste passava com a ordenação e sem
+ela — porque `Set.copyOf` tem ordem de iteração **estável dentro de uma execução
+da JVM**: as duas chamadas concordavam sempre, com ou sem defeito. A ordem só
+muda **entre** execuções, porque a JVM sorteia um SALT por processo:
+
+```
+execução 1: [PUBLICADOR_FIN, GESTOR_CONTRATO]
+execução 2: [GESTOR_CONTRATO, PUBLICADOR_FIN]
+execução 3: [PUBLICADOR_FIN, GESTOR_CONTRATO]
+```
+
+Em produção o sintoma seria deriva de concessão fantasma **depois de todo
+reinicio** — o relatório apontando mudança de acesso onde ninguém mudou nada, e
+a lista de atenção perdendo credibilidade no primeiro trimestre.
+
+O teste refeito lê o array **gravado** e exige que esteja ordenado, o que o
+`Set` não pode falsificar. Com ele, a quebra derruba 1 asserção em toda
+execução. É o segundo caso desta base em que a verificação por quebra encontrou
+um teste que não testava (o primeiro foi o F0-05, achados § 33.2) — e o único em
+que a causa era o teste ser **estruturalmente incapaz** de ver o defeito.
+
+### 45.4 "Somente leitura" não é apontamento
+
+O papel AUDITORIA lê por definição. Marcá-lo faria a lista de atenção repetir
+todo trimestre a única linha que está certa — e uma lista que sempre acusa a
+mesma coisa é uma lista que ninguém lê. O apontamento é o **privilégio de
+escrita nunca exercido**:
+
+| Situação | Apontada? |
+|---|---|
+| AUDITORIA que só leu | não — ler é o que ele faz |
+| APROVADOR_DAF que entrou e nunca aprovou nada | **sim** |
+| Concessão que mudou no período | **sim**, com quantas vezes |
+| CURADOR_MATRIZ + APROVADOR_DAF | **sim** — cadastra a regra e aprova a exceção sobre ela |
+| Conta `SVC_*` que aparece como tendo **entrado** | **sim** — o cap. 15.1 nega login interativo a ela |
+
+Quebra apontando toda leitura: **1 asserção cai**.
+
+### 45.5 A ressalva é a primeira linha do arquivo
+
+Um relatório de acesso que não declara a própria cobertura convida quem aprova a
+lê-lo como completo — e **assinar uma revisão parcial acreditando ter revisto
+tudo é pior que não ter feito revisão nenhuma**, porque produz a evidência de
+conformidade sem o controle.
+
+A ressalva diz o que falta: uma conta que existe no diretório e **nunca entrou**
+não aparece, porque o sistema não lê o diretório (RA-16). A recertificação do
+SEC-10 se completa comparando esta lista com a de contas concedidas, que é da
+DAF e do provedor.
+
+Ela vai **antes do cabeçalho**, não no fim nem num campo por linha: no fim, some
+quando alguém ordena a planilha, e é ela que muda o significado da tabela
+inteira. Quebra movendo-a: **3 asserções caem**.
+
+### 45.6 O que ficou por fora, dito
+
+- **RA-15** — o interceptor que grava a observação é cola de Spring de cinco
+  linhas, e a suíte não passa por ele: os testes de fronteira chamam os
+  controladores diretamente. Toda a decisão está no `RegistroDeAcesso`, que é
+  exercitado contra o banco. E `observar` engole a exceção de propósito — a
+  recertificação não pode derrubar o produto que ela revisa —, ao custo de uma
+  falha persistente produzir relatório incompleto **sem sintoma**.
+- **RA-16** — sem leitura do diretório, "concedido e nunca usado" só cobre quem
+  entrou ao menos uma vez.
+- **"enviado à DAF"** continua faltando pela mesma razão de sempre: não há
+  transporte (RA-06). O relatório é gerado e exportável; o envio espera.
+
+### 45.7 Cobertura
+
+33 asserções em `TestesDeRecertificacao` (6 sem banco, sobre o que vira
+apontamento) e 7 no `T010__acesso_observado.sql`.
+Total: **1106 Java** (1102 sem a massa), **120 SQL**.

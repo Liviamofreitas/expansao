@@ -44,9 +44,24 @@ public final class Csv {
     private final int colunas;
 
     public Csv(String... cabecalho) {
+        this(List.of(), cabecalho);
+    }
+
+    /**
+     * Com linhas de nota <b>antes</b> do cabeçalho.
+     *
+     * <p>Antes, e não depois: uma ressalva no fim do arquivo some quando alguém
+     * ordena a planilha, e é exatamente o aviso que muda o significado da tabela
+     * inteira. As notas passam pelo mesmo escape das células — quem escreve uma
+     * nota não deveria precisar lembrar disso.
+     */
+    public Csv(List<String> notas, String... cabecalho) {
         this.colunas = cabecalho.length;
         if (colunas == 0) {
             throw new IllegalArgumentException("CSV sem cabeçalho não é legível por ninguém");
+        }
+        for (String nota : notas) {
+            saida.append(celula(nota)).append("\r\n");
         }
         linha((Object[]) cabecalho);
     }

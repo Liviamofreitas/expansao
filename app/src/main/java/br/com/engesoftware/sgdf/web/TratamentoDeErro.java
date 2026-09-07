@@ -1,6 +1,7 @@
 package br.com.engesoftware.sgdf.web;
 
 import br.com.engesoftware.sgdf.persistencia.ConsultaDeAuditoria;
+import br.com.engesoftware.sgdf.persistencia.ConsultaDeRecertificacao;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeCadastro;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeParametro;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeCiclo;
@@ -139,6 +140,12 @@ public class TratamentoDeErro {
             RepositorioDeParametro.AtivacaoInvalida e) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
                 .body(Map.of("motivo", e.getMessage()));
+    }
+
+    @ExceptionHandler(ConsultaDeRecertificacao.PeriodoInvalido.class)
+    ResponseEntity<Map<String, String>> periodoInvalido(
+            ConsultaDeRecertificacao.PeriodoInvalido e) {
+        return ResponseEntity.badRequest().body(Map.of("motivo", e.getMessage()));
     }
 
     /** Unicidade do cadastro — 409, com o que fazer. */
