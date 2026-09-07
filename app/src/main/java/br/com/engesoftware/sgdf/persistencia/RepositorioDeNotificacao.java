@@ -11,6 +11,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import br.com.engesoftware.sgdf.notificacao.Ativacao;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -52,11 +53,22 @@ public final class RepositorioDeNotificacao {
      * @return o que seria enviado e o que ficou sem destinatário
      */
     public Execucao executar(UUID cicloId, LocalDate hoje) {
-        if (!modoSombra()) {
-            throw new SemTransporte("o modo sombra está desligado e não há transporte "
-                    + "configurado (história F1-09 entrega a régua, não o envio). "
-                    + "Gravar as linhas como enviadas seria registrar um envio que "
-                    + "não aconteceu — religue " + CHAVE_MODO_SOMBRA);
+        // A DECISÃO É POR CONTRATO DESDE A F3-02, E A RECUSA CONTINUA A MESMA.
+        //
+        // O portão de "sem transporte" vem antes do de adesão (ver Ativacao):
+        // desligar a chave global é declarar intenção de enviar, e responder a
+        // isso com sombra silenciosa faria quem desligou esperar e-mails que
+        // não sairiam. A F1-09 recusava esse caso e ele continua recusado.
+        //
+        // Esta é a SEGUNDA barreira: a primeira está em
+        // RepositorioDeParametro.ativarEnvio, que recusa no momento de LIGAR.
+        // Uma feature flag que só falha no uso dá dias de confiança falsa entre
+        // a troca e a execução seguinte.
+        Ativacao ativacao = new RepositorioDeParametro(sgdf).ativacaoDe(contratoDo(cicloId));
+        if (ativacao.incoerente()) {
+            throw new SemTransporte(ativacao.motivo() + ". A história F1-09 entrega a "
+                    + "régua, não o envio; gravar as linhas como enviadas seria registrar "
+                    + "um envio que não aconteceu — religue " + CHAVE_MODO_SOMBRA);
         }
         Cadastro cadastro = cadastroDoCiclo(cicloId, hoje);
         Regua.Resultado resultado = Regua.avisos(cicloId, hoje, pendencias(cicloId),
@@ -114,6 +126,23 @@ public final class RepositorioDeNotificacao {
     }
 
     // --- leituras ------------------------------------------------------------
+
+    /** O contrato do ciclo — a chave da decisão por contrato (F3-02). */
+    private UUID contratoDo(UUID cicloId) {
+        try (PreparedStatement ps = sgdf.conexao().prepareStatement(
+                "SELECT contrato_servico_id FROM ciclo WHERE id = ?")) {
+            ps.setObject(1, cicloId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    throw new Sgdf.FalhaDePersistencia("ciclo " + cicloId + " não existe",
+                            null);
+                }
+                return rs.getObject(1, UUID.class);
+            }
+        } catch (SQLException e) {
+            throw new Sgdf.FalhaDePersistencia("falha ao ler o contrato do ciclo", e);
+        }
+    }
 
     boolean modoSombra() {
         String sql = "SELECT valor::text FROM parametro WHERE chave = ? AND escopo = 'GLOBAL'";

@@ -62,6 +62,7 @@ public final class TestesDeWeb {
         executar("oIndicadorAgregadoNaoSaiRecortado",
                 TestesDeWeb::oIndicadorAgregadoNaoSaiRecortado);
         executar("aTrilhaSoAbreParaAuditoria", TestesDeWeb::aTrilhaSoAbreParaAuditoria);
+        executar("ligarPedeMaisQueDesligar", TestesDeWeb::ligarPedeMaisQueDesligar);
 
         System.out.println();
         falhas.forEach(f -> System.out.println("  FALHA " + f));
@@ -409,7 +410,59 @@ public final class TestesDeWeb {
                 indicadorControlador(daf, comIndicadores).daCompetencia("2026-06").size() == 9);
     }
 
+    /**
+     * Ligar a cobranca pede CONFIGURAR_SISTEMA; desligar pede so ver o painel.
+     *
+     * <p>A assimetria e deliberada: ligar faz o sistema comecar a mandar e-mail
+     * para pessoas, desligar apenas devolve o contrato ao estado seguro. Exigir
+     * o mesmo papel nas duas pontas criaria a situacao em que quem percebe o
+     * problema nao pode para-lo — e a primeira coisa que se quer numa
+     * emergencia e a porta de saida aberta.
+     */
+    static void ligarPedeMaisQueDesligar() {
+        Ator financeiro = ator("fin", Papel.PUBLICADOR_FIN, CONTRATO_DO_ATOR);
+        Ator admin = ator("adm", Papel.ADMIN_SISTEMA);
+        UUID contrato = UUID.randomUUID();
+
+        ok("F3-02 . o PUBLICADOR_FIN nao liga a cobranca",
+                negou(() -> notificacaoControlador(financeiro, bancoQueExplode())
+                        .ativar(contrato, new NotificacaoController.Decisao(
+                                "motivo suficientemente longo para passar"))));
+
+        ConexaoDeMentira desliga = bancoQueExplode()
+                .respondendo("INSERT INTO parametro")
+                .respondendo("INSERT INTO log_auditoria")
+                .respondendo("SELECT valor #>> ", linha("false"));
+        ok("F3-02 . mas DESLIGA — a porta de saida fica aberta para quem opera",
+                Boolean.FALSE.equals(notificacaoControlador(financeiro, desliga)
+                        .desativar(contrato).get("envio_ativo")));
+
+        // O ADMIN tem o papel de ligar e ainda assim e barrado: pelo transporte,
+        // que e a barreira que nenhum papel contorna.
+        ok("F3-02 . e nem o ADMIN_SISTEMA liga sem transporte",
+                recusouPorFaltaDeTransporte(() -> notificacaoControlador(admin,
+                        bancoQueExplode().respondendo("INSERT INTO log_auditoria"))
+                        .ativar(contrato, new NotificacaoController.Decisao(
+                                "motivo suficientemente longo para passar"))));
+    }
+
+    static boolean recusouPorFaltaDeTransporte(Runnable acao) {
+        try {
+            acao.run();
+            return false;
+        } catch (br.com.engesoftware.sgdf.persistencia.RepositorioDeParametro.SemTransporte e) {
+            return true;
+        }
+    }
+
     // -------------------------------------------------------------------------
+
+    static NotificacaoController notificacaoControlador(Ator ator, ConexaoDeMentira banco) {
+        Sgdf sgdf = new Sgdf(banco.conexao());
+        return new NotificacaoController(atores(ator),
+                new br.com.engesoftware.sgdf.persistencia.RepositorioDeParametro(sgdf),
+                new ConsultaDoPainel(sgdf));
+    }
 
     static IndicadorController indicadorControlador(Ator ator, ConexaoDeMentira banco) {
         Sgdf sgdf = new Sgdf(banco.conexao());

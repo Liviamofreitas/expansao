@@ -2,6 +2,7 @@ package br.com.engesoftware.sgdf.web;
 
 import br.com.engesoftware.sgdf.persistencia.ConsultaDeAuditoria;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeCadastro;
+import br.com.engesoftware.sgdf.persistencia.RepositorioDeParametro;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeCiclo;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeExcecao;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeRascunho;
@@ -118,6 +119,26 @@ public class TratamentoDeErro {
     ResponseEntity<Map<String, String>> filtroObrigatorio(
             ConsultaDeAuditoria.FiltroObrigatorio e) {
         return ResponseEntity.badRequest().body(Map.of("motivo", e.getMessage()));
+    }
+
+    /**
+     * F3-02: ligar o envio sem transporte é recusado no momento de LIGAR.
+     *
+     * <p>409 e com motivo no corpo: quem tentou precisa saber que a adesão fica
+     * disponível quando o transporte existir, e não que "deu erro". Um 500 aqui
+     * mandaria a pessoa procurar defeito onde há decisão.
+     */
+    @ExceptionHandler(RepositorioDeParametro.SemTransporte.class)
+    ResponseEntity<Map<String, String>> semTransporte(RepositorioDeParametro.SemTransporte e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("motivo", e.getMessage()));
+    }
+
+    @ExceptionHandler(RepositorioDeParametro.AtivacaoInvalida.class)
+    ResponseEntity<Map<String, String>> ativacaoInvalida(
+            RepositorioDeParametro.AtivacaoInvalida e) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(Map.of("motivo", e.getMessage()));
     }
 
     /** Unicidade do cadastro — 409, com o que fazer. */

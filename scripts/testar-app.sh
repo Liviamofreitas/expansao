@@ -105,6 +105,10 @@ java -Dfile.encoding=UTF-8 -Dsgdf.raiz="$RAIZ" -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp 
 echo "→ fronteira HTTP (F0-01, F1-07, F1-10)"
 java -Dfile.encoding=UTF-8 -cp "$ALVO:$CP" br.com.engesoftware.sgdf.web.TestesDeWeb | filtrar
 
+echo "→ ativação por contrato (F3-02)"
+java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.notificacao.TestesDeAtivacao | filtrar
+
 echo "→ indicadores e exportações (F3-05, cap. 21)"
 java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.indicadores.TestesDeIndicadores | filtrar

@@ -2335,3 +2335,104 @@ Duas decisões que vêm junto:
 
 60 asserções em `TestesDeIndicadores` (15 sem banco, sobre CSV e metas) e 4
 novas em `TestesDeWeb`. Total: **1044 Java** (1040 sem a massa), **113 SQL**.
+
+## 44. F3-02 — a permissão perigosa não se herda, e a flag falha na troca
+
+Critério de aceite: *"régua completa D-2/D+0/D+2/D+5; máx. 1 e-mail/área/dia"*.
+A régua e a consolidação vieram na F1-09 — e a consolidação é imposta pelo
+banco (`notificacao_diaria_unica` + `ON CONFLICT DO NOTHING`), não confiada ao
+agendador. O que faltava é **quem decide, e por contrato**.
+
+### 44.1 Duas chaves, e não uma com escopo
+
+A tentação é resolver `notificacao.modo_sombra` por escopo — contrato, senão
+cliente, senão global — como qualquer outro parâmetro. Seria errado de um jeito
+silencioso: alguém desligando o modo sombra **globalmente para testar um
+contrato** ativaria a cobrança de **todos**, e o sintoma apareceria como e-mails
+saindo para áreas que nunca souberam que o sistema começou a cobrá-las.
+
+| Chave | Escopo | Natureza |
+|---|---|---|
+| `notificacao.modo_sombra` | GLOBAL | chave de **desligar**: enquanto ligada, nada sai de contrato nenhum |
+| `notificacao.envio_ativo` | CONTRATO | **adesão explícita**: só o contrato cadastrado envia |
+
+**A regra que faz isso valer: o que é seguro herda, o que é perigoso não.** Um
+contrato sem parâmetro próprio está em sombra, e nenhuma configuração de cliente
+ou global o tira de lá. É a mesma decisão do `Autorizador` — negar é o padrão, e
+o padrão não se alcança por omissão de quem configurou. Ativar exige portanto
+**duas decisões independentes**: desligar a chave global e aderir contrato a
+contrato.
+
+Quebra deliberada fazendo a adesão herdar: **2 asserções caem**.
+
+### 44.2 A ordem dos portões, validada pela suíte da história anterior
+
+O portão de "sem transporte" vem **antes** do de adesão, e a ordem foi escolhida
+por um motivo que só aparece quando se olha o que a F1-09 já garantia.
+
+Desligar a chave global é uma **declaração de intenção de enviar**. Checar a
+adesão primeiro faria o caso "global desligada, nenhum contrato aderido" cair em
+`SEM_ADESAO` — a régua gravaria em sombra, ninguém diria nada, e quem desligou a
+chave passaria a esperar e-mails que nunca sairiam. Silenciar uma intenção
+explícita é a mesma confiança falsa que a F1-09 recusou.
+
+Quebra invertendo a ordem: **2 asserções caem na F3-02 — e 2 caem na F1-09**. A
+suíte da história anterior é quem prova que a ordem nova preserva a garantia
+antiga. Foi o resultado mais útil das quatro quebras.
+
+### 44.3 A flag que falha no uso dá dias de confiança falsa
+
+O `RepositorioDeNotificacao` já recusava executar sem transporte. Mas recusava
+**na execução**, que acontece um dia depois de alguém virar a chave. Nesse
+intervalo:
+
+- quem virou acredita ter ativado a cobrança;
+- a área acredita que será cobrada;
+- as duas crenças são falsas ao mesmo tempo, e nada no sistema diz isso.
+
+`RepositorioDeParametro.ativarEnvio` recusa **no momento de ligar**, e não grava
+nada: não fica um contrato meio ligado. A recusa na execução continua lá como
+segunda barreira — alguém ainda pode editar `parametro` por SQL.
+
+| Quebra | F3-02 | F1-09 |
+|---|---|---|
+| Adesão herdando do escopo global | 24/26 | 42/42 |
+| Adesão checada antes do transporte | 24/26 | **40/42** |
+| Recusa no uso em vez de na troca | **23/26** | 42/42 |
+| Tentativa negada dentro da transação que a desfaz | 24/26 | 42/42 |
+
+A última linha é a lição da F0-09 repetida: a negativa é o fato mais auditável
+do fluxo — é ela que mostra alguém insistindo — e some exatamente por ser
+negativa, levada pelo rollback da própria recusa.
+
+### 44.4 Ligar pede mais que desligar
+
+Ativar exige `CONFIGURAR_SISTEMA` e motivo de ao menos 20 caracteres; desativar
+exige apenas ver o painel, e não pede motivo.
+
+A assimetria é deliberada. Ligar faz o sistema começar a mandar e-mail para
+pessoas; desligar apenas devolve o contrato ao estado seguro. Exigir o mesmo
+papel nas duas pontas criaria a situação em que **quem percebe o problema não
+pode pará-lo** — e a primeira coisa que se quer numa emergência é a porta de
+saída aberta. Atrito na direção segura não protege ninguém.
+
+### 44.5 O que continua faltando, e não é código
+
+`EXISTE_TRANSPORTE` é uma **constante Java** e não um parâmetro de banco: um
+parâmetro dizendo que há transporte não faria transporte existir, e a constante
+garante que o dia em que alguém a trocar é o dia em que o compilador obriga a
+olhar para os quatro pontos que dependem dela. RA-06 continua aberta e continua
+gated na F3-01 — a régua só deve sair da sombra depois de a divergência medida
+ficar ≤ 2% por dois ciclos (cap. 19).
+
+Um resíduo conhecido, aceito: com `ON CONFLICT DO NOTHING`, uma segunda execução
+no mesmo dia com aviso **mais grave** (uma pendência criada à tarde cujo D+0 é
+hoje) é descartada, e a área recebe só o preventivo da manhã. Trocar por um
+`DO UPDATE` que promove o aviso seria correto hoje — nada foi enviado ainda — e
+errado no dia em que houver transporte, porque atualizaria uma linha já enviada.
+Fica o comportamento que continua certo depois.
+
+### 44.6 Cobertura
+
+26 asserções em `TestesDeAtivacao` (11 sem banco, sobre a decisão) e 3 novas em
+`TestesDeWeb`. Total: **1073 Java** (1069 sem a massa), **113 SQL**.
