@@ -75,6 +75,12 @@ public final class TestesDeIngestao {
                         () -> umArquivoQueFalhaNaoDerrubaOLote(sgdf));
                 executar("aContagemNaoEscondeAsFalhas",
                         () -> aContagemNaoEscondeAsFalhas(sgdf));
+                executar("aVarreduraCosturaOrigemAteOBanco",
+                        () -> aVarreduraCosturaOrigemAteOBanco(sgdf));
+                executar("aVarreduraTruncadaNaoDizSucesso",
+                        () -> aVarreduraTruncadaNaoDizSucesso(sgdf));
+                executar("aFalhaParcialRegistraOQueJaEntrou",
+                        () -> aFalhaParcialRegistraOQueJaEntrou(sgdf));
             } finally {
                 limpar(conexao);
             }
@@ -93,7 +99,7 @@ public final class TestesDeIngestao {
         GravadorDoPipeline gravador = new GravadorDoPipeline(sgdf);
         DocumentoProcessado p = processar("cnd.pdf", CND_RFB);
 
-        GravadorDoPipeline.Ingestao i = gravador.gravar(f.ciclo, p, "/f/06.2026/cnd.pdf",
+        GravadorDoPipeline.Ingestao i = gravador.gravar(f.ciclo, p, f.arquivo("cnd.pdf"),
                 "etag-1", MARCA);
 
         ok("F1-01+F1-03 . o documento e gravado", i.documentoId() != null && i.inedito());
@@ -126,9 +132,9 @@ public final class TestesDeIngestao {
         DocumentoProcessado p = processar("cnd.pdf", bytes);
 
         GravadorDoPipeline.Ingestao primeira = gravador.gravar(f.ciclo, p,
-                "/f/06.2026/cnd.pdf", "etag-1", MARCA);
+                f.arquivo("cnd.pdf"), "etag-1", MARCA);
         GravadorDoPipeline.Ingestao segunda = gravador.gravar(f.ciclo,
-                processar("cnd.pdf", bytes), "/f/06.2026/cnd.pdf", "etag-1", MARCA);
+                processar("cnd.pdf", bytes), f.arquivo("cnd.pdf"), "etag-1", MARCA);
 
         ok("Cap. 8.1 . a segunda varredura devolve o MESMO documento",
                 primeira.documentoId().equals(segunda.documentoId()));
@@ -153,7 +159,7 @@ public final class TestesDeIngestao {
         // tinha gravado com a mesma MARCA — a assercao "nada foi gravado"
         // falhava por ordem de execucao, nao por defeito. Um teste que afirma
         // sobre um estado que nao controla manda procurar no lugar errado.
-        String caminho = "/f/06.2026/infectado-" + (++sequencia) + ".pdf";
+        String caminho = f.arquivo("infectado.pdf");
         GravadorDoPipeline.Ingestao i = new GravadorDoPipeline(sgdf).gravar(f.ciclo, p,
                 caminho, "etag-1", MARCA);
 
@@ -180,7 +186,7 @@ public final class TestesDeIngestao {
 
         // A CNDT e reconhecida com confianca e NAO e exigida neste ciclo.
         GravadorDoPipeline.Ingestao i = gravador.gravar(f.ciclo, processar("cndt.pdf", CNDT),
-                "/f/06.2026/cndt.pdf", "etag-2", MARCA);
+                f.arquivo("cndt.pdf"), "etag-2", MARCA);
 
         ok("Cap. 8.3 . o documento e gravado e classificado",
                 i.documentoId() != null && !i.vinculouAExigencia());
@@ -197,7 +203,7 @@ public final class TestesDeIngestao {
                 linha.exigenciasDoTipo() == 0 && linha.motivo().contains("não é exigido"));
 
         // E o que virou candidatura NAO aparece aqui.
-        gravador.gravar(f.ciclo, processar("cnd.pdf", CND_RFB), "/f/06.2026/cnd.pdf",
+        gravador.gravar(f.ciclo, processar("cnd.pdf", CND_RFB), f.arquivo("cnd.pdf"),
                 "etag-1", MARCA);
         ok("Painel . o que virou candidatura nao aparece na vista",
                 new ConsultaDoPainel(sgdf).classificadosSemExigencia(f.ciclo, 50).stream()
@@ -222,9 +228,11 @@ public final class TestesDeIngestao {
                 bom.vereditos());
 
         GravadorDoPipeline.Lote lote = gravador.gravarLote(f.ciclo, List.of(
-                new GravadorDoPipeline.Item(processar("cnd.pdf", CND_RFB), "/f/a.pdf", "e1"),
-                new GravadorDoPipeline.Item(quebrado, "/f/b.pdf", "e2"),
-                new GravadorDoPipeline.Item(processar("cndt.pdf", CNDT), "/f/c.pdf", "e3")),
+                new GravadorDoPipeline.Item(processar("cnd.pdf", CND_RFB),
+                        f.arquivo("a.pdf"), "e1"),
+                new GravadorDoPipeline.Item(quebrado, f.arquivo("b.pdf"), "e2"),
+                new GravadorDoPipeline.Item(processar("cndt.pdf", CNDT),
+                        f.arquivo("c.pdf"), "e3")),
                 MARCA);
 
         ok("RA-07 . os dois bons entram, apesar do quebrado no meio",
@@ -233,8 +241,8 @@ public final class TestesDeIngestao {
                 lote.falhas().size() == 1 && lote.falhas().get(0).startsWith("quebrado.pdf"));
         ok("RA-07 . o lote se declara incompleto", !lote.completo());
         ok("RA-07 . e os dois estao no banco",
-                2 == contar(sgdf, "documento WHERE criado_por = '" + MARCA
-                        + "' AND caminho IN ('/f/a.pdf', '/f/c.pdf')"));
+                2 == contar(sgdf, "documento WHERE caminho IN ('" + f.arquivo("a.pdf")
+                        + "', '" + f.arquivo("c.pdf") + "')"));
     }
 
     /**
@@ -245,7 +253,7 @@ public final class TestesDeIngestao {
         Fixture f = fixture(sgdf, "CER.CND_RFB");
         GravadorDoPipeline.Lote lote = new GravadorDoPipeline(sgdf).gravarLote(f.ciclo,
                 List.of(new GravadorDoPipeline.Item(processar("cnd.pdf", CND_RFB),
-                        "/f/ok.pdf", "e1")), MARCA);
+                        f.arquivo("ok.pdf"), "e1")), MARCA);
 
         ok("RA-07 . o lote sem falha se declara completo",
                 lote.completo() && lote.falhas().isEmpty());
@@ -261,9 +269,133 @@ public final class TestesDeIngestao {
                 vazio.completo() && vazio.processados() == 0);
     }
 
+    // --- a costura completa: coleta -> pipeline -> banco ------------------------
+
+    static void aVarreduraCosturaOrigemAteOBanco(Sgdf sgdf) {
+        Fixture f = fixture(sgdf, "CER.CND_RFB");
+        // OS MESMOS BYTES NA SEGUNDA VARREDURA.
+        //
+        // O PDFBox carimba data de criacao: duas chamadas a pdf() com o mesmo
+        // texto dao hashes diferentes, e a assercao de idempotencia mediria
+        // dois arquivos distintos sendo distintos — que e sempre verdade.
+        byte[] cnd = pdf(CND_RFB);
+        br.com.engesoftware.sgdf.coleta.ResultadoVarredura r = varredura(
+                coletado(f.arquivo("cnd.pdf"), cnd, "e1"),
+                coletado(f.arquivo("cndt.pdf"), pdf(CNDT), "e2"));
+        r.ignorados.add(new br.com.engesoftware.sgdf.coleta.ResultadoVarredura.Ignorado(
+                f.arquivo("~$check.xlsx"),
+                br.com.engesoftware.sgdf.coleta.PoliticaDeArquivos.Motivo.ARQUIVO_TEMPORARIO,
+                "temporario do Office"));
+
+        VarreduraDeCiclo.Ingerida i = new VarreduraDeCiclo(sgdf, pipeline())
+                .ingerir(f.ciclo, contratoDo(sgdf, f.ciclo), "2026-06", r, MARCA);
+
+        ok("RA-07 . os dois coletados entram no banco", i.processados() == 2);
+        ok("RA-07 . um vira candidatura (a CND exigida) e o outro nao (a CNDT)",
+                i.emTriagem() == 1 && i.semExigencia() == 1);
+        ok("RA-07 . os dois sao ineditos", i.ineditos() == 2);
+        ok("RA-07 . e a varredura completa nao e incompleta", !i.incompleta());
+        ok("F1-10 . o que a varredura ignorou foi registrado antes de ingerir",
+                i.organizacao() != null);
+
+        // Idempotencia: a varredura roda de 30 em 30 minutos.
+        VarreduraDeCiclo.Ingerida denovo = new VarreduraDeCiclo(sgdf, pipeline())
+                .ingerir(f.ciclo, contratoDo(sgdf, f.ciclo), "2026-06",
+                        varredura(coletado(f.arquivo("cnd.pdf"), cnd, "e1")), MARCA);
+        ok("Cap. 8.1 . a segunda varredura nao duplica nada",
+                denovo.processados() == 1 && denovo.ineditos() == 0);
+    }
+
+    /**
+     * Reportar SUCESSO sobre uma varredura truncada faria o alerta de job
+     * silencioso calar justamente quando metade da pasta nao foi lida.
+     */
+    static void aVarreduraTruncadaNaoDizSucesso(Sgdf sgdf) {
+        Fixture f = fixture(sgdf, "CER.CND_RFB");
+        var r = varredura(coletado(f.arquivo("cnd.pdf"), pdf(CND_RFB), "e1"));
+        r.truncada = true;
+        r.motivoTruncamento = "limite de 2000 arquivos atingido";
+
+        Agendador.FalhaParcial parcial = null;
+        try {
+            new VarreduraDeCiclo(sgdf, pipeline())
+                    .ingerir(f.ciclo, contratoDo(sgdf, f.ciclo), "2026-06", r, MARCA);
+        } catch (Agendador.FalhaParcial e) {
+            parcial = e;
+        }
+        ok("Cap. 8.1 . a varredura truncada NAO reporta sucesso", parcial != null);
+        ok("Cap. 14.1 . mas o que entrou FICA — nunca perda",
+                parcial.itens() == 1
+                        && 1 == contar(sgdf, "documento WHERE caminho = '"
+                                + f.arquivo("cnd.pdf") + "'"));
+        ok("Cap. 8.1 . e o motivo diz que a pasta nao foi lida inteira",
+                parcial.getMessage().contains("truncada")
+                        && parcial.getMessage().contains("2000"));
+    }
+
+    /**
+     * A varredura que morre no fim e a que morre no comeco pedem investigacoes
+     * diferentes — e a linha de FALHA precisa dizer qual foi.
+     */
+    static void aFalhaParcialRegistraOQueJaEntrou(Sgdf sgdf) {
+        Fixture f = fixture(sgdf, "CER.CND_RFB");
+        executarSql(sgdf, "DELETE FROM execucao_de_job WHERE instancia = '" + MARCA + "'");
+        var r = varredura(coletado(f.arquivo("cnd.pdf"), pdf(CND_RFB), "e1"));
+        r.falhas.add(new br.com.engesoftware.sgdf.coleta.ResultadoVarredura.Falha(
+                f.arquivo("outro.pdf"), "conexao encerrada pela origem"));
+
+        Agendador agendador = new Agendador(sgdf, MARCA);
+        UUID contrato = contratoDo(sgdf, f.ciclo);
+        try {
+            agendador.executar(br.com.engesoftware.sgdf.orquestracao.Job.VARREDURA_COMPLETA,
+                    () -> new VarreduraDeCiclo(sgdf, pipeline())
+                            .ingerir(f.ciclo, contrato, "2026-06", r, MARCA).processados());
+        } catch (Agendador.FalhaParcial e) {
+            // esperado
+        }
+
+        ok("RA-07 . o job fica registrado como FALHA",
+                1 == contar(sgdf, "execucao_de_job WHERE instancia = '" + MARCA
+                        + "' AND resultado = 'FALHA'"));
+        ok("RA-07 . COM a contagem do que ja tinha entrado — 'morreu no fim' e "
+                        + "'morreu no comeco' pedem investigacoes diferentes",
+                "1".equals(escalar(sgdf, "SELECT itens::text FROM execucao_de_job"
+                        + " WHERE instancia = '" + MARCA + "' AND resultado = 'FALHA'")));
+        ok("Cap. 14.1 . e o documento ingerido antes da falha continua la",
+                1 == contar(sgdf, "documento WHERE caminho = '" + f.arquivo("cnd.pdf") + "'"));
+        executarSql(sgdf, "DELETE FROM execucao_de_job WHERE instancia = '" + MARCA + "'");
+    }
+
     // -------------------------------------------------------------------------
 
-    record Fixture(UUID ciclo, UUID exigencia) {}
+    static br.com.engesoftware.sgdf.coleta.ResultadoVarredura varredura(
+            br.com.engesoftware.sgdf.coleta.ArquivoColetado... arquivos) {
+        var r = new br.com.engesoftware.sgdf.coleta.ResultadoVarredura();
+        java.util.Collections.addAll(r.coletados, arquivos);
+        return r;
+    }
+
+    static br.com.engesoftware.sgdf.coleta.ArquivoColetado coletado(String caminho,
+                                                                    byte[] conteudo,
+                                                                    String etag) {
+        return new br.com.engesoftware.sgdf.coleta.ArquivoColetado(caminho, etag,
+                Pipeline.sha256(conteudo), conteudo.length, conteudo);
+    }
+
+    static UUID contratoDo(Sgdf sgdf, UUID ciclo) {
+        return UUID.fromString(escalar(sgdf,
+                "SELECT contrato_servico_id::text FROM ciclo WHERE id = '" + ciclo + "'"));
+    }
+
+    /**
+     * @param pasta caminho proprio deste fixture — ver a nota em {@link #fixture}
+     */
+    record Fixture(UUID ciclo, UUID exigencia, String pasta) {
+
+        String arquivo(String nome) {
+            return pasta + "/" + nome;
+        }
+    }
 
     static Fixture fixture(Sgdf sgdf, String tipoCodigo) {
         int n = ++sequencia;
@@ -291,7 +423,14 @@ public final class TestesDeIngestao {
                 + " SELECT '" + ciclo + "', t.id, 'MENSAL', 'PENDENTE', DATE '2026-07-05',"
                 + " 'BLOQUEANTE', 'FIN', 'MATRIZ', '" + MARCA + "'"
                 + " FROM tipo_documental t WHERE t.codigo = '" + tipoCodigo + "' RETURNING id");
-        return new Fixture(ciclo, exigencia);
+        // PASTA PROPRIA POR FIXTURE, E E A RAIZ DE UM DEFEITO QUE SE REPETIU.
+        //
+        // Com caminho fixo, dois testes com a mesma MARCA gravam a mesma linha
+        // e as assercoes de contagem de um passam a depender de quem rodou
+        // antes. Aconteceu tres vezes nesta sessao — no agendador, no
+        // infectado, e aqui. Consertar a assercao trata o sintoma; a causa e o
+        // caminho compartilhado.
+        return new Fixture(ciclo, exigencia, "/f/ing-" + n + "/2026/06");
     }
 
     static Pipeline pipeline() {
@@ -346,6 +485,14 @@ public final class TestesDeIngestao {
         }
     }
 
+    static void executarSql(Sgdf sgdf, String sql) {
+        try (Statement st = sgdf.conexao().createStatement()) {
+            st.execute(sql);
+        } catch (SQLException e) {
+            throw new IllegalStateException("falha no fixture: " + e.getMessage(), e);
+        }
+    }
+
     static String escalar(Sgdf sgdf, String sql) {
         try (Statement st = sgdf.conexao().createStatement();
              ResultSet rs = st.executeQuery(sql)) {
@@ -368,6 +515,11 @@ public final class TestesDeIngestao {
             "DELETE FROM vinculo_exigencia_documento WHERE documento_id IN (SELECT id FROM"
                     + " documento WHERE criado_por = '" + MARCA + "')",
             "DELETE FROM documento WHERE criado_por = '" + MARCA + "'",
+            // A varredura registra achados de organização, e a FK para
+            // contrato_servico barra a exclusão se eles ficarem.
+            "DELETE FROM achado_de_organizacao WHERE contrato_servico_id IN"
+                    + " (SELECT id FROM contrato_servico WHERE criado_por = '" + MARCA + "')",
+            "DELETE FROM execucao_de_job WHERE instancia = '" + MARCA + "'",
             "DELETE FROM exigencia WHERE criado_por = '" + MARCA + "'",
             "DELETE FROM ciclo WHERE criado_por = '" + MARCA + "'",
             "DELETE FROM contrato_servico WHERE criado_por = '" + MARCA + "'",

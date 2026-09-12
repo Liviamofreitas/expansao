@@ -75,6 +75,17 @@ public final class Agendador {
             int itens = trabalho.get();
             fechar(id, "SUCESSO", itens, null);
             return new Execucao(job, "SUCESSO", itens, null);
+        } catch (FalhaParcial e) {
+            // FALHOU DEPOIS DE TER FEITO TRABALHO, E O QUANTO IMPORTA.
+            //
+            // Uma varredura que ingeriu 200 de 300 e perdeu o WebDAV não é o
+            // mesmo fato que uma que morreu no primeiro arquivo. Registrar as
+            // duas com itens nulo faria a reexecução parecer a primeira
+            // tentativa, e ninguém saberia que 200 documentos já estão lá — nem
+            // que a origem caiu depois de um trecho grande, que é o sintoma de
+            // rede intermitente e não de credencial errada.
+            fechar(id, "FALHA", e.itens(), e.getMessage());
+            throw e;
         } catch (RuntimeException e) {
             String motivo = e.getClass().getSimpleName()
                     + (e.getMessage() == null ? "" : ": " + e.getMessage());
@@ -287,6 +298,29 @@ public final class Agendador {
     /** Uma execução que começou e não terminou. */
     public record Travado(String job, OffsetDateTime iniciadaEm, Duration aberta,
                           String instancia) {
+    }
+
+    /**
+     * O job falhou, e já tinha feito trabalho.
+     *
+     * <p>Quem lança diz <b>quanto</b>. Sem isso, a linha de FALHA fica com itens
+     * nulo e a reexecução seguinte não tem como saber se recomeça do zero ou
+     * continua de onde parou — e o operador não distingue "a origem caiu logo"
+     * de "a origem caiu no fim", que pedem investigações diferentes.
+     */
+    public static final class FalhaParcial extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        private final int itens;
+
+        public FalhaParcial(String motivo, int itens) {
+            super(motivo);
+            this.itens = itens;
+        }
+
+        public int itens() {
+            return itens;
+        }
     }
 
     /** Cap. 7.2: há job que não se agenda. */

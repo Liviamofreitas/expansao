@@ -2737,3 +2737,87 @@ a quebra deliberada — não a leitura do teste.
 
 24 asserções em `TestesDeIngestao`. Total: **1164 Java** (1160 sem a massa),
 **129 SQL**.
+
+## 48. A última costura: origem → banco, e a varredura que mente por omissão
+
+`VarreduraDeCiclo` liga coleta → pipeline → gravação. Fecha, com o `Agendador` e
+o `GravadorDoPipeline`, a metade de engenharia da RA-07. Os gatilhos continuam
+desligados.
+
+### 48.1 Recebe o resultado pronto, e é o que dá teste à costura
+
+`ClienteWebDav` é classe concreta, então uma `VarreduraDeCiclo` que o possuísse
+só seria testável com um servidor de verdade — e uma costura sem teste é
+exatamente a peça que ninguém confere. Ela recebe o `ResultadoVarredura` já
+produzido: quem tem o cliente varre e entrega. É a terceira vez que essa
+separação se paga nesta base (o `Pipeline` não grava, o `Classificador` não lê
+arquivo), e o dividendo é o mesmo — a cadeia inteira é exercitada contra o banco
+**sem servidor WebDAV**.
+
+### 48.2 Uma varredura incompleta não reporta sucesso
+
+O cap. 8.1 impõe limites (profundidade, número de arquivos, duração) e a
+varredura pode parar no meio. O cap. 14.1 manda que indisponibilidade da origem
+gere alerta e **nunca perda**.
+
+As duas coisas juntas produzem um estado que precisava de nome: *ingeriu o que
+deu, e não leu a pasta inteira*. Reportar SUCESSO ali faria o alerta de job
+silencioso calar **justamente quando metade da pasta não foi lida** — e o painel
+diria que a competência está completa porque o sistema não olhou o resto. É a
+mesma família do § 46: um resultado que se parece com saúde e não é.
+
+`Agendador.FalhaParcial` resolve: o job termina em FALHA, o que entrou fica, e
+**a contagem vai na linha**. Quebra deliberada fazendo a truncada reportar
+sucesso: **2 asserções caem e 1 nem roda**.
+
+### 48.3 "Morreu no fim" e "morreu no começo" pedem investigações diferentes
+
+A V018 só *exige* a contagem em SUCESSO — e a primeira versão gravava FALHA com
+`itens` nulo sempre. Uma varredura que ingeriu 200 de 300 e perdeu o WebDAV
+ficaria indistinguível de uma que morreu no primeiro arquivo:
+
+- ninguém saberia que 200 documentos já estão lá, e a reexecução pareceria a
+  primeira tentativa;
+- o operador não veria a diferença entre credencial errada (morre no início) e
+  rede intermitente (morre depois de um trecho grande).
+
+Quebra removendo a contagem da falha parcial: **1 asserção cai**.
+
+### 48.4 O que a varredura ignorou é registrado antes de ingerir
+
+Cópias de conflito e temporários vão ao painel de organização **antes** do lote.
+Se a gravação falhar adiante, eles já estão lá. Deixar para o fim faria a
+informação mais barata de produzir ser a primeira a se perder. Quebra movendo o
+registro: **1 asserção cai**.
+
+### 48.5 Uma defesa que não está medida, dita como tal
+
+O laço envolve `pipeline.processar` num `catch (RuntimeException)`, para que um
+PDF malformado não leve os outros. **Removendo o catch, nenhuma asserção cai** —
+porque hoje o `Pipeline` já converte `ExtracaoInvalida` em veredito V2 em vez de
+deixar subir. O catch protege de um `Pipeline` futuro que volte a propagar, não
+de um caso atual, e chamá-lo de garantia verificada seria falso. Fica registrado
+no código, como o RA-12.
+
+### 48.6 O mesmo defeito de teste, pela terceira vez — e desta vez a causa
+
+Três asserções falharam, por duas causas já conhecidas: caminhos fixos
+compartilhados entre testes com a mesma marca, e `pdf()` que não é estável em
+bytes (o PDFBox carimba data de criação, então duas chamadas com o mesmo texto
+dão hashes diferentes).
+
+Consertar as asserções trataria o sintoma. A causa é o caminho compartilhado, e
+ela já tinha mordido duas vezes nesta sessão — no agendador e no teste do
+infectado. A correção foi na raiz: **o fixture passou a ter pasta própria**, e
+todos os caminhos literais saíram do arquivo. Uma classe inteira de fragilidade
+deixou de existir em vez de ser remendada caso a caso.
+
+Vale registrar também como o defeito quase passou: a execução anterior imprimia
+todos os `ok` e morria depois, no `finally` da limpeza, por uma FK que o teste
+novo passou a violar. O resumo nunca saía — e ler só o fim da saída teria
+mostrado sucesso. **O código de saída é que contava a verdade.**
+
+### 48.7 Cobertura
+
+12 asserções novas em `TestesDeIngestao` (36 na suíte).
+Total: **1176 Java** (1172 sem a massa), **129 SQL**.
