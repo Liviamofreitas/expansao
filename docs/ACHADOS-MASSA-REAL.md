@@ -2660,3 +2660,80 @@ errado. Corrigido limpando a mesa nos dois que precisam dela.
 34 asserções em `TestesDeAgendador` (5 sem banco, sobre o registro de jobs) e 9
 no `T011__execucao_de_job.sql`. Total: **1140 Java** (1136 sem a massa),
 **129 SQL**.
+
+## 47. O terceiro destino, que não existia
+
+O `Pipeline` respondia *o que o documento é* e parava antes de gravar — a
+separação que permite medir a precisão de classificação sem banco (§ 42). O
+`GravadorDoPipeline` é a outra metade: responde *a que obrigação ele serve*, e
+só aí há ciclo para comparar.
+
+### 47.1 Um documento que o sistema reconhece e não sabe onde pôr
+
+Escrevendo o encaminhamento, apareceu um caso que o cap. 8.3 não nomeia. Um
+documento classificado **com confiança** pode não ter exigência a que servir:
+
+- o tipo não é exigido neste ciclo — a matriz está incompleta, ou a área mandou
+  documento a mais;
+- é de escopo PROFISSIONAL e há 42 exigências do mesmo tipo, sem nada no
+  documento que diga de quem é o contracheque.
+
+Ele não é desconhecido — o sistema sabe exatamente o que ele é — e não é
+candidato de exigência nenhuma. **Sem um lugar, ele cairia em vista nenhuma:**
+o painel de desconhecidos filtra `tipo_id IS NULL` e ele tem tipo; a fila de
+triagem lista candidaturas e ele não tem uma. Chegou, foi processado, foi
+classificado, e ninguém ficaria sabendo.
+
+É o defeito do agendador morto (§ 46) em menor escala: uma ausência que não
+produz sintoma. `ConsultaDoPainel.classificadosSemExigencia` o torna visível, e
+**separa as duas causas porque a ação é diferente** — tipo não exigido é do
+curador da matriz; várias exigências do mesmo tipo é da triagem. Quebra
+deliberada tirando o filtro que separa quem virou candidatura: **1 asserção
+cai**; quebra fazendo o gravador escolher a primeira exigência quando há zero ou
+várias: **3 caem e 4 nem rodam**.
+
+### 47.2 O infectado não entra na tabela dos documentos que valem
+
+Um arquivo reprovado em V1 não vira linha em `documento`. Criar uma o poria na
+mesma tabela dos documentos legítimos, e a partir daí **toda consulta precisaria
+lembrar de excluí-lo** — uma obrigação que alguém esquece na primeira consulta
+nova. O registro dele é o achado de organização, que é onde a varredura já põe o
+que encontrou e não ingeriu. Quebra gravando o barrado: **3 asserções caem**.
+
+### 47.3 Um arquivo que falha não derruba o lote, e a contagem não o esconde
+
+Uma varredura de trezentos documentos que morre no primeiro PDF corrompido
+entrega zero. O laço trata cada arquivo isolado, e o `Lote` carrega **quantos
+falharam** ao lado de quantos entraram, com o nome de cada um: *"12 falharam"*
+manda alguém procurar; *"12 falharam, e são estes"* manda alguém resolver.
+
+`processados()` conta só o que entrou. Somar as falhas faria uma varredura que
+perdeu metade dos arquivos reportar o mesmo número de uma que não perdeu nenhum
+— e é esse número que vai ao `Agendador`. Quebra somando: **1 asserção cai**.
+Quebra abortando no primeiro erro: **1 cai e 3 nem rodam**.
+
+E um lote vazio é **completo com zero processados**: rodar e não achar nada é um
+desfecho, não uma ausência. É a mesma regra da V018, agora do lado de dentro.
+
+### 47.4 Dois testes meus que não testavam
+
+Os mesmos dois defeitos de sempre, encontrados na primeira execução:
+
+- Uma asserção "nada foi gravado" usava um caminho que **um teste anterior já
+  tinha gravado** com a mesma marca. Falhava por ordem de execução, não por
+  defeito — e um teste que afirma sobre estado que não controla manda procurar
+  no lugar errado.
+- O fixture do "arquivo quebrado" usava um `DocumentoProcessado` sem
+  classificação — que o pipeline trata como **barrado** e o gravador devolve
+  cedo, sem erro nenhum. Ele contava como processado, e o teste do lote não
+  media nada. Para falhar de verdade, o documento precisa *chegar* à gravação:
+  tipo reconhecido e hash que o `Documento` recusa.
+
+O segundo é o terceiro caso nesta base de um teste estruturalmente incapaz de
+ver o que dizia verificar (os outros: § 33.2 e § 45.3). Nos três, quem achou foi
+a quebra deliberada — não a leitura do teste.
+
+### 47.5 Cobertura
+
+24 asserções em `TestesDeIngestao`. Total: **1164 Java** (1160 sem a massa),
+**129 SQL**.

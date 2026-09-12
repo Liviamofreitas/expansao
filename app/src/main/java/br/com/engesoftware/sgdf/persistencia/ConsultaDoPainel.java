@@ -114,6 +114,68 @@ public final class ConsultaDoPainel {
     }
 
     /**
+     * Documentos classificados que não viraram candidatura — o terceiro destino.
+     *
+     * <p><b>Sem esta consulta eles não apareceriam em lugar nenhum.</b> O painel
+     * de desconhecidos filtra {@code tipo_id IS NULL} e estes têm tipo; a fila
+     * de triagem lista candidaturas e estes não têm uma. O sistema sabe o que o
+     * documento é, sabe que ele chegou, e ninguém ficaria sabendo.
+     *
+     * <p>Duas causas diferentes caem aqui, e a consulta as separa porque a ação
+     * é diferente:
+     *
+     * <ul>
+     *   <li><b>Tipo não exigido neste ciclo</b> — ou a matriz está incompleta,
+     *       ou a área mandou documento a mais. Quem resolve é o curador.</li>
+     *   <li><b>Várias exigências do mesmo tipo</b> — escopo PROFISSIONAL: há 42
+     *       contracheques exigidos e nada no documento diz de quem ele é. Quem
+     *       resolve é a triagem, ou a extração do identificador.</li>
+     * </ul>
+     */
+    public List<ClassificadoSemExigencia> classificadosSemExigencia(UUID cicloId, int limite) {
+        String sql = """
+                SELECT d.id, d.nome_arquivo, t.codigo, d.confianca,
+                       (SELECT count(*) FROM exigencia e
+                        WHERE e.ciclo_id = ? AND e.tipo_id = d.tipo_id)
+                FROM   documento d
+                JOIN   tipo_documental t ON t.id = d.tipo_id
+                WHERE  d.tipo_id IS NOT NULL
+                  AND  NOT EXISTS (SELECT 1 FROM candidatura k WHERE k.documento_id = d.id)
+                  AND  NOT EXISTS (SELECT 1 FROM vinculo_exigencia_documento v
+                                   WHERE v.documento_id = d.id)
+                ORDER  BY d.criado_em DESC
+                LIMIT  ?
+                """;
+        try (PreparedStatement ps = sgdf.conexao().prepareStatement(sql)) {
+            ps.setObject(1, cicloId);
+            ps.setInt(2, Math.max(1, limite));
+            try (ResultSet rs = ps.executeQuery()) {
+                List<ClassificadoSemExigencia> linhas = new ArrayList<>();
+                while (rs.next()) {
+                    int exigencias = rs.getInt(5);
+                    linhas.add(new ClassificadoSemExigencia(rs.getObject(1, UUID.class),
+                            rs.getString(2), rs.getString(3), rs.getBigDecimal(4), exigencias,
+                            exigencias == 0
+                                    ? "o tipo não é exigido neste ciclo: ou a matriz está "
+                                            + "incompleta, ou chegou documento a mais"
+                                    : "há " + exigencias + " exigências deste tipo e nada no "
+                                            + "documento diz a qual delas ele pertence"));
+                }
+                return linhas;
+            }
+        } catch (SQLException e) {
+            throw new Sgdf.FalhaDePersistencia(
+                    "falha ao ler os classificados sem exigência", e);
+        }
+    }
+
+    /** @param exigenciasDoTipo zero = não exigido; mais de uma = ambíguo */
+    public record ClassificadoSemExigencia(UUID documentoId, String nomeArquivo, String tipo,
+                                           java.math.BigDecimal confianca,
+                                           int exigenciasDoTipo, String motivo) {
+    }
+
+    /**
      * Completude por tipo — história F2-03, cap. 12.
      *
      * <p>Critério de aceite: <i>"«faltam 3 contracheques de 42» calculado e
