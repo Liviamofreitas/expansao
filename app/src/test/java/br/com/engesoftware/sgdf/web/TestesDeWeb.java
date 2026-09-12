@@ -469,7 +469,8 @@ public final class TestesDeWeb {
         return new IndicadorController(atores(ator),
                 new br.com.engesoftware.sgdf.persistencia.ConsultaDeIndicadores(sgdf),
                 new br.com.engesoftware.sgdf.persistencia.ConsultaDeAuditoria(sgdf),
-                new br.com.engesoftware.sgdf.persistencia.ConsultaDeRecertificacao(sgdf));
+                new br.com.engesoftware.sgdf.persistencia.ConsultaDeRecertificacao(sgdf),
+                new br.com.engesoftware.sgdf.persistencia.Agendador(sgdf, "teste"));
     }
 
     static CicloController cicloControlador(Ator ator, ConexaoDeMentira banco) {

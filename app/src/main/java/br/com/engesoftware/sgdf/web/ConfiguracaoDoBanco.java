@@ -1,5 +1,6 @@
 package br.com.engesoftware.sgdf.web;
 
+import br.com.engesoftware.sgdf.persistencia.Agendador;
 import br.com.engesoftware.sgdf.persistencia.ConsultaDeAuditoria;
 import br.com.engesoftware.sgdf.persistencia.ConsultaDeIndicadores;
 import br.com.engesoftware.sgdf.persistencia.ConsultaDeRecertificacao;
@@ -107,5 +108,21 @@ public class ConfiguracaoDoBanco {
     @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
     RegistroDeAcesso registroDeAcesso(Sgdf sgdf) {
         return new RegistroDeAcesso(sgdf);
+    }
+
+    /**
+     * O nome da instância vem do ambiente.
+     *
+     * <p>Com duas réplicas, é o que permite ver qual delas parou. Ausente, cai
+     * para o hostname — que é melhor que uma constante igual nas duas.
+     */
+    @Bean
+    @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
+    Agendador agendador(Sgdf sgdf) {
+        String instancia = System.getenv("SGDF_INSTANCIA");
+        if (instancia == null || instancia.isBlank()) {
+            instancia = System.getenv().getOrDefault("HOSTNAME", "desconhecida");
+        }
+        return new Agendador(sgdf, instancia);
     }
 }

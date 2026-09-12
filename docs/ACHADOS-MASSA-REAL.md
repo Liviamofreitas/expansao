@@ -2550,3 +2550,113 @@ inteira. Quebra movendo-a: **3 asserções caem**.
 33 asserções em `TestesDeRecertificacao` (6 sem banco, sobre o que vira
 apontamento) e 7 no `T010__acesso_observado.sql`.
 Total: **1106 Java** (1102 sem a massa), **120 SQL**.
+
+## 46. RA-07 — um componente cuja falha se parece com sucesso
+
+A abertura de ciclo, a varredura, a conciliação e a régua existem, são
+idempotentes e têm teste. **Nenhum agendador as chama.** Esta parte não liga
+nada: ela constrói o que torna possível saber *se* ligou — e ligar continua
+gated na F3-01, porque pôr o sistema a cobrar áreas antes de a divergência estar
+medida é o risco P01 do cap. 22.
+
+### 46.1 O modo de falha que o registro existe para impedir
+
+Um agendador morto é silencioso. Sem registro de execução, *"a varredura rodou e
+não achou arquivo novo"* e *"a varredura não rodou"* produzem exatamente o mesmo
+estado observável: nenhum documento novo, nenhuma pendência nova, nenhum erro. O
+painel fica verde, os indicadores do cap. 21 ficam bonitos, e ficam assim
+**justamente porque nada aconteceu**.
+
+É a terceira aparição do mesmo padrão nesta base:
+
+| Onde | "Nada" se parecia com "tudo certo" |
+|---|---|
+| F0-05 (§ 33.2) | Um teste passava sob quebra deliberada porque "nada mudou" também acontece quando nada é encontrado |
+| Completude na 1ª conferência (§ 43.4) | Daria 100% porque a régua que escalona não roda |
+| **Agendador** | Ausência de documento novo é indistinguível de ausência de varredura |
+
+Num sistema cujo trabalho é notar o que falta, um componente cuja falha se
+parece com sucesso é o pior defeito possível. `execucao_de_job` grava uma linha
+por **tentativa**, inclusive pela que não fez nada: `itens = 0` com SUCESSO é
+informação, e é diferente de linha nenhuma.
+
+Quebra deliberada deixando de registrar o job que achou zero: **6 asserções
+caem**.
+
+### 46.2 O alerta de silêncio, e por que ele mora no painel
+
+`silenciosos()` compara o que se esperava com o que aconteceu. É o **único**
+sintoma de um agendador morto que não se parece com saúde.
+
+E ele precisa listar o job **nunca executado**, não só o atrasado: um sistema
+recém-implantado em que ninguém ligou o cron tem exatamente zero linhas, e uma
+consulta que olhasse só a última execução não acharia nada para reclamar. Quebra
+ignorando o nunca-executado: **1 asserção cai**.
+
+O endpoint fica no painel, com `VER_PAINEL`, e não num alerta restrito — pela
+razão do próprio defeito: se o aviso de uma ausência morar num canto que ninguém
+abre, **ele herda o silêncio que veio denunciar**, e a organização passa a ter
+dois componentes calados em vez de um.
+
+**Silêncio e travado são sintomas diferentes.** Silêncio é ninguém começou;
+travado é alguém começou e não terminou — e é a linha aberta que explica um
+CONCORRENTE que se repete. A `instancia` diz qual réplica parou.
+
+### 46.3 Lock consultivo, e a escolha é pelo modo de falha
+
+Uma tabela de lock com *lease* exige escolher um tempo de expiração, e **os dois
+lados dessa escolha são ruins**:
+
+- curto demais: um job lento perde o lock **enquanto ainda roda**, produzindo
+  exatamente a execução dupla que o lock existia para impedir;
+- longo demais: uma instância que morreu bloqueia o job pelo resto do lease.
+
+O lock consultivo do PostgreSQL é preso à **sessão**: se a JVM morre, a conexão
+cai e o banco o libera na hora. Sem tempo para calibrar, sem relógio para
+sincronizar. Verificado com uma conexão de verdade que é aberta, toma o lock,
+e é fechada — a seguinte entra.
+
+A chave é `8_030_000 + ordinal`, e **não** `String.hashCode()`: ele é de 32 bits
+e colide com facilidade, e duas chaves iguais fariam dois jobs disputarem o
+mesmo lock. Um deles nunca rodaria, e o sintoma seria CONCORRENTE eterno num job
+que ninguém mais executa — **um silêncio que o alerta de silêncio não pegaria**,
+porque haveria linhas. Quebra colidindo as chaves: **1 asserção cai**.
+
+### 46.4 O cap. 7.2 virou estrutura, não lembrança
+
+*"Executada quando a folha estruturada da competência chega. **Nunca por
+calendário.**"* Deixar a derivação de eventos fora do enum faria a regra
+sobreviver só na cabeça de quem leu o capítulo. Ela está **dentro**, marcada
+`Disparo.EVENTO`, e o `Agendador` a recusa em tempo de execução.
+
+A razão não é estilo: derivar eventos por calendário materializaria exigências
+de férias, 13º e rescisão para uma competência cuja folha ainda não chegou —
+cobrando as áreas por eventos que talvez não tenham acontecido, e contaminando a
+completude com denominador inventado. Quebra tornando-a agendável: **5 asserções
+caem**.
+
+Consequência coerente: ela também não tem cadência esperada, e por isso não
+entra no alerta de silêncio. Um alerta sobre ela dispararia todo mês em que não
+houve folha nova — que é a maioria.
+
+### 46.5 A falha é repassada, e a linha é fechada
+
+Engolir a exceção faria o job parecer nunca ter acontecido; não fechar a linha
+faria o alerta de travado apontar para sempre uma execução que já morreu. As
+duas coisas ao mesmo tempo: fecha como FALHA com o motivo, e repassa. O lock é
+liberado no `finally`, e o teste confirma que o próximo roda. Quebra engolindo a
+falha: **1 asserção cai**.
+
+### 46.6 Um teste que dependia de quem rodou antes
+
+Duas asserções falharam na primeira execução da suíte, e não por defeito do
+código: elas afirmavam sobre contagens globais de `execucao_de_job` que os
+testes anteriores já tinham populado. Um teste acoplado à ordem de execução
+afirma sobre um estado que não controla, e quando quebra manda procurar no lugar
+errado. Corrigido limpando a mesa nos dois que precisam dela.
+
+### 46.7 Cobertura
+
+34 asserções em `TestesDeAgendador` (5 sem banco, sobre o registro de jobs) e 9
+no `T011__execucao_de_job.sql`. Total: **1140 Java** (1136 sem a massa),
+**129 SQL**.

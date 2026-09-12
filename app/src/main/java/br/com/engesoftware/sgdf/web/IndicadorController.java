@@ -3,6 +3,7 @@ package br.com.engesoftware.sgdf.web;
 import br.com.engesoftware.sgdf.indicadores.Indicador;
 import br.com.engesoftware.sgdf.persistencia.ConsultaDeAuditoria;
 import br.com.engesoftware.sgdf.persistencia.ConsultaDeIndicadores;
+import br.com.engesoftware.sgdf.persistencia.Agendador;
 import br.com.engesoftware.sgdf.persistencia.ConsultaDeRecertificacao;
 import br.com.engesoftware.sgdf.seguranca.Ator;
 import br.com.engesoftware.sgdf.seguranca.Autorizador;
@@ -38,14 +39,16 @@ public class IndicadorController {
     private final ConsultaDeIndicadores indicadores;
     private final ConsultaDeAuditoria auditoria;
     private final ConsultaDeRecertificacao recertificacao;
+    private final Agendador agendador;
 
     public IndicadorController(AtorDaRequisicao atores, ConsultaDeIndicadores indicadores,
                                ConsultaDeAuditoria auditoria,
-                               ConsultaDeRecertificacao recertificacao) {
+                               ConsultaDeRecertificacao recertificacao, Agendador agendador) {
         this.atores = atores;
         this.indicadores = indicadores;
         this.auditoria = auditoria;
         this.recertificacao = recertificacao;
+        this.agendador = agendador;
     }
 
     /** Os nove do capítulo, com população e situação. */
@@ -54,6 +57,38 @@ public class IndicadorController {
         exigirVisaoGlobal(Permissao.VER_PAINEL);
         return indicadores.daCompetencia(competencia).stream()
                 .map(IndicadorController::comoMapa).toList();
+    }
+
+    /**
+     * Saúde dos jobs — pendência RA-07.
+     *
+     * <p><b>Fica no painel e não num alerta escondido, e a razão é o próprio
+     * defeito que ele detecta.</b> Um agendador morto não produz erro: produz
+     * ausência. Se o aviso dessa ausência morar num canto que ninguém abre, o
+     * aviso herda o silêncio que veio denunciar — e a organização passa a ter
+     * dois componentes calados em vez de um.
+     *
+     * <p>Exige apenas ver o painel: saber que a varredura parou não é
+     * informação privilegiada, e restringi-la faria a pessoa que percebe o
+     * sintoma — "não chegou documento nenhum hoje" — não poder confirmar a
+     * causa.
+     */
+    @GetMapping("/jobs/saude")
+    public Map<String, Object> saudeDosJobs() {
+        exigir(Permissao.VER_PAINEL);
+        java.time.OffsetDateTime agora = java.time.OffsetDateTime.now();
+        List<Agendador.Silencio> silenciosos = agendador.silenciosos(agora);
+        List<Agendador.Travado> travados = agendador.travados(agora);
+        return Map.of(
+                "silenciosos", silenciosos.stream().map(s -> Map.of(
+                        "job", s.job().name(),
+                        "nunca_executou", s.nuncaExecutou(),
+                        "motivo", s.motivo())).toList(),
+                "travados", travados.stream().map(t -> Map.of(
+                        "job", t.job(),
+                        "aberta_ha_horas", t.aberta().toHours(),
+                        "instancia", t.instancia())).toList(),
+                "saudavel", silenciosos.isEmpty() && travados.isEmpty());
     }
 
     /** O detalhamento que o capítulo pede em dois indicadores. */
