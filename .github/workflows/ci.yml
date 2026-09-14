@@ -16,6 +16,33 @@ permissions:
   contents: read
   security-events: write   # para publicar o SARIF do SCA
 
+# QUATRO EXECUÇÕES DO MESMO RAMO DISPUTANDO O MESMO CACHE.
+#
+# Sem chave da NVD o job de SCA leva ~2h10. Cinco commits seguidos nesta tarde
+# deixaram as execuções 16, 17, 18 e 19 rodando AO MESMO TEMPO, todas baixando a
+# base da NVD do zero, todas tentando gravar a mesma chave de cache — e o log da
+# 19 registrou o resultado: "Failed to save: Unable to reserve cache with key
+# ..., another job may be creating this cache".
+#
+# É desperdício que se multiplica sozinho: quanto mais lento o job, maior a
+# chance de o próximo commit chegar antes do fim, e mais corridas simultâneas
+# competem pelo cache que existe justamente para torná-las rápidas. Nenhuma das
+# quatro chegaria a um veredito antes de a seguinte tornar o commit obsoleto.
+#
+# `cancel-in-progress: true` sem exceção por ramo, DE PROPÓSITO. A exceção usual
+# ("em `main` a execução é evidência de conformidade") não se aplica aqui: este
+# ramo É o ramo padrão deste repositório, e a evidência que vale é a do commit
+# que fica — não a de um commit superado noventa segundos depois. O registro
+# também não some: a execução cancelada continua no histórico, marcada como
+# cancelada.
+#
+# QUANDO HOUVER RAMO DE RELEASE OU TAG, ISTO PRECISA SER REVISTO: aí a execução
+# do artefato publicado passa a ser evidência de auditoria e não pode ser
+# cancelada por um push posterior.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   testes:
     name: Compilar e testar
