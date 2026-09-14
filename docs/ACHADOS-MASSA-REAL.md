@@ -4053,3 +4053,54 @@ uma supressão **datada, justificada e revisada**, nunca baixar o
 `failBuildOnCVSS`.
 
 Registrado antes de a resposta chegar, para não virar conclusão retroativa.
+
+### 60.9 Consertar o cache criou um defeito pior — e ele se propagaria
+
+A execução seguinte ao conserto do cache falhou em 5 minutos, não em 2h10:
+
+```
+NvdApiException: NVD Returned Status Code: 524
+NoDataException: No documents exist
+...
+Cache saved with key: nvd-34903829526     ← 2 MB
+```
+
+**HTTP 524** é timeout do lado da NVD. O download morreu no meio, a base ficou
+vazia — e o meu `if: always()` **gravou a base vazia no cache**. A execução
+seguinte restauraria o lixo e falharia igual, agora sem nem tentar baixar.
+
+O `if: always()` estava certo na intenção (guardar a base mesmo quando o gate
+reprova) e errado na condição: ele não distinguia *"o gate reprovou, a base
+está boa"* de *"o scanner morreu, a base está quebrada"*.
+
+**O sinal observável que separa os dois é o relatório existir.** Ele só é
+escrito quando a análise roda até o fim, e a análise só roda até o fim com base
+válida. `hashFiles('...sarif') != ''` é a condição correta.
+
+E o cache já envenenado não se apaga daqui — falta permissão de escrita em
+Actions. Trocar o prefixo (`nvd-` → `nvd2-`) o abandona de vez; as entradas
+velhas expiram por desuso.
+
+### 60.10 Ausência de veredito não é aprovação — nem é reprovação
+
+As duas falhas pintavam o mesmo vermelho, e quem lê *"SCA de dependências ❌"*
+conclui *"há CVE alta"*. Pode ser isso — ou pode ser que o scanner não tenha
+conseguido montar a base, que é **ausência de resposta**, não uma resposta ruim.
+
+As duas barram o release, e é certo que barrem: publicar sem saber é pior que
+publicar sabendo. **Mas mandam procurar em lugares opostos** — uma pede subir
+versão de dependência, a outra pede cadastrar uma chave de API.
+
+O passo `Veredito` separa os três desfechos, e os três foram exercitados antes
+de empurrar:
+
+| `dc.outcome` | Relatório | Saída |
+|---|---|---|
+| success | existe | `exit 0` — nenhuma CVE ≥ 7,0 |
+| failure | existe | `exit 1` — **SCA REPROVOU**, suba a dependência |
+| failure | não existe | `exit 1` — **O SCA NÃO RODOU**, não é veredito |
+
+É a mesma distinção que o `Agendador` faz entre *"rodou e não achou"* e *"não
+rodou"* (§46), e que o expurgo faz entre *"nada venceu"* e *"ninguém aprovou"*
+(§52.5). Terceiro lugar desta base onde a ausência precisou de nome próprio
+para não ser lida como resultado.

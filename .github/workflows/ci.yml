@@ -96,8 +96,15 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository/org/owasp/dependency-check-data
-          key: nvd-${{ github.run_id }}
-          restore-keys: nvd-
+          # PREFIXO NOVO PARA ABANDONAR O CACHE ENVENENADO.
+          #
+          # A execução 15 gravou 2 MB de base quebrada sob `nvd-...`, e
+          # `restore-keys: nvd-` casaria com ela para sempre. Não há como apagar
+          # um cache daqui sem permissão de escrita em Actions; trocar o prefixo
+          # o abandona de vez e custa uma reconstrução. As entradas velhas
+          # expiram sozinhas por desuso.
+          key: nvd2-${{ github.run_id }}
+          restore-keys: nvd2-
 
       # failBuildOnCVSS=7 está no perfil: CRÍTICA e ALTA barram o release.
       # SEM CHAVE DA NVD, ESTE JOB LEVA HORAS — E ISSO PRECISA SER DITO.
@@ -112,6 +119,10 @@ jobs:
       # esconderia o resultado do SCA, que é o que o job existe para produzir.
       # A chave é gratuita em https://nvd.nist.gov/developers/request-an-api-key
       - name: OWASP Dependency-Check
+        id: dc
+        # NÃO derruba o job aqui. O passo "Veredito", no fim, decide — e a
+        # decisão depende de DISTINGUIR duas falhas que hoje eram a mesma cor.
+        continue-on-error: true
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
@@ -124,19 +135,57 @@ jobs:
           fi
           cd app && mvn -B -Psca verify -DskipTests
 
+      # SÓ GUARDA A BASE SE ELA PRESTA — e o relatório é a prova disso.
+      #
+      # A primeira versão deste passo era `if: always()`, e isso estava errado
+      # por um motivo que só apareceu rodando: quando a NVD devolveu HTTP 524 o
+      # download morreu no meio, a base ficou vazia ("NoDataException: No
+      # documents exist") — e o save guardou 2 MB de base quebrada no cache.
+      # A execução seguinte restauraria o lixo.
+      #
+      # O relatório existir é equivalente a a análise ter rodado até o fim, e a
+      # análise só roda até o fim com base válida. É o sinal observável que
+      # separa "o gate reprovou" de "o scanner não conseguiu rodar".
       - name: Guardar a base da NVD
-        if: always()
+        if: always() && hashFiles('app/target/dependency-check-report.sarif') != ''
         uses: actions/cache/save@v4
         with:
           path: ~/.m2/repository/org/owasp/dependency-check-data
-          key: nvd-${{ github.run_id }}
+          key: nvd2-${{ github.run_id }}
 
       - name: Publicar achados
-        if: always()
+        if: always() && hashFiles('app/target/dependency-check-report.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: app/target/dependency-check-report.sarif
         continue-on-error: true
+
+      # AUSÊNCIA DE VEREDITO NÃO É APROVAÇÃO — E NÃO É A MESMA COISA QUE REPROVA.
+      #
+      # As duas falhavam vermelho igual, e quem lê "SCA de dependências ❌"
+      # conclui "há CVE alta". Pode ser isso, ou pode ser que o scanner não
+      # tenha conseguido montar a base — que é ausência de resposta, não uma
+      # resposta ruim. As duas barram o release, e é certo que barrem: publicar
+      # sem saber é pior que publicar sabendo. Mas mandam procurar em lugares
+      # opostos, e o log tem de dizer qual das duas foi.
+      - name: Veredito
+        if: always()
+        run: |
+          if [ "${{ steps.dc.outcome }}" = "success" ]; then
+            echo "SCA: nenhuma dependência com CVE >= 7,0."
+            exit 0
+          fi
+          if [ -f app/target/dependency-check-report.sarif ]; then
+            echo "::error title=SCA REPROVOU::Há dependência com CVE de CVSS >= 7,0. \
+          A lista está no log acima e os achados na aba Security. Isto É um \
+          veredito: suba a versão da dependência."
+            exit 1
+          fi
+          echo "::error title=O SCA NAO RODOU::O scanner não conseguiu montar a base \
+          da NVD (ex.: HTTP 524, ou limite de requisição por falta de NVD_API_KEY). \
+          ISTO NAO E UM VEREDITO SOBRE AS DEPENDENCIAS — e ausencia de veredito nao \
+          e aprovacao. Cadastre o segredo NVD_API_KEY e rode de novo."
+          exit 1
 
   imagem:
     name: Construir e escanear a imagem (SEC-07)
