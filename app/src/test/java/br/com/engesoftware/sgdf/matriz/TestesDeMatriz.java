@@ -25,7 +25,7 @@ import java.util.UUID;
  *
  * <p><b>Estes testes nao inventam casos: eles LEEM as suites normativas</b> de
  * {@code especificacao/prazo/casos.json} (32 casos) e
- * {@code especificacao/materializacao/casos.json} (18 casos), as mesmas que a
+ * {@code especificacao/materializacao/casos.json} (19 casos), as mesmas que a
  * implementacao de referencia em Python responde. O cabecalho das suites diz o
  * que isso significa: <i>"divergencia e defeito da implementacao, nao da suite —
  * corrigir a suite exige decisao da area demandante"</i>.
@@ -46,6 +46,8 @@ public final class TestesDeMatriz {
         executar("prazoCorporativoEOMenor", TestesDeMatriz::prazoCorporativoEOMenor);
         executar("vigenciaEComparadaContraOMes", TestesDeMatriz::vigenciaEComparadaContraOMes);
         executar("alocacaoDeUmDiaConta", TestesDeMatriz::alocacaoDeUmDiaConta);
+        executar("aRecusaPorAmbiguidadeNomeiaADivergencia",
+                TestesDeMatriz::aRecusaPorAmbiguidadeNomeiaADivergencia);
 
         String url = System.getProperty("sgdf.jdbc");
         if (url == null || url.isBlank()) {
@@ -175,8 +177,8 @@ public final class TestesDeMatriz {
                     ? abertura.exigencias().size() + " exigência(s)" : divergencia),
                     divergencia == null);
         }
-        ok("F0-07 . a suite normativa da materializacao tem 18 casos e todos rodaram",
-                total == 18);
+        ok("F0-07 . a suite normativa da materializacao tem 19 casos e todos rodaram",
+                total == 19);
     }
 
     /** Compara so os campos que o caso declara — o resto e livre, como em verificar.py. */
@@ -280,6 +282,60 @@ public final class TestesDeMatriz {
      * contracheque e encargos — nao exigir deixaria passar exatamente o caso que
      * a responsabilidade subsidiaria alcanca.
      */
+    /**
+     * A recusa por ambiguidade tem de ser ACIONAVEL — A13.
+     *
+     * <p>"Duas regras para X" manda a curadoria abrir o Anexo 1 e comparar 176
+     * linhas. "Divergem no prazo: INICIO_COMPETENCIA +1 UTIL e
+     * INICIO_COMPETENCIA +10 UTIL" e uma pergunta que alguem consegue responder
+     * numa reuniao.
+     *
+     * <p>A diferenca nao e cosmetica. Medido contra a carga real: os 17 pares
+     * que a A13 registrava viraram, depois de separar duplicata de divergencia,
+     * UMA pergunta — 1o ou 10o dia util para o comprovante de pagamento da
+     * rescisao — feita a dois clientes. Sem a mensagem, isso continuaria
+     * parecendo dezessete decisoes.
+     */
+    static void aRecusaPorAmbiguidadeNomeiaADivergencia() {
+        Prazo.Cadastrado um = new Prazo.Cadastrado("INICIO_COMPETENCIA", "UTIL", 1);
+        Prazo.Cadastrado dez = new Prazo.Cadastrado("INICIO_COMPETENCIA", "UTIL", 10);
+        Regra a = new Regra("RES.COMPROVANTE_PG", "RESCISAO", "CONTRATO", "CT-1",
+                "OBRIGATORIO", "BLOQUEANTE", um, "FINANCEIRO",
+                java.time.LocalDate.of(2025, 1, 1), null);
+        Regra b = new Regra("RES.COMPROVANTE_PG", "RESCISAO", "CONTRATO", "CT-1",
+                "OBRIGATORIO", "BLOQUEANTE", dez, "FINANCEIRO",
+                java.time.LocalDate.of(2025, 1, 1), null);
+
+        String erro = null;
+        try {
+            Resolvedor.resolverConflitos(java.util.List.of(a, b), "CT-1");
+        } catch (AberturaInvalida e) {
+            erro = e.getMessage();
+        }
+        ok("A13 . duas regras que divergem continuam sendo recusadas", erro != null);
+        ok("A13 . e a recusa nomeia o CAMPO que diverge", erro.contains("prazo"));
+        ok("A13 . e os DOIS valores, que e o que torna a pergunta respondivel",
+                erro.contains("+1 UTIL") && erro.contains("+10 UTIL"));
+
+        // A OUTRA METADE: identicas nao sao ambiguidade, e o resultado e UMA.
+        ok("A13 . duas regras identicas colapsam numa so, sem recusa",
+                Resolvedor.resolverConflitos(java.util.List.of(a, a), "CT-1").size() == 1);
+
+        // E a divergencia de criticidade tambem e nomeada — nao so o prazo.
+        Regra c = new Regra("RES.COMPROVANTE_PG", "RESCISAO", "CONTRATO", "CT-1",
+                "OBRIGATORIO", "NAO_BLOQUEANTE", um, "FINANCEIRO",
+                java.time.LocalDate.of(2025, 1, 1), null);
+        String outro = null;
+        try {
+            Resolvedor.resolverConflitos(java.util.List.of(a, c), "CT-1");
+        } catch (AberturaInvalida e) {
+            outro = e.getMessage();
+        }
+        ok("A13 . divergencia de criticidade tambem e nomeada, com os dois valores",
+                outro != null && outro.contains("criticidade")
+                        && outro.contains("BLOQUEANTE") && outro.contains("NAO_BLOQUEANTE"));
+    }
+
     static void alocacaoDeUmDiaConta() {
         LocalDate ini = LocalDate.of(2026, 4, 1);
         LocalDate fim = LocalDate.of(2026, 4, 30);

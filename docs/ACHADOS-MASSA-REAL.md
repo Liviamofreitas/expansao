@@ -3745,3 +3745,87 @@ seguidas passam.
 | O alias desligado passa a contar como incompletude | o caso explode com `FalhaParcial` num lote perfeito |
 
 Total: **1314 Java**, **164 SQL**.
+
+---
+
+## 58. A13 — 12 dos 17 "conflitos" eram a mesma regra escrita duas vezes
+
+A pendência A13 estava registrada como *"17 pares (contrato, tipo, evento) com
+duas regras de alvo CONTRATO — decisão de cadastro: qual das duas vale em cada
+par"*. Bloqueava a Onda 1 inteira.
+
+Ao investigar para o parecer de go-live, os 17 pares foram comparados **campo a
+campo**, e não pela contagem:
+
+| | Pares | O que é de fato |
+|---|---|---|
+| Idênticas em tudo que a resolução lê | **12** | Duplicata de carga |
+| Divergentes | **5** | Conflito real |
+
+E os 5 divergentes são **a mesma pergunta**, feita a dois clientes: o comprovante
+de pagamento da rescisão vence no **1º** ou no **10º dia útil**? Todo o resto é
+igual — `OBRIGATORIO`, `BLOQUEANTE`, `INICIO_COMPETENCIA`, `UTIL`, `FINANCEIRO`.
+
+**A A13 deixou de ser 17 decisões de curadoria e passou a ser 1 pergunta.**
+
+### 58.1 Duas regras idênticas não são duas respostas
+
+São a mesma resposta escrita duas vezes. Materializar por qualquer uma produz a
+**mesma** exigência, com o mesmo prazo, a mesma criticidade e o mesmo
+responsável — e a unicidade `exigencia_unica` rejeitaria a segunda de qualquer
+forma.
+
+Recusar a abertura por causa disso transformava um **defeito de carga** — que é
+deduplicação, trabalho de dez minutos — numa **decisão de curadoria sem nada a
+decidir**, e bloqueava 6 contratos-serviço.
+
+### 58.2 A recusa passou a ser acionável
+
+Antes: *"duas regras de alvo CONTRATO para RES.COMPROVANTE_PG|RESCISAO"*. Isso
+manda a curadoria abrir o Anexo 1 e comparar 176 linhas.
+
+Agora: *"...e elas DIVERGEM em: prazo (INICIO_COMPETENCIA +1 UTIL e
+INICIO_COMPETENCIA +10 UTIL)"*. Isso é uma pergunta que alguém responde numa
+reunião.
+
+A diferença não é cosmética: é ela que transforma "dezessete pendências" em "uma
+pergunta". **Uma recusa que não diz o que fazer a seguir custa tanto quanto o
+defeito que ela evitou.**
+
+### 58.3 A norma foi estendida, nos dois lados
+
+`MAT-04` cobre regras que **divergem** — a sua própria descrição diz *"escolheria
+uma em silêncio esconderia erro de cadastro que muda o prazo"*. O caso de regras
+**idênticas** ela não cobria.
+
+Acrescentado `MAT-16` a `casos.json`, e `referencia.py` atualizada junto: a
+especificação é a fonte da verdade e o Java é porte verificado contra ela.
+Deixar só o Java mudar criaria exatamente as duas verdades que a §54 acabou de
+custar caro. **19/19 na referência Python, 19/19 no porte Java.**
+
+E o guarda que conta os casos (`total == 18`) falhou na hora — que é a razão de
+ele existir: uma suíte normativa que cresce sem ninguém notar é uma suíte em que
+alguém pode remover um caso.
+
+### 58.4 A quebra que passou, de novo
+
+Remover `divergencia(...)` da mensagem **não derrubava asserção nenhuma**: os
+casos normativos verificam o *código* do erro, não o texto. A qualidade da
+mensagem — o que separa "17 pendências" de "1 pergunta" — não estava medida.
+
+Coberto com quatro asserções diretas sobre a mensagem. Refeita a quebra, três
+caem.
+
+### 58.5 O ensaio como evidência
+
+O parecer de go-live (`GO-LIVE-2026-09-15.md`) não cita as pendências: **roda a
+abertura de ciclos da competência real e reporta o que aconteceu.** Zero de doze
+contratos, com as 12 falhas nomeadas uma a uma.
+
+É uma diferença de natureza. O documento de pendências diz o que alguém anotou;
+o ensaio diz o que o sistema faz. Os dois discordavam — o primeiro dizia "17
+decisões de curadoria", o segundo revelou "1 pergunta e uma deduplicação" — e
+**quem estava errado era o documento**.
+
+Total: **1320 Java**, **164 SQL**, **19 casos normativos de materialização**,
+**32 de prazo**.

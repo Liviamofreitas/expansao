@@ -1,7 +1,14 @@
 # Plano de implantação — SGDF
 
-**Estado do código:** 1176 testes Java e 129 SQL, todos passando. Fases 0, 1a,
-1b e 3 implementadas, exceto F3-01 (modo sombra medido), que depende de massa.
+**Estado do código:** 1320 asserções Java, 164 SQL, 19 casos normativos de
+materialização e 32 de prazo — todos passando. Fases 0, 1a, 1b e 3
+implementadas, exceto F3-01 (modo sombra medido), que depende de massa.
+
+> **Data solicitada: 15/09/2026.** O parecer está em
+> [`GO-LIVE-2026-09-15.md`](GO-LIVE-2026-09-15.md), com o ensaio de abertura
+> rodado contra a carga real. Resumo: **viável para a Onda 0 (HML), não viável
+> para a Onda 1** — o sistema abre **0 de 12** ciclos com a carga como está, e o
+> RIPD não está aprovado. Faltam **4 respostas**, três delas de cadastro.
 
 **A pergunta que organiza este plano:** *"o sistema roda em produção"* e *"o
 sistema tem autoridade sobre o faturamento"* são coisas diferentes, e só a

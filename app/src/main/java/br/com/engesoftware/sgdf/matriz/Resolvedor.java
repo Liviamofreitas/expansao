@@ -170,6 +170,44 @@ public final class Resolvedor {
      * das duas em silêncio esconderia uma matriz ambígua — e a matriz é o
      * documento que define o que o cliente pode cobrar.
      */
+    /**
+     * Em que duas regras do mesmo alvo e da mesma chave divergem.
+     *
+     * <p><b>A recusa tem de ser acionável.</b> "Duas regras para X" manda a
+     * curadoria abrir o Anexo 1 e comparar 176 linhas; "divergem no offset do
+     * prazo: 1 e 10" é a pergunta que alguém consegue responder. É a mesma razão
+     * pela qual o expurgo nomeia a classe recusada e a varredura nomeia o
+     * arquivo que não entrou.
+     */
+    static String divergencia(Regra a, Regra b) {
+        List<String> campos = new ArrayList<>();
+        if (!java.util.Objects.equals(a.obrigatoriedade(), b.obrigatoriedade())) {
+            campos.add("obrigatoriedade (" + a.obrigatoriedade() + " e "
+                    + b.obrigatoriedade() + ")");
+        }
+        if (!java.util.Objects.equals(a.criticidade(), b.criticidade())) {
+            campos.add("criticidade (" + a.criticidade() + " e " + b.criticidade() + ")");
+        }
+        if (!java.util.Objects.equals(a.prazo(), b.prazo())) {
+            campos.add("prazo (" + descrever(a.prazo()) + " e " + descrever(b.prazo()) + ")");
+        }
+        if (!java.util.Objects.equals(a.responsavel(), b.responsavel())) {
+            campos.add("responsável (" + a.responsavel() + " e " + b.responsavel() + ")");
+        }
+        if (!java.util.Objects.equals(a.vigenciaIni(), b.vigenciaIni())
+                || !java.util.Objects.equals(a.vigenciaFim(), b.vigenciaFim())) {
+            campos.add("vigência (" + a.vigenciaIni() + ".." + a.vigenciaFim() + " e "
+                    + b.vigenciaIni() + ".." + b.vigenciaFim() + ")");
+        }
+        return campos.isEmpty() ? "nada que a resolução leia" : String.join("; ", campos);
+    }
+
+    private static String descrever(Prazo.Cadastrado p) {
+        return p == null ? "(sem)"
+                : p.ancora() + (p.offset() == null ? "" : " " + (p.offset() >= 0 ? "+" : "")
+                        + p.offset()) + " " + p.tipoDia();
+    }
+
     static List<Regra> resolverConflitos(List<Regra> regras, String contrato) {
         Map<String, Regra> escolhidas = new LinkedHashMap<>();
         for (Regra r : regras) {
@@ -179,8 +217,26 @@ public final class Resolvedor {
                 continue;
             }
             if (r.alvo().equals(atual.alvo())) {
+                // DUAS REGRAS IDÊNTICAS NÃO SÃO DUAS RESPOSTAS.
+                //
+                // São a mesma resposta escrita duas vezes — e recusar a abertura
+                // por causa disso é recusar uma ambiguidade que não existe.
+                // Materializar a partir de qualquer uma das duas produz a MESMA
+                // exigência, com o mesmo prazo, a mesma criticidade e o mesmo
+                // responsável; a unicidade `exigencia_unica` rejeitaria a
+                // segunda de qualquer forma.
+                //
+                // Medido contra a carga real: dos 17 pares que a A13 registrava
+                // como ambíguos, 12 eram duplicatas exatas. Tratá-los como
+                // conflito transformava um defeito de carga — que é
+                // deduplicação — numa decisão de curadoria que ninguém tinha o
+                // que decidir, e bloqueava a abertura de 6 contratos-serviço.
+                if (r.equals(atual)) {
+                    continue;
+                }
                 throw new AberturaInvalida("REGRA_AMBIGUA", "duas regras de alvo " + r.alvo()
-                        + " para " + r.chaveDeConflito() + " no contrato " + contrato);
+                        + " para " + r.chaveDeConflito() + " no contrato " + contrato
+                        + ", e elas DIVERGEM em: " + divergencia(atual, r));
             }
             if ("CONTRATO".equals(r.alvo())) {
                 escolhidas.put(r.chaveDeConflito(), r);

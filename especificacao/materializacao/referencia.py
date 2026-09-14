@@ -131,9 +131,19 @@ def _resolver_conflitos(regras: list[dict], contrato: str) -> list[dict]:
         # CONTRATO vence MODALIDADE. Empate no mesmo alvo é erro de cadastro:
         # escolher em silêncio esconderia matriz ambígua.
         if r["alvo"] == atual["alvo"]:
+            # DUAS REGRAS IDENTICAS NAO SAO DUAS RESPOSTAS.
+            #
+            # Sao a mesma resposta escrita duas vezes: materializar por qualquer
+            # uma produz a MESMA exigencia. Recusar aqui transformaria um defeito
+            # de carga — que e deduplicacao — numa decisao de curadoria sem nada
+            # a decidir. Medido contra a carga real: dos 17 pares registrados
+            # como ambiguos na A13, 12 eram duplicatas exatas.
+            if r == atual:
+                continue
             raise AberturaInvalida(
                 "REGRA_AMBIGUA",
-                f"duas regras de alvo {r['alvo']} para {chave} no contrato {contrato}",
+                f"duas regras de alvo {r['alvo']} para {chave} no contrato {contrato}, "
+                f"e elas DIVERGEM",
             )
         if r["alvo"] == "CONTRATO":
             escolhidas[chave] = r
