@@ -3020,3 +3020,87 @@ Todas da mesma família, e vale registrar por quê:
 
 18 asserções em `TestesDeAbertura`. Total: **1227 Java** (1223 sem a massa),
 **135 SQL**.
+
+## 51. SEC-09 — restaurar o dado não é restaurar o controle
+
+Requisitos: SEC-08 (*"teste de restauração trimestral"*) e SEC-09 (*"RTO 8 h /
+RPO 4 h; runbook documentado; simulação anual"*).
+
+### 51.1 Um runbook que nunca foi executado é ficção
+
+Ele descreve o que alguém **acredita** que aconteceria. Por isso o entregável não
+é só `RUNBOOK-DR.md`: é `scripts/testar-restauracao.sh`, que copia, restaura,
+cronometra e **verifica** — e que foi executado.
+
+### 51.2 O que o teste verifica não é o dado
+
+Um backup que devolve todas as linhas e um banco que sobe passa em qualquer
+verificação ingênua. E pode ter perdido exatamente o que faz o sistema valer:
+
+| O que se perde | Quantos | O que deixa de valer |
+|---|---:|---|
+| RULEs de append-only da trilha | 2 | O cap. 16 inteiro — a trilha passa a aceitar `UPDATE` |
+| REVOKE de `UPDATE`/`DELETE` | — | A rede de quem conecta por fora do serviço |
+| Índices parciais | 34 | Unicidade **condicional**, não otimização: `ux_excecao_aberta` impede duas exceções em aberto para a mesma exigência |
+| Restrições CHECK | 120 | A última rede quando o serviço erra |
+| `excecao_sod` | 1 | Quem solicita volta a poder aprovar a própria exceção |
+
+`pg_restore --no-privileges`, um dump só de dados sobre esquema recriado à mão,
+ou um template desatualizado perdem isso **sem nenhum sintoma**. O sistema sobe,
+o painel abre, a trilha aceita `INSERT` — e aceita `UPDATE` também. Um relatório
+de teste que diz *"restaurado com sucesso"* atesta a metade que não importa.
+
+`T013` verifica as RULEs **existindo e funcionando** — tenta o `UPDATE` e confere
+que ele não surtiu efeito. Existir e funcionar são coisas diferentes.
+
+### 51.3 A negativa satisfeita pelo vazio
+
+A quebra deliberada foi restaurar com `pg_restore --no-privileges` — e **o teste
+passou**. Não porque o backup estivesse bom: porque a asserção era *"`sgdf_app`
+**não pode** UPDATE"*, e com os privilégios descartados em bloco a role fica sem
+privilégio **nenhum**. A negativa era satisfeita pela ausência total.
+
+O teste atestava um controle sobre um banco em que **a aplicação não conseguia
+nem ler**.
+
+> **Uma negativa satisfeita pelo vazio não prova nada.** O que prova é o par:
+> *pode o que deve poder* **e** *não pode o que não deve*.
+
+Corrigido, a quebra derruba com a mensagem certa — e a mensagem diz que uma
+verificação que só olhasse o `UPDATE` negado passaria ali.
+
+É a mesma família de todos os achados de contagem desta base (§ 43.2, § 42.3): o
+erro nunca aparece como número absurdo, aparece como **resultado bonito**. Aqui
+apareceu como um teste verde sobre um backup inútil.
+
+### 51.4 O agendador sobe desligado, e isto não é zelo
+
+Uma instância restaurada com o agendador ligado começa a varrer, abrir ciclos e
+**cobrar áreas** antes de alguém ter olhado se a restauração está correta. Se o
+ponto de restauração for anterior ao que a operação já tinha feito, o sistema
+recobra o que já foi entregue — e **a primeira coisa que a organização vê do
+desastre é um e-mail errado**.
+
+A ordem é: restaurar → verificar → olhar → religar.
+
+### 51.5 O que o runbook declara como NÃO verificado
+
+Um runbook que não separa o verificado do suposto convida quem o lê a confiar no
+todo — e a hora de descobrir que um passo era suposição é a pior possível.
+
+| Não verificado | Por quê |
+|---|---|
+| PITR e WAL archiving | Configuração de infraestrutura, inexistente neste ambiente |
+| RPO de 4 h | Depende do intervalo de arquivamento, ainda não definido |
+| RTO de 8 h ponta a ponta | Só o tempo de banco foi medido |
+| Replicação do bucket | Não há bucket provisionado |
+| Restauração em **infraestrutura nova** | O teste restaura no mesmo servidor; um desastre real não o tem |
+
+O script diz a mesma coisa ao terminar: o RTO de 8 h cobre provisionar,
+restaurar, reconfigurar segredos e validar — **declarar o RTO atendido porque a
+restauração levou 40 s seria medir a parte fácil e afirmar o todo.**
+
+### 51.6 Cobertura
+
+10 verificações em `T013__garantias_apos_restauracao.sql`, executadas tanto na
+suíte quanto pelo script de restauração. Total: **1227 Java**, **145 SQL**.
