@@ -3995,3 +3995,61 @@ SCA, que é o que o job existe para produzir. A chave é gratuita.
 faltando — e o job que "falhou" mais feio foi o que trabalhou.
 
 Total: **1320 Java**, **164 SQL**, **19 casos de materialização**, **32 de prazo**.
+
+### 60.6 O Tomcat era uma de sete — e a cauda do log escondia isso
+
+A primeira leitura do log pegou só as últimas 60 linhas, e nelas só aparecia o
+Tomcat. O log completo mostra **sete dependências** reprovando o gate:
+
+| Dependência | Versão | CVEs ≥ 7,0 | Pior |
+|---|---|---|---|
+| `tomcat-embed-core` | 10.1.30 | 42 | **9,8** |
+| `spring-core` / `spring-web` | 6.1.13 | 16 | **9,8** |
+| `spring-boot-starter-*` | 3.3.4 | 5 | **9,8** |
+| `spring-security-*` | 6.3.3 | 3 | **9,1** |
+| `log4j-api` | 2.23.1 | 4 | 7,5 |
+| `jackson-databind` | 2.17.2 | 2 | 8,1 |
+| `postgresql` | 42.7.4 | 1 | 7,5 |
+
+**Ler a cauda de um log é ler a conclusão, não o achado.** Se eu tivesse
+empurrado só a correção do Tomcat, a próxima execução gastaria mais duas horas
+para dizer que faltavam seis.
+
+Cinco das sete vêm do parent e são resolvidas por ele (3.5.16 traz Spring
+Framework 6.2.19, Spring Security 6.5.11, Jackson 2.21.4, log4j 2.24.3). **Duas
+eram minhas**, fixadas à mão no `pom.xml`, e o parent não as alcança:
+
+- `postgresql` 42.7.4 → **42.7.13**
+- `pdfbox` 3.0.3 → **3.0.8**
+
+Verificado: **1320/1320** com as quatro versões novas.
+
+### 60.7 O ciclo vicioso que fazia o gate custar mais quanto melhor funcionasse
+
+`actions/cache` **só grava o cache quando o job termina bem**. Este job existe
+para falhar quando há CVE alta — e falhou. Logo o cache nunca era gravado, logo
+a execução seguinte baixava a base da NVD inteira outra vez: **2h10min, toda
+vez.**
+
+Quanto mais o gate funcionava, mais caro ele ficava.
+
+**É assim que um gate morre** — não porque alguém discorde dele, mas porque ele
+custa duas horas por push até que desligá-lo pareça razoável. É a mesma frase
+que abre o `ci.yml`, acontecendo com o próprio `ci.yml`.
+
+Separado em `cache/restore` + `cache/save` com `if: always()`. A base da NVD é
+dado público e imutável: nada que o gate decida muda o que deve ser cacheado.
+
+### 60.8 O que ainda não sei, e por que
+
+**Não dá para verificar aqui se as versões novas zeram o gate.** A política de
+rede deste ambiente bloqueia `api.osv.dev`, e rodar o `dependency-check`
+localmente enfrentaria as mesmas duas horas.
+
+O que se sabe: as sete dependências foram para o patch corrente de cada linha.
+O que não se sabe: se sobra algum CVE **sem correção publicada** — e esse caso
+é diferente, porque não se resolve subindo versão. Se sobrar, a saída certa é
+uma supressão **datada, justificada e revisada**, nunca baixar o
+`failBuildOnCVSS`.
+
+Registrado antes de a resposta chegar, para não virar conclusão retroativa.

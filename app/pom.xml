@@ -67,7 +67,7 @@
     <dependency>
       <groupId>org.apache.pdfbox</groupId>
       <artifactId>pdfbox</artifactId>
-      <version>3.0.3</version>
+      <version>3.0.8</version>
     </dependency>
 
     <!-- Persistência. JDBC direto, sem ORM, e a escolha é deliberada: o esquema
@@ -78,7 +78,7 @@
     <dependency>
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
-      <version>42.7.4</version>
+      <version>42.7.13</version>
     </dependency>
 
     <!-- História F0-01 e telas do Anexo 2. O domínio segue sem conhecer o

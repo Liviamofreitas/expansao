@@ -78,8 +78,22 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: Cache da base da NVD
-        uses: actions/cache@v4
+      # RESTORE E SAVE SEPARADOS, E O SAVE COM `if: always()`.
+      #
+      # O CICLO VICIOSO QUE ISTO QUEBRA. `actions/cache` só grava o cache
+      # quando o JOB TERMINA BEM. Este job existe para falhar quando há CVE
+      # alta — e falhou. Logo o cache nunca era gravado, logo a execução
+      # seguinte baixava a base da NVD inteira de novo: 2h10min, TODA VEZ.
+      #
+      # Quanto mais o gate funciona, mais caro ele fica. É assim que um gate
+      # morre: não por alguém discordar dele, mas por ele custar duas horas
+      # por push até que desligá-lo pareça razoável.
+      #
+      # A base é dado público e imutável — nada que o gate decida muda o que
+      # deve ser cacheado. Gravar em `always()` é correto, e não um atalho.
+      - name: Restaurar a base da NVD
+        id: nvd
+        uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository/org/owasp/dependency-check-data
           key: nvd-${{ github.run_id }}
@@ -109,6 +123,13 @@ jobs:
           Settings > Secrets > Actions."
           fi
           cd app && mvn -B -Psca verify -DskipTests
+
+      - name: Guardar a base da NVD
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          key: nvd-${{ github.run_id }}
 
       - name: Publicar achados
         if: always()
