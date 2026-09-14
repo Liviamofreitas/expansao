@@ -3370,3 +3370,112 @@ contador, não a trilha. Fechar isso por inteiro seria ler a trilha ao montar o
 relatório, e fica registrado em vez de suposto.
 
 Total: **1282 Java**, **164 SQL**.
+
+---
+
+## 54. RA-10 — duas verdades para a mesma regra, e a errada ganhava em silêncio
+
+O cap. 7.2 termina com uma frase que é norma: *"os códigos de rubrica são
+**CADASTRO** (tabela de-para por sistema de folha), **NÃO código-fonte**"*. A
+V014 criou a tabela, a V105 carregou as nove linhas da FOPAG real — e o
+`LeitorDeFopag` continuou carregando os mesmos nove códigos em **constante
+Java**.
+
+Os valores eram idênticos, então nada quebrava. Era o pior estado possível: duas
+fontes que concordam hoje, e a que ninguém edita é a que o código lê.
+
+### 54.1 O que aconteceria no dia da divergência
+
+O RH troca o plano de contas. Alguém atualiza `rubrica_de_para` — que é
+justamente onde a norma manda mexer. O leitor continua procurando o código
+antigo, não acha o total de proventos, e devolve **nulo**.
+
+Nulo não levanta. A `ItemDaFolha` nasce com os sete campos estruturais vazios,
+**em todos os colaboradores**, e a conciliação do cap. 9 compara a guia contra
+nada — e passa.
+
+Sétima vez que a ausência se parece com saúde nesta base.
+
+### 54.2 A leitura passou a pedir o cadastro, e a recusar sem ele
+
+`LeitorDeFopag` recebe o `DeParaDeRubricas` no construtor e resolve ali os sete
+papéis estruturais. **Falta um, não há leitura:**
+
+> o de-para de rubricas não declara, por código, o(s) papel(éis): BASE_FGTS. Ler
+> a folha assim produziria esses valores nulos em TODOS os colaboradores, e a
+> conciliação compararia contra nada
+
+Recusar na construção e não na 400ª página é deliberado: o custo de descobrir
+tarde é uma folha inteira lida e descartada.
+
+### 54.3 Ambíguo levanta, não escolhe
+
+`codigoUnicoDe(papel)` recusa quando dois códigos declaram o mesmo papel. Se
+`TOTAL_PROVENTOS` viesse de dois códigos, "qual é o total?" teria duas respostas
+e a iteração do mapa daria uma delas — o resultado bonito e falso. É o mesmo
+tratamento que o `Resolvedor` dá a duas regras para o mesmo par (A13).
+
+### 54.4 O teste que os outros não conseguiam fazer
+
+Todos os casos de parse existentes usam código `10000` para o total, e a
+constante Java antiga também era `10000`. **Uma constante esquecida sobreviveria
+à suíte inteira.**
+
+O caso novo imprime `90000` na folha e declara `90000` no cadastro. Só passa
+quem foi ler o cadastro. E a segunda metade fecha o argumento: com o de-para
+desatualizado lendo a folha nova, `totalProventos()` sai **nulo** — que era o
+estado permanente antes desta história.
+
+Reintroduzir a constante (`this.totalProventos = "10000"`) derruba exatamente
+essa asserção.
+
+### 54.5 O teste que amarra o leitor à carga
+
+Nos casos de parse o de-para é *fixture* — tem de ser, porque ler PDF não pode
+depender de banco. Em `TestesDeEventos` ele vem de `rubrica_de_para`, e o leitor
+real é construído com ele. **Tirar uma linha do seed derruba a suíte** — medido:
+`DELETE ... WHERE codigo='14000'` faz cair `oDeParaVemDoCadastro` com
+`DeParaIncompleto`. Antes da RA-10 isso não tinha como ser notado: o leitor
+trazia os códigos consigo e não perguntava nada ao cadastro.
+
+### 54.6 Uma quebra que PASSOU, e o que ela revelou
+
+Trocar o código de `10000` para `90000` **no cadastro** deixava a suíte em
+33/33. Não era um acerto: era prova de que nenhum teste ligava o leitor real ao
+de-para real *através de um PDF*. A construção passava porque o papel continuava
+declarado — só com outro código.
+
+Foi essa quebra que produziu o caso de §54.4. **Uma quebra deliberada que passa
+é informação tão útil quanto uma que falha**, e é a única forma de descobrir que
+a suíte não media o que eu achava que media.
+
+### 54.7 RA-18 (nova) — o VA da carga é ambíguo
+
+Ao ligar a leitura por papel, a carga real acusou: `17300` (*custo total do
+vale-alimentação*: empresa + coparticipação do empregado) e `17305` (*custo da
+empresa*) declaram **ambos** `VALE_ALIMENTACAO`.
+
+São fatos econômicos diferentes com o mesmo papel. Uma regra de conciliação que
+pergunte *"qual é o VA?"* tem duas respostas, e até aqui receberia a que o mapa
+devolvesse primeiro. O comprovante pago à operadora pode corresponder a um ou a
+outro conforme o arranjo do contrato — e escolher errado é uma divergência de
+valor num book que alguém vai atestar.
+
+**Não foi resolvido aqui, e não deveria ser.** Dividir o papel em
+`VALE_ALIMENTACAO` e `VALE_ALIMENTACAO_EMPRESA` exige saber contra qual dos dois
+a conciliação compara, o que é leitura de contrato. O que mudou é que agora
+**recusa em vez de escolher**, e há um teste que nomeia os dois códigos.
+
+### 54.8 Cinco quebras deliberadas
+
+| Quebra | Resultado |
+|---|---|
+| `DELETE` da linha `14000` da carga | `oDeParaVemDoCadastro` cai com `DeParaIncompleto` |
+| `UPDATE` do código `10000` → `90000` na carga | **PASSOU** — e foi o que revelou §54.6 |
+| `codigoUnicoDe` volta a escolher o primeiro | "dois códigos são recusados, não desempatados" + o caso do VA (64→63, 33→32) |
+| `exigir()` deixa de recusar o que falta | "de-para sem BASE_FGTS é recusado na construção" |
+| O leitor volta a carregar `"10000"` em constante | "o RH troca o plano de contas e o leitor acompanha" (66→65) |
+
+### 54.9 Cobertura
+
+Total: **1291 Java**, **164 SQL**.

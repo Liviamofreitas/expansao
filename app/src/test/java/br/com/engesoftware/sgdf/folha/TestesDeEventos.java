@@ -294,6 +294,35 @@ public final class TestesDeEventos {
         ok("F2-01 . e os codigos da FOPAG que estavam em constante Java",
                 fopag.papelDe(new Rubrica("14300", "FGTS DO MES", null, BigDecimal.ONE))
                         == PapelDaRubrica.FGTS_MES);
+
+        // RA-10: O TESTE QUE DERRUBA A SUITE SE ALGUEM TIRAR UMA LINHA DO SEED.
+        //
+        // Este e o unico lugar onde o leitor real encontra o cadastro real. Nos
+        // casos de parse, o de-para e fixture — tem de ser, porque ler PDF nao
+        // pode depender de banco. Aqui nao: se a carga deixar de declarar
+        // BASE_FGTS por codigo, a construcao levanta e este caso cai. Antes da
+        // RA-10 nao havia como isso ser notado: o leitor trazia os codigos
+        // consigo e nao perguntava nada ao cadastro.
+        new br.com.engesoftware.sgdf.documento.LeitorDeFopag(fopag);
+        ok("RA-10 . a carga declara, por codigo, os 7 papeis estruturais que o "
+                        + "LeitorDeFopag exige — tirar uma linha do seed derruba isto",
+                true);
+
+        // E O QUE O CADASTRO DECLARA AMBIGUO FICA DITO, EM VEZ DE DESEMPATADO.
+        //
+        // 17300 (custo total do VA: empresa + coparticipacao) e 17305 (custo da
+        // empresa) declaram os dois VALE_ALIMENTACAO. Sao fatos economicos
+        // diferentes com o mesmo papel: uma regra que pergunte "qual e o VA?"
+        // tem duas respostas, e a iteracao do mapa daria uma delas.
+        DeParaDeRubricas.RubricaAmbigua va = null;
+        try {
+            fopag.codigoUnicoDe(PapelDaRubrica.VALE_ALIMENTACAO);
+        } catch (DeParaDeRubricas.RubricaAmbigua e) {
+            va = e;
+        }
+        ok("RA-10 . o VA da carga e ambiguo (17300 e 17305) e a leitura por papel "
+                        + "RECUSA em vez de escolher — registrado como RA-18",
+                va != null && va.codigos().equals(List.of("17300", "17305")));
     }
 
     // --- apoio ---------------------------------------------------------------

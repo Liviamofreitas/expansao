@@ -2,6 +2,8 @@ package br.com.engesoftware.sgdf.documento;
 
 import br.com.engesoftware.sgdf.extracao.ExtratorPdfBox;
 import br.com.engesoftware.sgdf.extracao.TextoExtraido;
+import br.com.engesoftware.sgdf.folha.DeParaDeRubricas;
+import br.com.engesoftware.sgdf.folha.PapelDaRubrica;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -38,6 +40,10 @@ public final class TestesDeDocumento {
         executar("insumosDasConciliacoes", TestesDeDocumento::insumosDasConciliacoes);
         executar("reciboQueContinuaEmOutraFolha", TestesDeDocumento::reciboQueContinuaEmOutraFolha);
         executar("identificadorTemCodigoDeEmpresa", TestesDeDocumento::identificadorTemCodigoDeEmpresa);
+        executar("semDeParaNaoHaLeituraDaFopag",
+                TestesDeDocumento::semDeParaNaoHaLeituraDaFopag);
+        executar("oLeitorSegueOCadastroENadaMais",
+                TestesDeDocumento::oLeitorSegueOCadastroENadaMais);
         executar("fopagLeitaPorCodigo", TestesDeDocumento::fopagLeitaPorCodigo);
         executar("relacaoDeBeneficioPorMatricula", TestesDeDocumento::relacaoDeBeneficioPorMatricula);
 
@@ -235,7 +241,7 @@ public final class TestesDeDocumento {
     /** A FOPAG e a folha estruturada: rubrica com codigo e coluna RESULTADOS. */
     static void fopagLeitaPorCodigo() throws Exception {
         TextoExtraido t = new ExtratorPdfBox().extrair(fopag());
-        LeitorDeFopag leitor = new LeitorDeFopag();
+        LeitorDeFopag leitor = new LeitorDeFopag(deParaDaFopag());
         FolhaDeCompetencia f = leitor.ler(t);
 
         ok("FOPAG . a competencia sai do cabecalho", "06/2026".equals(f.competencia()));
@@ -252,8 +258,7 @@ public final class TestesDeDocumento {
         ok("FOPAG . a base do FGTS e o codigo 14000, nao um rotulo posicional",
                 i.baseFgts().compareTo(new BigDecimal("12000.00")) == 0);
         ok("FOPAG . o custo total do vale alimentacao e o codigo 17300",
-                i.resultado(LeitorDeFopag.CUSTO_TOTAL_VA)
-                        .compareTo(new BigDecimal("604.80")) == 0);
+                i.resultado("17300").compareTo(new BigDecimal("604.80")) == 0);
         ok("FOPAG . custo total = custo da empresa mais a coparticipacao",
                 i.resultado("17305").add(i.rubrica("08305").orElseThrow().valor())
                         .compareTo(i.resultado("17300")) == 0);
@@ -262,6 +267,117 @@ public final class TestesDeDocumento {
         ok("FOPAG . o resumo geral e lido por codigo",
                 resumo.get("10000").compareTo(new BigDecimal("12000.00")) == 0);
         ok("FOPAG . e o resumo nao vira um colaborador", f.itens().size() == 1);
+    }
+
+    /**
+     * RA-10: sem o de-para do cadastro, NAO ha leitura.
+     *
+     * <p>Antes desta historia os nove codigos viviam em constante Java embora os
+     * mesmos nove ja estivessem em `rubrica_de_para`. Duas verdades para a mesma
+     * regra — e a do codigo-fonte ganhava em silencio: trocado o plano de contas
+     * no cadastro, o leitor procuraria o codigo antigo, nao acharia o total, e
+     * devolveria NULO. A conciliacao do cap. 9 entao compararia a guia contra
+     * nada e passaria.
+     */
+    static void semDeParaNaoHaLeituraDaFopag() {
+        boolean recusouNulo = false;
+        try {
+            new LeitorDeFopag(null);
+        } catch (IllegalArgumentException e) {
+            recusouNulo = true;
+        }
+        ok("RA-10 . ler a FOPAG sem de-para e recusado", recusouNulo);
+
+        // FALTA UM PAPEL ESTRUTURAL: a recusa e na construcao, e nomeia qual.
+        Map<String, PapelDaRubrica> incompleto = new java.util.LinkedHashMap<>(CODIGOS);
+        incompleto.values().removeIf(p -> p == PapelDaRubrica.BASE_FGTS);
+        DeParaDeRubricas.DeParaIncompleto falta = null;
+        try {
+            new LeitorDeFopag(new DeParaDeRubricas(incompleto, Map.of()));
+        } catch (DeParaDeRubricas.DeParaIncompleto e) {
+            falta = e;
+        }
+        ok("RA-10 . de-para sem BASE_FGTS e recusado na construcao, e diz qual falta",
+                falta != null && falta.faltando().equals(List.of("BASE_FGTS")));
+        ok("RA-10 . e a mensagem diz o que aconteceria se nao recusasse",
+                falta.getMessage().contains("TODOS os colaboradores"));
+
+        // DOIS CODIGOS PARA O MESMO PAPEL: a pergunta passa a ter duas
+        // respostas, e escolher uma poria um valor que ninguem decidiu dentro
+        // de uma conciliacao.
+        Map<String, PapelDaRubrica> ambiguo = new java.util.LinkedHashMap<>(CODIGOS);
+        ambiguo.put("19999", PapelDaRubrica.BASE_FGTS);
+        DeParaDeRubricas.RubricaAmbigua ambigua = null;
+        try {
+            new LeitorDeFopag(new DeParaDeRubricas(ambiguo, Map.of()));
+        } catch (DeParaDeRubricas.RubricaAmbigua e) {
+            ambigua = e;
+        }
+        ok("RA-10 . dois codigos para o mesmo papel sao recusados, nao desempatados",
+                ambigua != null && ambigua.papel() == PapelDaRubrica.BASE_FGTS
+                        && ambigua.codigos().equals(List.of("14000", "19999")));
+
+        ok("RA-10 . papel que o cadastro nao declara devolve nulo, nao OUTRA",
+                new DeParaDeRubricas(CODIGOS, Map.of())
+                        .codigoUnicoDe(PapelDaRubrica.PLANO_DE_SAUDE) == null);
+    }
+
+    /**
+     * RA-10, a prova de verdade: o leitor segue o CADASTRO, e nada mais.
+     *
+     * <p>Os outros casos nao conseguem ver a diferenca. O fixture declara
+     * TOTAL_PROVENTOS = 10000 e a FOPAG imprime 10000 — com a constante Java
+     * antiga, que tambem era 10000, tudo passaria igual. Uma constante esquecida
+     * sobreviveria a suite inteira.
+     *
+     * <p>Aqui a folha imprime <b>90000</b> e o cadastro diz que 90000 e o total.
+     * So passa quem foi ler o cadastro.
+     */
+    static void oLeitorSegueOCadastroENadaMais() throws Exception {
+        Map<String, PapelDaRubrica> outroPlanoDeContas =
+                new java.util.LinkedHashMap<>(CODIGOS);
+        outroPlanoDeContas.values().removeIf(p -> p == PapelDaRubrica.TOTAL_PROVENTOS);
+        outroPlanoDeContas.put("90000", PapelDaRubrica.TOTAL_PROVENTOS);
+
+        TextoExtraido t = new ExtratorPdfBox().extrair(fopag("90000"));
+        ItemDaFolha i = new LeitorDeFopag(new DeParaDeRubricas(outroPlanoDeContas, Map.of()))
+                .ler(t).itens().get(0);
+
+        ok("RA-10 . o RH troca o plano de contas no cadastro e o leitor acompanha, "
+                        + "sem release",
+                i.totalProventos() != null
+                        && i.totalProventos().compareTo(new BigDecimal("12000.00")) == 0);
+
+        // E A METADE QUE FECHA O ARGUMENTO: o leitor com o de-para ANTIGO lendo a
+        // folha NOVA nao acha o total. E exatamente o que acontecia em silencio
+        // quando o codigo vivia em constante Java — nulo, e a conciliacao do
+        // cap. 9 comparando a guia contra nada.
+        ItemDaFolha comOAntigo = new LeitorDeFopag(deParaDaFopag()).ler(t).itens().get(0);
+        ok("RA-10 . e com o de-para desatualizado o total sai NULO — que era o "
+                        + "estado permanente antes desta historia",
+                comOAntigo.totalProventos() == null);
+    }
+
+    /**
+     * Os sete papeis estruturais que o leitor exige, como o cadastro os declara.
+     *
+     * <p><b>E fixture, nao segunda fonte da verdade.</b> Estes casos exercitam a
+     * PARSE do PDF, que nao pode depender de banco. Que este fixture e o cadastro
+     * real digam a mesma coisa e verificado contra o banco em `TestesDeEventos`,
+     * onde o de-para vem de `rubrica_de_para` — e e la que a remocao de uma
+     * linha do seed derruba a suite.
+     */
+    static final Map<String, PapelDaRubrica> CODIGOS = Map.of(
+            "10000", PapelDaRubrica.TOTAL_PROVENTOS,
+            "10100", PapelDaRubrica.TOTAL_DESCONTOS,
+            "10200", PapelDaRubrica.LIQUIDO,
+            "12200", PapelDaRubrica.BASE_INSS,
+            "13300", PapelDaRubrica.BASE_IRRF,
+            "14000", PapelDaRubrica.BASE_FGTS,
+            "14300", PapelDaRubrica.FGTS_MES);
+
+    static DeParaDeRubricas deParaDaFopag() {
+        return new DeParaDeRubricas(CODIGOS, Map.of());
     }
 
     /**
@@ -490,6 +606,11 @@ public final class TestesDeDocumento {
 
     /** Geometria medida na FOPAG real: proventos | descontos | resultados. */
     static byte[] fopag() throws IOException {
+        return fopag("10000");
+    }
+
+    /** @param codigoDoTotal o codigo que a folha imprime para o total de proventos */
+    static byte[] fopag(String codigoDoTotal) throws IOException {
         try (PDDocument doc = new PDDocument()) {
             PDPage pagina = new PDPage(PDRectangle.A4);
             doc.addPage(pagina);
@@ -502,7 +623,7 @@ public final class TestesDeDocumento {
                 escrever(f, 23.6f, 505.1f,
                         "000101963 - HERMES LIMA DE OLIVEIRA 13/01/2026 ATIVIDADE NORMAL MENSAL");
                 linhaDaFopag(f, 460.7f, "00005 SALARIO 30,00 9.793,14",
-                        "07200 INSS MES 988,07", "10000 TOTAL PROVENTOS 12.000,00");
+                        "07200 INSS MES 988,07", codigoDoTotal + " TOTAL PROVENTOS 12.000,00");
                 linhaDaFopag(f, 453.5f, "02420 CRED CESTA BASICA 110,51",
                         "08305 VALE ALIMENTACAO 6,05", "10100 TOTAL DESCONTOS 2.000,00");
                 linhaDaFopag(f, 446.3f, null, null, "10200 LIQUIDO A RECEBER 10.000,00");

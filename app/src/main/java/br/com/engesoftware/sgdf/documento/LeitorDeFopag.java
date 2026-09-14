@@ -1,6 +1,8 @@
 package br.com.engesoftware.sgdf.documento;
 
 import br.com.engesoftware.sgdf.extracao.LeitorDeTabela;
+import br.com.engesoftware.sgdf.folha.DeParaDeRubricas;
+import br.com.engesoftware.sgdf.folha.PapelDaRubrica;
 import br.com.engesoftware.sgdf.extracao.LinhaVisual;
 import br.com.engesoftware.sgdf.extracao.PaginaExtraida;
 import br.com.engesoftware.sgdf.extracao.TextoExtraido;
@@ -36,20 +38,60 @@ import java.util.regex.Pattern;
  * início, último número com centavos é o valor, um número antes dele é a
  * referência — pelo mesmo motivo do contracheque: a coluna de referência fica
  * vazia na maioria das linhas e a projeção não é estável.
+ *
+ * <p><b>Os códigos vêm do cadastro, e não daqui</b> — pendência RA-10, cap. 7.2
+ * última linha: <i>"os códigos de rubrica são CADASTRO, não código-fonte"</i>.
+ * Até aqui esta classe carregava nove códigos em constante Java <i>embora os
+ * mesmos nove já vivessem em</i> {@code rubrica_de_para}. Eram duas verdades
+ * para a mesma regra, e a segunda ganhava em silêncio: mudar o plano de contas
+ * no cadastro deixava o leitor procurando o código antigo, não achando o total,
+ * e devolvendo <b>nulo</b> — a conciliação do cap. 9 então compararia a guia
+ * contra nada e passaria.
+ *
+ * <p><b>Sem de-para não há leitura.</b> O construtor exige os sete papéis
+ * estruturais e recusa na hora quando falta um, em vez de descobrir na 400ª
+ * página que a base do FGTS é nula em todo mundo.
  */
 public final class LeitorDeFopag {
 
-    /** Códigos da coluna RESULTADOS que alimentam as regras de conciliação. */
-    public static final String TOTAL_PROVENTOS   = "10000";
-    public static final String TOTAL_DESCONTOS   = "10100";
-    public static final String LIQUIDO           = "10200";
-    public static final String BASE_INSS_TETO    = "12200";
-    public static final String BASE_IRRF         = "13300";
-    public static final String BASE_FGTS         = "14000";
-    public static final String FGTS_MES          = "14300";
-    /** Custo total do vale-alimentação: empresa mais coparticipação do empregado. */
-    public static final String CUSTO_TOTAL_VA    = "17300";
-    public static final String CUSTO_EMPRESA_VA  = "17305";
+    /**
+     * O que a coluna RESULTADOS tem de entregar para a folha servir à
+     * conciliação. Sete, e nenhum é opcional: cada um alimenta uma regra do
+     * cap. 9.
+     */
+    private static final PapelDaRubrica[] ESTRUTURAIS = {
+        PapelDaRubrica.TOTAL_PROVENTOS, PapelDaRubrica.TOTAL_DESCONTOS,
+        PapelDaRubrica.LIQUIDO, PapelDaRubrica.BASE_FGTS, PapelDaRubrica.FGTS_MES,
+        PapelDaRubrica.BASE_INSS, PapelDaRubrica.BASE_IRRF,
+    };
+
+    private final String totalProventos;
+    private final String totalDescontos;
+    private final String liquido;
+    private final String baseFgts;
+    private final String fgtsMes;
+    private final String baseInss;
+    private final String baseIrrf;
+
+    /**
+     * @param dePara o de-para vigente do sistema de folha, do cadastro
+     * @throws DeParaDeRubricas.DeParaIncompleto se faltar papel estrutural
+     * @throws DeParaDeRubricas.RubricaAmbigua se dois códigos declararem o mesmo
+     */
+    public LeitorDeFopag(DeParaDeRubricas dePara) {
+        if (dePara == null) {
+            throw new IllegalArgumentException(
+                    "ler a FOPAG exige o de-para de rubricas do cadastro (cap. 7.2)");
+        }
+        Map<PapelDaRubrica, String> codigos = dePara.exigir(ESTRUTURAIS);
+        this.totalProventos = codigos.get(PapelDaRubrica.TOTAL_PROVENTOS);
+        this.totalDescontos = codigos.get(PapelDaRubrica.TOTAL_DESCONTOS);
+        this.liquido = codigos.get(PapelDaRubrica.LIQUIDO);
+        this.baseFgts = codigos.get(PapelDaRubrica.BASE_FGTS);
+        this.fgtsMes = codigos.get(PapelDaRubrica.FGTS_MES);
+        this.baseInss = codigos.get(PapelDaRubrica.BASE_INSS);
+        this.baseIrrf = codigos.get(PapelDaRubrica.BASE_IRRF);
+    }
 
     private static final float FIM_DOS_PROVENTOS = 262f;
     private static final float FIM_DOS_DESCONTOS = 506f;
@@ -85,7 +127,7 @@ public final class LeitorDeFopag {
             for (ItemDaFolha item : itensDaPagina(linhas, competencia)) {
                 // Um colaborador pode continuar na página seguinte, como no
                 // contracheque (achado A21): as rubricas se somam.
-                porMatricula.merge(item.matricula(), item, LeitorDeFopag::unir);
+                porMatricula.merge(item.matricula(), item, this::unir);
             }
         }
         return new FolhaDeCompetencia(competencia, new ArrayList<>(porMatricula.values()));
@@ -161,16 +203,16 @@ public final class LeitorDeFopag {
         return itens;
     }
 
-    private static ItemDaFolha montar(String matricula, String nome, String competencia,
-                                      List<Rubrica> proventos, List<Rubrica> descontos,
-                                      Map<String, BigDecimal> resultados, String centro) {
+    private ItemDaFolha montar(String matricula, String nome, String competencia,
+                               List<Rubrica> proventos, List<Rubrica> descontos,
+                               Map<String, BigDecimal> resultados, String centro) {
         // A FOPAG não imprime CPF: a chave dela é a matrícula, e é por isso que
         // a junção com os documentos de benefício tem de ser por matrícula
         // sempre que o outro lado a traga (achado A14).
         return new ItemDaFolha(matricula, nome, null, competencia, proventos, descontos,
-                resultados.get(TOTAL_PROVENTOS), resultados.get(TOTAL_DESCONTOS),
-                resultados.get(LIQUIDO), resultados.get(BASE_FGTS), resultados.get(FGTS_MES),
-                resultados.get(BASE_INSS_TETO), resultados.get(BASE_IRRF), resultados, centro);
+                resultados.get(totalProventos), resultados.get(totalDescontos),
+                resultados.get(liquido), resultados.get(baseFgts), resultados.get(fgtsMes),
+                resultados.get(baseInss), resultados.get(baseIrrf), resultados, centro);
     }
 
     private static void acrescentar(List<Rubrica> destino, String celula) {
@@ -204,7 +246,7 @@ public final class LeitorDeFopag {
         }
     }
 
-    private static ItemDaFolha unir(ItemDaFolha a, ItemDaFolha b) {
+    private ItemDaFolha unir(ItemDaFolha a, ItemDaFolha b) {
         List<Rubrica> proventos = new ArrayList<>(a.proventos());
         proventos.addAll(b.proventos());
         List<Rubrica> descontos = new ArrayList<>(a.descontos());
