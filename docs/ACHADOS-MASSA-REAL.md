@@ -3898,3 +3898,100 @@ deles capazes de escrever pela metade e um capaz de reportar sucesso sobre um
 cadastro que o motor ainda recusava.
 
 Total: **1320 Java**, **164 SQL**, **19 casos de materialização**, **32 de prazo**.
+
+---
+
+## 60. A primeira execução do CI encontrou uma vulnerabilidade real
+
+O plano de implantação dizia: *"a primeira execução do CI é o teste dela — e é
+razoável que ela falhe uma ou duas vezes"*. Falhou, e os dois motivos são de
+**naturezas opostas**.
+
+### 60.1 O que NÃO foi defeito de CI
+
+**`SCA de dependências` reprovou o build com 42 CVEs em
+`tomcat-embed-core-10.1.30`**, o Tomcat embutido que o Spring Boot 3.3.4
+trazia. Entre eles:
+
+| CVE | CVSS | O que é |
+|---|---|---|
+| CVE-2025-24813 | 9.8 | Execução remota de código |
+| CVE-2024-50379 | 9.8 | Execução remota de código (TOCTOU) |
+| CVE-2024-52316 | 9.8 | Desvio de autenticação |
+| CVE-2026-41293 | 9.8 | — |
+| CVE-2026-65905 | 9.8 | — |
+| …e mais 37 | ≥ 7,0 | — |
+
+**O `failBuildOnCVSS=7` fez exatamente o que existe para fazer, na primeira vez
+que rodou.** Não há nada a consertar no pipeline aqui: há uma dependência a
+subir.
+
+E o achado é do tipo que só aparece no CI. A suíte local passava — 1320
+asserções — porque **teste não olha CVE**. São perguntas diferentes: "o código
+faz o que promete?" e "o que ele carrega junto tem buraco conhecido?". Um
+sistema que guarda CPF, remuneração e dado de saúde de ±890 pessoas não pode
+responder só a primeira.
+
+### 60.2 A correção, e por que não foi para a 4.x
+
+| | Spring Boot | Tomcat embutido |
+|---|---|---|
+| Antes | 3.3.4 | 10.1.30 |
+| **Agora** | **3.5.16** | **10.1.59** |
+| Alternativa recusada | 4.1.1 | 11.0.24 |
+
+3.5.16 é o último da linha 3.x — sem migração de major. Ele traz 10.1.55; a
+propriedade `<tomcat.version>10.1.59</tomcat.version>` leva ao patch corrente.
+
+**A sobreposição é o ponto, não um detalhe.** O parent fixa a versão que era
+corrente **quando ele foi publicado**, e o CVE não espera o próximo release do
+Spring Boot. Sem a propriedade, o projeto ficaria permanentemente algumas
+semanas atrás do patch, por construção.
+
+Subir para 4.x é migração de major com mudanças incompatíveis. Fazê-la dentro
+de uma correção de CI seria contrabandear uma decisão de arquitetura numa
+mudança que alguém revisa esperando ver dois ajustes de configuração.
+
+Verificação: **1320/1320 asserções** e `mvn package` na versão nova.
+
+### 60.3 O que FOI defeito de CI, e durou 3 segundos
+
+```
+Unable to resolve action `aquasecurity/trivy-action@0.28.0`,
+unable to find version `0.28.0`
+```
+
+O tag é **`v0.28.0`**, com `v`. Escrevi sem.
+
+O job morreu **antes do `docker build`** — então a afirmação do plano de que *"a
+imagem nunca foi construída"* continuava verdadeira, e o job vermelho dizia
+"escaneamento falhou" quando o que falhou foi **resolver a própria ação**.
+Corrigido para `@v0.36.0`, com os quatro inputs conferidos no `action.yaml`
+daquele tag antes de empurrar — para não gastar outra execução descobrindo que
+um deles mudou de nome.
+
+### 60.4 Duas horas e dez minutos é um gate desligado
+
+O SCA gastou **2h10min**. Não é lentidão do scanner: **sem chave de API, a NVD
+limita as requisições**, e a base tem dezenas de milhares de registros.
+
+O cabeçalho do próprio `ci.yml` diz que *"um build que as pessoas param de
+esperar é um gate desligado"*. Duas horas por push é exatamente isso.
+
+O job passou a **avisar** quando o segredo `NVD_API_KEY` está ausente — e a
+continuar, não a falhar. Falhar por falta de chave esconderia o resultado do
+SCA, que é o que o job existe para produzir. A chave é gratuita.
+
+### 60.5 O que os quatro jobs disseram, junto
+
+| Job | Resultado | O que significa |
+|---|---|---|
+| Compilar e testar | ✅ **1m02s** | A suíte roda em CI, na primeira tentativa |
+| Varredura de segredos | ✅ 8s | Nenhum segredo no histórico |
+| SCA | ❌ 2h10min | **Funcionou.** Achou 42 CVEs reais |
+| Imagem | ❌ 3s | Erro de digitação num tag |
+
+**Três dos quatro estavam certos.** O único defeito de pipeline foi um `v`
+faltando — e o job que "falhou" mais feio foi o que trabalhou.
+
+Total: **1320 Java**, **164 SQL**, **19 casos de materialização**, **32 de prazo**.

@@ -30,13 +30,33 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.3.4</version>
+    <version>3.5.16</version>
     <relativePath/>
   </parent>
 
   <properties>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!--
+      SEC-07: O TOMCAT EMBUTIDO, ALÉM DO QUE O SPRING BOOT GERENCIA.
+
+      A primeira execução do CI reprovou o build com 42 CVEs em
+      tomcat-embed-core 10.1.30, a versão que o Spring Boot 3.3.4 trazia —
+      entre elas CVE-2025-24813 (9.8), CVE-2024-50379 (9.8) e CVE-2024-52316
+      (9.8, desvio de autenticação). O gate fez exatamente o que existe para
+      fazer, e na primeira vez que rodou.
+
+      Subir o parent para 3.5.16 traz 10.1.55. Esta propriedade leva a 10.1.59,
+      que é o patch corrente da linha. A diferença entre as duas é pequena e é
+      o ponto: o parent fixa a versão que era corrente QUANDO ELE FOI PUBLICADO,
+      e o CVE não espera o próximo release do Spring Boot.
+
+      É sobreposição de versão gerenciada, dentro da MESMA linha 10.1.x —
+      mudança de patch, não de minor. A suíte inteira é a verificação, e ela
+      cobre a fronteira HTTP.
+    -->
+    <tomcat.version>10.1.59</tomcat.version>
   </properties>
 
   <dependencies>

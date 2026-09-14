@@ -86,10 +86,29 @@ jobs:
           restore-keys: nvd-
 
       # failBuildOnCVSS=7 está no perfil: CRÍTICA e ALTA barram o release.
+      # SEM CHAVE DA NVD, ESTE JOB LEVA HORAS — E ISSO PRECISA SER DITO.
+      #
+      # A primeira execução gastou 2h10min. Não é lentidão do scanner: sem
+      # chave, a NVD limita a requisição a uma a cada poucos segundos, e a base
+      # tem dezenas de milhares de registros. O cabeçalho deste arquivo diz que
+      # um build que as pessoas param de esperar é um gate desligado — duas
+      # horas é exatamente isso.
+      #
+      # Avisa e continua, em vez de falhar: falhar por falta de chave
+      # esconderia o resultado do SCA, que é o que o job existe para produzir.
+      # A chave é gratuita em https://nvd.nist.gov/developers/request-an-api-key
       - name: OWASP Dependency-Check
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: cd app && mvn -B -Psca verify -DskipTests
+        run: |
+          if [ -z "${NVD_API_KEY}" ]; then
+            echo "::warning title=NVD sem chave de API::O segredo NVD_API_KEY não \
+          está definido. O download da base da NVD vai levar HORAS em vez de \
+          minutos. Peça a chave (gratuita) em \
+          https://nvd.nist.gov/developers/request-an-api-key e cadastre-a em \
+          Settings > Secrets > Actions."
+          fi
+          cd app && mvn -B -Psca verify -DskipTests
 
       - name: Publicar achados
         if: always()
@@ -111,8 +130,15 @@ jobs:
       # "imagem base fixada E ESCANEADA". Fixar sem escanear dá a ilusão de
       # controle: a base congelada continua acumulando CVE, e congelá-la é
       # justamente o que impede que ela se conserte sozinha.
+      # O TAG TEM `v`, E FOI ISSO QUE DERRUBOU O JOB EM 3 SEGUNDOS.
+      #
+      # `@0.28.0` não existe; `@v0.28.0` existe. O erro foi
+      # "Unable to resolve action ... unable to find version", ANTES de o
+      # docker build rodar — a imagem continuou nunca tendo sido construída, e
+      # o job vermelho dizia "escaneamento falhou" quando o que falhou foi
+      # resolver a própria ação.
       - name: Escanear
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: sgdf:${{ github.sha }}
           format: sarif
