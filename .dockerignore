@@ -1,0 +1,9 @@
+# O que não pode entrar na imagem.
+.git
+docs
+dados
+especificacao
+scripts
+tools
+**/target
+*.md

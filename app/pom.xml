@@ -89,5 +89,67 @@
   <build>
     <sourceDirectory>src/main/java</sourceDirectory>
     <testSourceDirectory>src/test/java</testSourceDirectory>
+    <plugins>
+      <!--
+        Sem ele não sai jar executável, e sem jar executável não há o que
+        implantar. O layered jar é o que permite ao Docker reaproveitar a camada
+        de dependências entre releases: uma correção de uma linha reconstrói
+        alguns KB, não 60 MB — e o que não se reconstrói não precisa ser
+        reescaneado.
+      -->
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <layers>
+            <enabled>true</enabled>
+          </layers>
+        </configuration>
+      </plugin>
+    </plugins>
   </build>
+
+  <profiles>
+    <!--
+      SEC-07: "Dependências com SCA no pipeline; sem vulnerabilidade crítica/alta
+      aberta em release. Gate no CI."
+
+      EM PERFIL, E NÃO NO BUILD PADRÃO. O dependency-check baixa a base da NVD na
+      primeira execução — pôr isso no caminho de todo `mvn package` faria o build
+      local depender de rede e falhar em máquina desconectada, e um gate que
+      falha por motivo errado é um gate que alguém desliga. No CI ele roda com
+      cache.
+
+      failBuildOnCVSS=7 = CRÍTICA e ALTA barram. MÉDIA e BAIXA entram no
+      relatório e não travam o release: travar em tudo produziria uma exceção
+      permanente, que é como um gate morre.
+    -->
+    <profile>
+      <id>sca</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.owasp</groupId>
+            <artifactId>dependency-check-maven</artifactId>
+            <version>10.0.4</version>
+            <configuration>
+              <failBuildOnCVSS>7</failBuildOnCVSS>
+              <formats>
+                <format>HTML</format>
+                <format>SARIF</format>
+              </formats>
+              <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
+            </configuration>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>check</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

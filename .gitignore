@@ -10,3 +10,8 @@ target/
 # Sistema operacional e temporários do Office
 ~$*
 .DS_Store
+
+# Segredos — o .env recebe os valores reais; só o .exemplo é versionado.
+.env
+.env.*
+!.env.exemplo

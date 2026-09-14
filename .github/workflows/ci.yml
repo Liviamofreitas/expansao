@@ -1,0 +1,141 @@
+# =============================================================================
+# SGDF — pipeline. SEC-07: "Gate no CI."
+#
+# A ORDEM É DELIBERADA: o que é barato e pega muita coisa vem antes. Um build
+# que gasta dez minutos para descobrir que o código não compila é um build que
+# as pessoas param de esperar — e um gate que ninguém espera é um gate desligado.
+# =============================================================================
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write   # para publicar o SARIF do SCA
+
+jobs:
+  testes:
+    name: Compilar e testar
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.4-alpine
+        env:
+          POSTGRES_DB: sgdf
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: temurin
+          cache: maven
+
+      - name: Esquema, carga e testes de banco
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: sgdf
+        # Os testes SQL são a rede que vale mesmo quando o serviço erra: eles
+        # rodam contra o esquema, sem passar por Java nenhum.
+        run: ./db/aplicar.sh
+
+      - name: Suíte completa
+        env:
+          SGDF_JDBC: jdbc:postgresql://localhost:5432/sgdf?user=postgres&password=postgres
+          # SGDF_MASSA NÃO é definida. A massa real não vive no repositório
+          # (cap. 19) e o medidor de precisão se pula dizendo por quê — em vez
+          # de passar em silêncio, que esconderia que a precisão não foi medida.
+        run: ./scripts/testar-app.sh
+
+      - name: Empacotar
+        run: cd app && mvn -B -DskipTests package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sgdf-jar
+          path: app/target/sgdf-*.jar
+          retention-days: 7
+
+  sca:
+    name: SCA de dependências (SEC-07)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: temurin
+          cache: maven
+
+      - name: Cache da base da NVD
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          key: nvd-${{ github.run_id }}
+          restore-keys: nvd-
+
+      # failBuildOnCVSS=7 está no perfil: CRÍTICA e ALTA barram o release.
+      - name: OWASP Dependency-Check
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: cd app && mvn -B -Psca verify -DskipTests
+
+      - name: Publicar achados
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: app/target/dependency-check-report.sarif
+        continue-on-error: true
+
+  imagem:
+    name: Construir e escanear a imagem (SEC-07)
+    runs-on: ubuntu-latest
+    needs: testes
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construir
+        run: docker build -t sgdf:${{ github.sha }} .
+
+      # "imagem base fixada E ESCANEADA". Fixar sem escanear dá a ilusão de
+      # controle: a base congelada continua acumulando CVE, e congelá-la é
+      # justamente o que impede que ela se conserte sozinha.
+      - name: Escanear
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: sgdf:${{ github.sha }}
+          format: sarif
+          output: trivy.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Publicar achados
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
+        continue-on-error: true
+
+  segredos:
+    name: Varredura de segredos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # o histórico inteiro: um segredo comitado e removido
+                           # continua no histórico, e é lá que ele é encontrado
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
