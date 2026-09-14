@@ -3254,3 +3254,119 @@ ainda pedem código depois da decisão.
 
 Enquanto isso durar, o SGDF **retém dado pessoal sem termo final definido**, e
 agora diz isso em quatro lugares em vez de nenhum.
+
+---
+
+## 53. RA-15 — `false` queria dizer duas coisas opostas
+
+O `RegistroDeAcesso.observar` devolvia `boolean`. `false` significava **"já
+estava registrada"** — o caso normal, que acontece em toda requisição depois da
+primeira do dia — e também **"a gravação falhou"**.
+
+Com o mesmo valor para os dois fatos, nenhum chamador conseguia notar a
+diferença. E o chamador era o interceptor, que ignorava o retorno de qualquer
+forma. Uma falha persistente de escrita produzia um **relatório de
+recertificação incompleto sem sintoma nenhum**: a lista de acessos apenas
+encolhia, e lista menor parece revisão mais fácil, não defeito.
+
+É o **sexto** caso do mesmo padrão nesta base — depois da F0-05 (§33.2), da
+completude na 1ª conferência (§43.4), do agendador morto (§46), do ciclo vazio
+(§50) e do expurgo sem política aprovada (§52.5).
+
+### 53.1 Quatro desfechos, porque são quatro fatos
+
+| Desfecho | Significa | Alguém precisa agir? |
+|---|---|---|
+| `GRAVADA` | Primeira do dia para esta concessão | Não |
+| `JA_REGISTRADA` | Já havia linha idêntica hoje | Não |
+| `SEM_CONCESSAO` | Ator nulo ou sem papel | Não |
+| `FALHOU` | A gravação quebrou | **Sim** |
+
+Os três primeiros eram `false`, o quarto também. O único que exige ação era o
+indistinguível.
+
+### 53.2 `catch (SQLException)` não pegava o caso mais provável
+
+O caminho de falha mais provável **nem chega ao driver**: a conexão vem de um
+bean de escopo de requisição, e fora de uma requisição o proxy levanta
+`IllegalStateException` antes de haver SQL. Pegar só `SQLException` deixava esse
+caso subir de dentro do `afterCompletion` — **o único lugar onde a promessa
+"observar acesso não derruba o acesso" tinha de valer**.
+
+Medido: revertido para `catch (SQLException)`, o caso cai com
+`NullPointerException`.
+
+### 53.3 A falha deixa duas marcas, porque nenhuma basta
+
+| Marca | Funciona quando | Não serve para |
+|---|---|---|
+| Contador em memória (`Falhas`) | O banco inteiro está fora do ar | Sobreviver ao restart; atravessar instâncias |
+| Linha na trilha (`acao = OBSERVAR_ACESSO`, `resultado = ERRO`) | Só **esta** tabela quebrou e o resto do banco está são | Um banco totalmente indisponível |
+
+O segundo caso é o traiçoeiro, e é o que dura meses: com o banco fora alguém
+percebe em minutos; com uma restrição nova ou um tipo de array mudado só em
+`acesso_observado`, tudo o mais funciona e o relatório apenas encolhe. O teste
+simula isso literalmente — um `CHECK (false)` naquela tabela, com
+`log_auditoria` intacta ao lado.
+
+**Uma linha por processo por dia.** Sem o limite, um erro que se repete a cada
+requisição encheria a trilha append-only de milhares de linhas idênticas e
+afogaria a auditoria que ela existe para alimentar.
+
+### 53.4 A ressalva do relatório ganhou uma segunda metade
+
+A `RESSALVA` fixa diz o que o relatório **nunca** cobre (a conta que existe no
+diretório e nunca entrou — RA-16). `ressalva()` acrescenta o que ele pode ter
+deixado de cobrir **desta vez**:
+
+> ATENÇÃO (RA-15): *N* observação(ões) de acesso FALHARAM ao ser gravadas nesta
+> instância desde *T*. A lista abaixo está INCOMPLETA em quantidade desconhecida
+> e **NÃO deve ser aprovada como revisão.**
+
+A diferença entre as duas importa: a primeira é um limite conhecido e constante,
+que quem aprova aprende a considerar; a segunda é um **defeito em curso**, e
+antes desta história ela não existia em lugar nenhum.
+
+### 53.5 O interceptor deixou de ser cola sem teste
+
+As linhas de adaptação ao Spring nunca eram exercitadas — os testes de fronteira
+chamam os controladores diretamente. Agora `afterCompletion` é chamado com uma
+resposta postiça (um `Proxy` que só sabe dizer o próprio status) e um
+`AtorDaRequisicao` sobrescrito, cobrindo as cinco decisões que vivem ali: 4xx
+não vira acesso observado, 5xx tampouco, ator nulo não grava, o 200 grava, e
+**nem a falha de gravação nem a falha antes dela sobem**.
+
+A última é a que justifica a classe ser tão pequena, e era a única promessa que
+ninguém media.
+
+### 53.6 O teste que só passava na primeira execução
+
+A asserção *"a falha ficou na trilha"* comparava contagem **absoluta** (`== 1`).
+`log_auditoria` é append-only por RULE desde a V002: o `limpar()` da suíte não a
+apaga, e o `DELETE` é **silenciosamente descartado**. Uma linha se acumulava por
+rodada — 8 delas quando o defeito apareceu.
+
+O sintoma foi pior que a falha: **a asserção caía em todas as cinco quebras
+deliberadas, inclusive nas que não tinham relação com ela**, mandando quem
+lesse o resultado procurar no lugar errado. Corrigido para comparar o **delta**;
+três execuções seguidas passam agora.
+
+### 53.7 Cinco quebras deliberadas
+
+| Quebra | Asserção que caiu |
+|---|---|
+| `catch (SQLException \| RuntimeException)` volta a `catch (SQLException)` | o caso levanta `NullPointerException` em vez de contar |
+| O interceptor perde a rede de proteção | "a falha na fronteira também é engolida e contada" — a exceção subiu |
+| `ressalva()` ignora o contador | "a ressalva passa a dizer que a lista está incompleta" + "não aprovar" (52→50) |
+| O interceptor deixa de olhar o status | 403, 500 e ator nulo viram acesso observado (52→49) |
+| A trilha perde o limite de uma por dia | "mas só UMA vez por dia" |
+
+### 53.8 O que continua aberto
+
+O contador em memória **reinicia com o processo e não atravessa instâncias** —
+o relatório gerado pela instância A não vê as falhas da B. É por isso que a
+falha também vai à trilha, que tem as duas propriedades; mas a *ressalva* lê o
+contador, não a trilha. Fechar isso por inteiro seria ler a trilha ao montar o
+relatório, e fica registrado em vez de suposto.
+
+Total: **1282 Java**, **164 SQL**.

@@ -158,7 +158,7 @@ public class IndicadorController {
                 // própria cobertura convida quem aprova a lê-lo como completo, e
                 // assinar uma revisão parcial acreditando ter revisto tudo
                 // produz a evidência de conformidade sem o controle.
-                "cobertura", ConsultaDeRecertificacao.RESSALVA,
+                "cobertura", ConsultaDeRecertificacao.ressalva(),
                 "periodo", Map.of("desde", desde, "ate", ate),
                 "atores_observados", acessos.size(),
                 "a_revisar", acessos.stream().filter(a -> !a.atencao().isEmpty()).count(),

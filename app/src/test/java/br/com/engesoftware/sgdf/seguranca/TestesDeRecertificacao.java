@@ -1,6 +1,8 @@
 package br.com.engesoftware.sgdf.seguranca;
 
 import br.com.engesoftware.sgdf.persistencia.ConsultaDeRecertificacao;
+import br.com.engesoftware.sgdf.web.AtorDaRequisicao;
+import br.com.engesoftware.sgdf.web.ObservadorDeAcesso;
 import br.com.engesoftware.sgdf.persistencia.RegistroDeAcesso;
 import br.com.engesoftware.sgdf.persistencia.Sgdf;
 import br.com.engesoftware.sgdf.persistencia.TrilhaDeAuditoria;
@@ -35,6 +37,8 @@ public final class TestesDeRecertificacao {
 
     public static void main(String[] args) throws Exception {
         executar("aAtencaoNaoViraRuido", TestesDeRecertificacao::aAtencaoNaoViraRuido);
+        executar("aFalhaDeObservacaoEContadaEMudaARessalva",
+                TestesDeRecertificacao::aFalhaDeObservacaoEContadaEMudaARessalva);
 
         String url = System.getProperty("sgdf.jdbc");
         if (url == null || url.isBlank()) {
@@ -59,6 +63,10 @@ public final class TestesDeRecertificacao {
                     executar("oCsvComecaPelaRessalva", () -> oCsvComecaPelaRessalva(sgdf));
                     executar("observarNaoDerrubaARequisicao",
                             () -> observarNaoDerrubaARequisicao(sgdf));
+                    executar("oInterceptorDecideAsQuatroCoisasQueLheCabem",
+                            () -> oInterceptorDecideAsQuatroCoisasQueLheCabem(sgdf));
+                    executar("aFalhaSoDestaTabelaDeixaMarcaDuravelNaTrilha",
+                            () -> aFalhaSoDestaTabelaDeixaMarcaDuravelNaTrilha(sgdf));
                 } finally {
                     limpar(conexao);
                 }
@@ -270,27 +278,249 @@ public final class TestesDeRecertificacao {
     }
 
     /**
-     * Observar acesso nao pode derrubar o acesso.
+     * Observar acesso nao pode derrubar o acesso — e a falha nao pode calar.
      *
      * <p>Um erro ao gravar a observacao transformaria uma consulta ao painel em
-     * erro 500 — a recertificacao derrubaria o produto que ela existe para
-     * revisar. O custo, dito: uma falha persistente produz relatorio incompleto
-     * sem sintoma (RA-15).
+     * erro 500: a recertificacao derrubando o produto que ela existe para
+     * revisar. Ate a RA-15 o preco disso era o silencio — `observar` devolvia
+     * `false` tanto para "ja registrada" (o caso normal, toda requisicao depois
+     * da primeira do dia) quanto para "falhou", <b>o mesmo valor para dois fatos
+     * opostos</b>, e nenhum chamador conseguia distingui-los.
      */
     static void observarNaoDerrubaARequisicao(Sgdf sgdf) {
         RegistroDeAcesso registro = new RegistroDeAcesso(sgdf);
         Ator semPapel = new Ator("ninguem", "Ninguem", Set.of(), Set.of());
         ok("SEC-10 . ator sem papel nao vira observacao — nao ha concessao a certificar",
-                !registro.observar(semPapel, DENTRO));
-        ok("SEC-10 . e ator nulo tampouco", !registro.observar(null, DENTRO));
+                registro.observar(semPapel, DENTRO)
+                        == RegistroDeAcesso.Desfecho.SEM_CONCESSAO);
+        ok("SEC-10 . e ator nulo tampouco",
+                registro.observar(null, DENTRO)
+                        == RegistroDeAcesso.Desfecho.SEM_CONCESSAO);
 
         Ator valido = new Ator("repetido", "Fulano", Set.of(Papel.PUBLICADOR_FIN), Set.of());
         ok("SEC-10 . a primeira observacao do dia grava",
-                registro.observar(valido, DENTRO));
+                registro.observar(valido, DENTRO) == RegistroDeAcesso.Desfecho.GRAVADA);
         ok("SEC-10 . e a segunda igual nao duplica — uma linha por concessao por dia",
-                !registro.observar(valido, DENTRO));
+                registro.observar(valido, DENTRO)
+                        == RegistroDeAcesso.Desfecho.JA_REGISTRADA);
         ok("SEC-10 . mas nao levanta excecao por isso",
                 1 == contar(sgdf, "acesso_observado WHERE ator = 'repetido'"));
+
+        // RA-15: OS TRES DESFECHOS SAO TRES, E NAO DOIS.
+        //
+        // "Nao gravou porque nao havia o que gravar", "nao gravou porque ja
+        // estava la" e "nao gravou porque quebrou" eram todos `false`. O
+        // terceiro e o unico que exige alguem agir, e era o indistinguivel.
+        ok("RA-15 . SEM_CONCESSAO, JA_REGISTRADA e FALHOU sao fatos distintos",
+                RegistroDeAcesso.Desfecho.SEM_CONCESSAO
+                        != RegistroDeAcesso.Desfecho.JA_REGISTRADA
+                && !RegistroDeAcesso.Desfecho.JA_REGISTRADA.falhou()
+                && !RegistroDeAcesso.Desfecho.SEM_CONCESSAO.falhou()
+                && RegistroDeAcesso.Desfecho.FALHOU.falhou());
+    }
+
+    /**
+     * A falha de gravacao e CONTADA, e muda a ressalva do relatorio.
+     *
+     * <p>Sem banco: uma {@link Sgdf} sobre conexao nula reproduz o caso real
+     * mais provavel — o repositorio de escopo de requisicao usado fora de uma
+     * requisicao, que levanta antes de haver SQL. E o caminho que a captura de
+     * `SQLException` sozinha deixava escapar.
+     */
+    static void aFalhaDeObservacaoEContadaEMudaARessalva() {
+        RegistroDeAcesso.Falhas.zerar();
+        ok("RA-15 . o contador comeca zerado e a ressalva e so a do RA-16",
+                RegistroDeAcesso.Falhas.total() == 0
+                        && ConsultaDeRecertificacao.ressalva()
+                                .equals(ConsultaDeRecertificacao.RESSALVA));
+
+        RegistroDeAcesso quebrado = new RegistroDeAcesso(new Sgdf(null));
+        Ator valido = new Ator("vitima", "Fulano", Set.of(Papel.PUBLICADOR_FIN), Set.of());
+
+        ok("RA-15 . a gravacao que quebra devolve FALHOU, e nao JA_REGISTRADA",
+                quebrado.observar(valido, DENTRO) == RegistroDeAcesso.Desfecho.FALHOU);
+        ok("RA-15 . e nao levanta — observar acesso nao derruba o acesso",
+                RegistroDeAcesso.Falhas.total() == 1);
+
+        quebrado.observar(valido, DENTRO);
+        quebrado.observar(valido, DENTRO);
+        ok("RA-15 . falhas repetidas sao contadas, nao colapsadas em uma",
+                RegistroDeAcesso.Falhas.total() == 3);
+
+        // O PONTO DA HISTORIA INTEIRA. Antes disto, uma falha persistente de
+        // escrita produzia uma lista de recertificacao MENOR — e lista menor
+        // parece revisao mais facil, nao defeito.
+        String ressalva = ConsultaDeRecertificacao.ressalva();
+        ok("RA-15 . a ressalva passa a dizer que a lista esta incompleta",
+                ressalva.contains("RA-15") && ressalva.contains("INCOMPLETA")
+                        && ressalva.contains("3 observação"));
+        ok("RA-15 . e diz para NAO aprovar a revisao com ela assim",
+                ressalva.contains("NÃO deve ser aprovada"));
+        ok("RA-15 . sem perder a ressalva de cobertura do RA-16",
+                ressalva.contains("RA-16"));
+        ok("RA-15 . e nomeia o motivo, para alguem ter por onde comecar",
+                RegistroDeAcesso.Falhas.ultimoMotivo() != null
+                        && RegistroDeAcesso.Falhas.primeira() != null);
+        RegistroDeAcesso.Falhas.zerar();
+    }
+
+    /**
+     * O interceptor — as linhas de cola que a RA-15 dizia nao serem exercitadas.
+     *
+     * <p>Sao quatro decisoes, e todas as quatro tinham de ser medidas em algum
+     * lugar. A quarta e a que justifica a classe existir tao pequena: a promessa
+     * de que uma falha de gravacao nao sobe era a unica que ninguem media.
+     */
+    static void oInterceptorDecideAsQuatroCoisasQueLheCabem(Sgdf sgdf) {
+        RegistroDeAcesso.Falhas.zerar();
+        Ator ator = new Ator("interceptado", "Fulano", Set.of(Papel.PUBLICADOR_FIN), Set.of());
+
+        ObservadorDeAcesso observador =
+                new ObservadorDeAcesso(atorFixo(ator), new RegistroDeAcesso(sgdf));
+
+        // 1. O 4xx NAO vira acesso observado. Em preHandle a gravacao entraria
+        //    antes da autorizacao, e um 403 deixaria registrado um "acesso" de
+        //    quem foi barrado — a recertificacao listaria TENTATIVAS como
+        //    concessoes, que e o oposto do que ela mede.
+        observador.afterCompletion(null, resposta(403), null, null);
+        ok("SEC-10 . resposta 403 nao vira acesso observado — tentativa nao e concessao",
+                0 == contar(sgdf, "acesso_observado WHERE ator = 'interceptado'"));
+        observador.afterCompletion(null, resposta(500), null, null);
+        ok("SEC-10 . nem 500 — so o que deu certo conta como acesso",
+                0 == contar(sgdf, "acesso_observado WHERE ator = 'interceptado'"));
+
+        // 2. Sem ator nao ha o que observar.
+        new ObservadorDeAcesso(atorFixo(null), new RegistroDeAcesso(sgdf))
+                .afterCompletion(null, resposta(200), null, null);
+        ok("SEC-10 . requisicao sem ator resolvido nao grava nada",
+                0 == contar(sgdf, "acesso_observado WHERE ator = 'interceptado'"));
+
+        // 3. O caminho feliz grava.
+        observador.afterCompletion(null, resposta(200), null, null);
+        ok("SEC-10 . a resposta 200 com ator vira a concessao do dia",
+                1 == contar(sgdf, "acesso_observado WHERE ator = 'interceptado'"));
+
+        // 4. E a falha NAO sobe.
+        new ObservadorDeAcesso(atorFixo(ator), new RegistroDeAcesso(new Sgdf(null)))
+                .afterCompletion(null, resposta(200), null, null);
+        ok("RA-15 . gravacao quebrada nao devolve erro a quem fez uma requisicao que "
+                        + "DEU CERTO — e e contada",
+                RegistroDeAcesso.Falhas.total() == 1);
+
+        // 5. E a falha ANTES de gravar — ler o status, resolver o ator —
+        //    tambem nao sobe, e tambem e contada. E a unica parte que o
+        //    RegistroDeAcesso nao alcanca.
+        new ObservadorDeAcesso(atorQueQuebra(), new RegistroDeAcesso(sgdf))
+                .afterCompletion(null, resposta(200), null, null);
+        ok("RA-15 . a falha na fronteira, antes de gravar, tambem e engolida e contada",
+                RegistroDeAcesso.Falhas.total() == 2
+                        && RegistroDeAcesso.Falhas.ultimoMotivo().contains("na fronteira"));
+        RegistroDeAcesso.Falhas.zerar();
+    }
+
+    /**
+     * O caso mais traicoeiro: ESTA tabela quebrada, o resto do banco saudavel.
+     *
+     * <p>E o que dura meses. Com o banco inteiro fora do ar alguem percebe em
+     * minutos; com uma restricao nova ou um tipo de array mudado so nesta
+     * tabela, tudo o mais funciona e o relatorio de recertificacao apenas
+     * encolhe. O contador em memoria morre no restart e nao atravessa
+     * instancias — por isso a falha tambem vai a trilha, que tem as duas
+     * propriedades.
+     *
+     * <p>A simulacao e literal: um CHECK que recusa tudo em `acesso_observado`,
+     * com `log_auditoria` intacta ao lado.
+     */
+    static void aFalhaSoDestaTabelaDeixaMarcaDuravelNaTrilha(Sgdf sgdf) {
+        RegistroDeAcesso.Falhas.zerar();
+        // DELTA, E NUNCA CONTAGEM ABSOLUTA.
+        //
+        // `log_auditoria` e append-only por RULE (V002): o limpar() dos testes
+        // NAO a apaga, e o DELETE e silenciosamente descartado. Uma assercao de
+        // "== 1" aqui passa na primeira execucao da suite e falha em todas as
+        // seguintes, com uma linha por rodada acumulada — e o sintoma aparece
+        // longe da causa, derrubando este caso sempre que QUALQUER outro
+        // quebrasse. Foi assim que este comentario nasceu.
+        long antes = contar(sgdf, "log_auditoria WHERE acao = 'OBSERVAR_ACESSO'");
+        long antesDeste = contar(sgdf, "log_auditoria WHERE acao = 'OBSERVAR_ACESSO' "
+                + "AND resultado = 'ERRO' AND ator = 'durav'");
+        Ator ator = new Ator("durav", "Fulano", Set.of(Papel.AUDITORIA), Set.of());
+
+        executarSql(sgdf, "ALTER TABLE acesso_observado ADD CONSTRAINT quebra_deliberada "
+                + "CHECK (false) NOT VALID");
+        try {
+            ok("RA-15 . com a tabela quebrada, a observacao devolve FALHOU",
+                    new RegistroDeAcesso(sgdf).observar(ator, DENTRO)
+                            == RegistroDeAcesso.Desfecho.FALHOU);
+            ok("RA-15 . e a falha ficou na trilha, que sobrevive ao restart e e comum "
+                            + "as instancias",
+                    contar(sgdf, "log_auditoria WHERE acao = 'OBSERVAR_ACESSO' "
+                            + "AND resultado = 'ERRO' AND ator = 'durav'") == antesDeste + 1);
+
+            new RegistroDeAcesso(sgdf).observar(ator, DENTRO);
+            new RegistroDeAcesso(sgdf).observar(ator, DENTRO);
+            ok("RA-15 . mas so UMA vez por dia — um erro a cada requisicao afogaria a "
+                            + "trilha append-only que ele existe para alimentar",
+                    contar(sgdf, "log_auditoria WHERE acao = 'OBSERVAR_ACESSO'") == antes + 1);
+            ok("RA-15 . enquanto o contador em memoria conta as tres",
+                    RegistroDeAcesso.Falhas.total() == 3);
+        } finally {
+            // Sem transacao a desfazer aqui: a conexao esta em autocommit, que e
+            // o que permite a INSERT falhada nao envenenar a escrita na trilha
+            // logo em seguida — que e justamente o caso real sendo simulado.
+            executarSql(sgdf, "ALTER TABLE acesso_observado DROP CONSTRAINT "
+                    + "IF EXISTS quebra_deliberada");
+            RegistroDeAcesso.Falhas.zerar();
+        }
+    }
+
+    static void executarSql(Sgdf sgdf, String sql) {
+        try (Statement st = sgdf.conexao().createStatement()) {
+            st.execute(sql);
+        } catch (SQLException e) {
+            throw new IllegalStateException("falha no fixture: " + e.getMessage(), e);
+        }
+    }
+
+    /** Uma resposta que so sabe dizer o proprio status — que e tudo que o interceptor le. */
+    static jakarta.servlet.http.HttpServletResponse resposta(int status) {
+        return (jakarta.servlet.http.HttpServletResponse) java.lang.reflect.Proxy
+                .newProxyInstance(TestesDeRecertificacao.class.getClassLoader(),
+                        new Class<?>[] {jakarta.servlet.http.HttpServletResponse.class},
+                        (proxy, metodo, args) -> {
+                            if ("getStatus".equals(metodo.getName())) {
+                                return status;
+                            }
+                            if ("hashCode".equals(metodo.getName())) {
+                                return System.identityHashCode(proxy);
+                            }
+                            if ("equals".equals(metodo.getName())) {
+                                return proxy == args[0];
+                            }
+                            if ("toString".equals(metodo.getName())) {
+                                return "resposta(" + status + ")";
+                            }
+                            return null;
+                        });
+    }
+
+    static AtorDaRequisicao atorFixo(Ator ator) {
+        return new AtorDaRequisicao() {
+            @Override
+            public Ator atual() {
+                return ator;
+            }
+        };
+    }
+
+    /** O contexto de seguranca ja saiu da thread — acontece, e nao pode virar 500. */
+    static AtorDaRequisicao atorQueQuebra() {
+        return new AtorDaRequisicao() {
+            @Override
+            public Ator atual() {
+                throw new IllegalStateException("contexto de seguranca ausente na thread");
+            }
+        };
     }
 
     // -------------------------------------------------------------------------

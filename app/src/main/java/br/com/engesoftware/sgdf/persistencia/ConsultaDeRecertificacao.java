@@ -52,6 +52,35 @@ public final class ConsultaDeRecertificacao {
             + "completa comparando esta lista com a de contas concedidas, que é da DAF e do "
             + "provedor de identidade. Aprovar só esta metade não cumpre o controle.";
 
+    /**
+     * A ressalva do relatório, com a segunda metade que só aparece quando há
+     * motivo — RA-15.
+     *
+     * <p>A {@link #RESSALVA} fixa diz o que o relatório <b>nunca</b> cobre: a
+     * conta que existe no diretório e nunca entrou. Esta acrescenta o que ele
+     * pode ter deixado de cobrir <b>desta vez</b>: observações que falharam ao
+     * ser gravadas.
+     *
+     * <p><b>A diferença entre as duas importa.</b> A primeira é um limite
+     * conhecido e constante, que quem aprova aprende a considerar. A segunda é
+     * um defeito em curso, e antes da RA-15 ela não existia em lugar nenhum —
+     * uma falha persistente de escrita produzia uma lista menor, e menor de
+     * quanto ninguém sabia. Lista mais curta parece uma revisão mais fácil.
+     */
+    public static String ressalva() {
+        long falhas = RegistroDeAcesso.Falhas.total();
+        if (falhas == 0) {
+            return RESSALVA;
+        }
+        return RESSALVA + " ATENÇÃO (RA-15): " + falhas + " observação(ões) de acesso "
+                + "FALHARAM ao ser gravadas nesta instância desde "
+                + RegistroDeAcesso.Falhas.primeira() + ". A lista abaixo está INCOMPLETA "
+                + "em quantidade desconhecida e NÃO deve ser aprovada como revisão. "
+                + "Último motivo: " + RegistroDeAcesso.Falhas.ultimoMotivo()
+                + ". A trilha registra a primeira falha de cada dia com "
+                + "acao = OBSERVAR_ACESSO e resultado = ERRO.";
+    }
+
     /** Papéis cuja concessão não exercida merece pergunta imediata (cap. 15.1). */
     static final List<String> PRIVILEGIADOS =
             List.of("APROVADOR_DAF", "ADMIN_SISTEMA", "AUDITORIA");
@@ -131,7 +160,7 @@ public final class ConsultaDeRecertificacao {
      */
     public String csv(LocalDate desde, LocalDate ate) {
         List<Acesso> acessos = relatorio(desde, ate);
-        Csv csv = new Csv(List.of(RESSALVA, "período: " + desde + " a " + ate + "; "
+        Csv csv = new Csv(List.of(ressalva(), "período: " + desde + " a " + ate + "; "
                         + acessos.size() + " ator(es) observado(s)"),
                 "ator", "papeis", "contratos_no_escopo", "primeiro_acesso",
                 "ultimo_acesso", "concessoes_distintas", "acoes_no_periodo", "ultima_acao",
