@@ -26,7 +26,31 @@ RUN mvn -B -q -DskipTests package \
  && java -Djarmode=tools -jar target/sgdf-*.jar extract --layers --destination /camadas
 
 # --- etapa de execução -------------------------------------------------------
-FROM eclipse-temurin:21.0.5_11-jre-alpine
+FROM eclipse-temurin:21.0.12_8-jre-alpine-3.24
+
+# FIXAR NÃO BASTA, E A EXECUÇÃO 18 PROVOU ISSO.
+#
+# A base anterior (21.0.5_11, Alpine 3.21.2) reprovou no gate com 2 CRITICAL e
+# 11 HIGH — TODAS em pacotes do sistema, TODAS com correção publicada:
+# openssl (CVE-2026-31789), sqlite-libs (CVE-2025-3277), musl, p11-kit, zlib.
+# Nenhuma vinha do Java: o escaneamento do `[jar]` não achou nada.
+#
+# Subir a tag sozinho NÃO resolve. Escaneei aqui a mais nova
+# (21.0.12_8-jre-alpine-3.24, Alpine 3.24.1) e ela ainda traz 5 HIGH com
+# correção disponível — libcrypto3/libssl3/openssl (CVE-2026-14456) e libexpat
+# (CVE-2026-76956, CVE-2026-76957). É estrutural, não azar de versão: a imagem
+# base é construída num dia e os patches do Alpine saem depois dele. Qualquer
+# tag fixada começa a envelhecer no instante em que é publicada.
+#
+# Então a fixação governa o QUE (o JRE 21.0.12_8 e o ramo Alpine 3.24, iguais
+# hoje e daqui a três meses) e o `apk upgrade` governa o NÍVEL DE PATCH desse
+# mesmo ramo. O build deixa de ser bit a bit reprodutível — e essa é a troca
+# certa: "reprodutível e vulnerável" não é controle, é uma foto antiga com
+# carimbo. O que certifica o resultado é o escaneamento do CI, que roda depois
+# desta linha e sobre a imagem que de fato vai para produção.
+#
+# `--no-cache` para não deixar o índice do apk na camada final.
+RUN apk upgrade --no-cache
 
 # NÃO RODA COMO ROOT. Um processo que não precisa de root e roda como root é
 # privilégio concedido por omissão — o mesmo defeito que o Autorizador recusa no

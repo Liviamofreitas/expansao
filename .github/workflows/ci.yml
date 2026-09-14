@@ -197,6 +197,37 @@ jobs:
       - name: Construir
         run: docker build -t sgdf:${{ github.sha }} .
 
+      # O `apk upgrade` do Dockerfile é o que fecha as CVE do sistema — e é
+      # também o que pode quebrar a imagem sem avisar: um musl ou um openssl
+      # novo que não case com o JRE derruba o processo só na primeira execução
+      # em produção. Um escaneamento verde sobre uma imagem que não sobe é
+      # exatamente o defeito que este projeto recusa: uma falha que se parece
+      # com aprovação.
+      #
+      # Três perguntas, as três baratas: o JRE ainda roda, roda SEM ser root, e o
+      # `wget` do HEALTHCHECK continua existindo. A segunda é o controle do
+      # cap. 15.1 verificado no artefato e não no Dockerfile — `USER sgdf` só
+      # vale se a imagem construída de fato o honrar. A terceira existe porque
+      # um HEALTHCHECK cujo binário sumiu marca o contêiner como unhealthy para
+      # sempre, e o orquestrador o reinicia em laço sem que nada esteja errado
+      # com a aplicação.
+      #
+      # `--entrypoint` é obrigatório nas três: o ENTRYPOINT desta imagem é o
+      # JarLauncher, então `docker run sgdf java -version` NÃO roda `java
+      # -version` — passa "java -version" como argumento para a aplicação e a
+      # sobe de verdade, sem banco, e o passo só terminaria no timeout.
+      - name: Fumaça (a imagem sobe, e não sobe como root)
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint java sgdf:${{ github.sha }} -version
+          uid=$(docker run --rm --entrypoint id sgdf:${{ github.sha }} -u)
+          echo "uid em execução: $uid"
+          if [ "$uid" = "0" ]; then
+            echo "::error::a imagem roda como root"
+            exit 1
+          fi
+          docker run --rm --entrypoint sh sgdf:${{ github.sha }} -c 'command -v wget'
+
       # "imagem base fixada E ESCANEADA". Fixar sem escanear dá a ilusão de
       # controle: a base congelada continua acumulando CVE, e congelá-la é
       # justamente o que impede que ela se conserte sozinha.
