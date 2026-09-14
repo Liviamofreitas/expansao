@@ -3657,3 +3657,91 @@ nenhum arquivo que a varredura ingere passa por ele hoje. Fica registrado como
 **RA-19**, porque é diferente de "pronto".
 
 Total: **1307 Java**, **164 SQL**.
+
+---
+
+## 57. RA-19 — o alias existia, era lido, e não chegava a arquivo nenhum
+
+A F1-06 promete que *"o mesmo padrão não retorna"* à fila de triagem. A triagem
+gravava o alias; o `RepositorioDeAlias` sabia lê-lo; o `Pipeline` já aceitava um
+`Bonus` no parâmetro. E a varredura passava **`null`**:
+
+```java
+pipeline.processar(nomeDe(arquivo.caminho()), arquivo.conteudo(),
+        VeredictoAntivirus.limpo(), hashesDoCiclo, null);
+```
+
+Cada peça funcionava, cada peça tinha teste, e a cadeia não existia. A promessa
+valia no teste e não valia em produção — e o sintoma era o arquivo do mês
+seguinte voltando à fila, que se parece com trabalho normal.
+
+**A RA-03 produziu esta descoberta**: ao tirar o peso do código, encontrei que
+só o teste construía o `RepositorioDeAlias`. Fechar uma pendência revelou a
+seguinte.
+
+### 57.1 Uma leitura por varredura, não por arquivo
+
+O peso vem do cadastro (RA-03). Trezentos arquivos não precisam de trezentas
+leituras do mesmo parâmetro: o de-para é carregado uma vez por varredura. E com
+peso zero o repositório **nem consulta a tabela de aliases** — ler para
+multiplicar tudo por zero só gastaria uma query por arquivo.
+
+### 57.2 O bônus desligado viaja no resultado
+
+Sem o parâmetro, o alias deixa de agir e os arquivos que a triagem já ensinou
+voltam à fila. Quem olha a fila crescer não tem como saber que a causa é um
+parâmetro ausente e não um mês movimentado. Por isso `Ingerida.aliasDesligado`
+carrega o motivo.
+
+**E isso não é incompletude.** A pasta foi lida inteira, os documentos entraram,
+o job não deve falhar por causa de um bônus desligado. Confundir observação com
+falha faria a varredura reportar `FalhaParcial` num lote perfeito — medido: ao
+incluir `comAliasDesligado()` em `incompleta()`, o caso explode com
+`FalhaParcial`.
+
+### 57.3 A asserção que não podia ver o que media
+
+A primeira versão do teste comparava a confiança gravada usando `CND_RFB`, o
+fixture das certidões. **Ele pontua 1,0 só pelo conteúdo**, e
+`Math.min(1.0, 1.0 + 0,10)` é 1,0: sobre ele o bônus é **invisível**.
+
+O teste falhava — o que foi sorte. Se o fixture tivesse pontuado 0,90, a
+asserção passaria com o bônus ligado *e* com ele desligado, e eu teria declarado
+a RA-19 fechada sobre uma medição que não mede nada. É a quarta vez nesta base
+que uma asserção de aparência sólida é estruturalmente cega; as outras foram a
+ordenação do `Set.copyOf` (§41), o `pg_restore --no-privileges` satisfeito pelo
+vazio (§51) e o "PRONTO uma vez só" da corrida (§55.4).
+
+A correção foi um fixture com **menos âncoras**: conteúdo 0,75, dentro da faixa
+de triagem. O bônus leva a 0,85, e a diferença é observável.
+
+### 57.4 A metade que importa tanto quanto
+
+0,75 + 0,10 = 0,85 — **ainda dentro da faixa**. O documento continua indo à
+triagem.
+
+É a demonstração, sobre dado real, de que o alias **corrobora e não elege**:
+renomear um arquivo não pode classificá-lo, e o sistema existe porque o nome do
+arquivo não é confiável. Um teste que só provasse "o bônus chegou" deixaria em
+aberto a pergunta que importa — *chegou e fez o quê?*
+
+### 57.5 A limpeza que entrou antes da falha
+
+`tipo_alias.texto_normalizado` é UNIQUE e a carga não o traz. Sem `DELETE FROM
+tipo_alias`, o teste passaria uma vez e falharia em todas as execuções seguintes
+por violação de unicidade — a quarta ocorrência do mesmo padrão nesta sessão,
+depois da contagem absoluta contra a trilha (§53.6), do `finally` que gravou
+`null` (§56.6) e do caminho compartilhado entre fixtures.
+
+Desta vez a limpeza entrou **antes** de a falha aparecer. Três execuções
+seguidas passam.
+
+### 57.6 Três quebras deliberadas
+
+| Quebra | Asserção que cai |
+|---|---|
+| A varredura volta a passar `null` no lugar do bônus | "o arquivo do mês seguinte chega com o bônus do cadastro" |
+| O bônus desligado deixa de viajar no resultado | "a varredura ANUNCIA que o alias não agiu" |
+| O alias desligado passa a contar como incompletude | o caso explode com `FalhaParcial` num lote perfeito |
+
+Total: **1314 Java**, **164 SQL**.

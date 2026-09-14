@@ -2,6 +2,7 @@ package br.com.engesoftware.sgdf.persistencia;
 
 import br.com.engesoftware.sgdf.coleta.ArquivoColetado;
 import br.com.engesoftware.sgdf.coleta.ResultadoVarredura;
+import br.com.engesoftware.sgdf.classificacao.Bonus;
 import br.com.engesoftware.sgdf.coleta.VeredictoAntivirus;
 import br.com.engesoftware.sgdf.pipeline.DocumentoProcessado;
 import br.com.engesoftware.sgdf.pipeline.Pipeline;
@@ -23,6 +24,20 @@ import java.util.UUID;
  * grava, o {@code Classificador} não lê arquivo — e paga o mesmo dividendo:
  * esta classe é exercitada ponta a ponta contra o banco <b>sem servidor
  * WebDAV</b>, que é a única forma de a costura ter teste de verdade.
+ *
+ * <p><b>O bônus de alias entra aqui, e antes não entrava (RA-19).</b> Até esta
+ * versão a varredura passava {@code null} ao pipeline no lugar do bônus: a
+ * triagem gravava o alias, o {@code RepositorioDeAlias} sabia lê-lo, e
+ * <b>nenhum arquivo que a varredura ingeria passava por ele</b>. A promessa da
+ * F1-06 — <i>"o mesmo padrão não retorna"</i> — valia no teste e não valia em
+ * produção, e o sintoma era o arquivo do mês seguinte voltando à fila, que se
+ * parece com trabalho normal.
+ *
+ * <p>O de-para é carregado <b>uma vez por varredura</b>, não por arquivo: o peso
+ * vem do cadastro (RA-03) e trezentos arquivos não precisam de trezentas
+ * leituras do mesmo parâmetro. E quando o bônus está desligado — parâmetro
+ * ausente ou zerado — o motivo viaja no resultado, porque um bônus que não age
+ * e não se anuncia é a mesma ausência sem sintoma de sempre.
  *
  * <p><b>Uma varredura incompleta não reporta sucesso.</b> O cap. 14.1 manda que
  * indisponibilidade da origem gere alerta e nunca perda: o que foi ingerido
@@ -62,13 +77,20 @@ public final class VarreduraDeCiclo {
         //    um arquivo que chegou em `coletados` foi verificado lá, e repetir a
         //    verificação aqui gastaria o dobro sem decidir nada de novo.
         Set<String> hashesDoCiclo = hashesJaVinculados(cicloId);
+        RepositorioDeAlias aliases = RepositorioDeAlias.doCadastro(sgdf);
         List<GravadorDoPipeline.Item> itens = new ArrayList<>();
         List<String> falhasDeProcessamento = new ArrayList<>();
         for (ArquivoColetado arquivo : resultado.coletados) {
             try {
+                String nome = nomeDe(arquivo.caminho());
+                // O ALIAS CORROBORA, NÃO ELEGE. O Classificador só considera o
+                // bônus depois de o CONTEÚDO ter alcançado o limiar de triagem —
+                // renomear um arquivo não pode classificá-lo, e é por isso que
+                // passar o bônus aqui é seguro.
+                Bonus bonus = aliases.doNome(nome);
                 DocumentoProcessado processado = pipeline.processar(
-                        nomeDe(arquivo.caminho()), arquivo.conteudo(),
-                        VeredictoAntivirus.limpo(), hashesDoCiclo, null);
+                        nome, arquivo.conteudo(),
+                        VeredictoAntivirus.limpo(), hashesDoCiclo, bonus);
                 itens.add(new GravadorDoPipeline.Item(processado, arquivo.caminho(),
                         arquivo.versao()));
             } catch (RuntimeException e) {
@@ -96,7 +118,8 @@ public final class VarreduraDeCiclo {
 
         Ingerida ingerida = new Ingerida(lote.processados(), lote.ineditos(),
                 lote.emTriagem(), lote.semExigencia(), organizacao,
-                List.copyOf(falhas), resultado.truncada, resultado.motivoTruncamento);
+                List.copyOf(falhas), resultado.truncada, resultado.motivoTruncamento,
+                aliases.desligadoPorque());
 
         if (ingerida.incompleta()) {
             throw new Agendador.FalhaParcial(ingerida.motivoDaIncompletude(),
@@ -142,10 +165,24 @@ public final class VarreduraDeCiclo {
      */
     public record Ingerida(int processados, long ineditos, long emTriagem, long semExigencia,
                            RepositorioDeOrganizacao.Registro organizacao, List<String> falhas,
-                           boolean truncada, String motivoTruncamento) {
+                           boolean truncada, String motivoTruncamento,
+                           String aliasDesligado) {
 
         public Ingerida {
             falhas = List.copyOf(falhas);
+        }
+
+        /**
+         * O bônus de alias não agiu nesta varredura, e por quê.
+         *
+         * <p><b>Não é incompletude e não faz o job falhar</b> — a varredura leu
+         * tudo e ingeriu tudo. É observação: sem o bônus, os arquivos que a
+         * triagem já ensinou voltam para a fila, e quem olha a fila crescer não
+         * tem como saber que a causa é um parâmetro ausente e não um mês
+         * movimentado.
+         */
+        public boolean comAliasDesligado() {
+            return aliasDesligado != null;
         }
 
         /**

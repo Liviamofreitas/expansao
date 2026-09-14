@@ -42,6 +42,21 @@ public final class TestesDeIngestao {
             + "o direito de a Fazenda Nacional cobrar e inscrever quaisquer dividas de "
             + "responsabilidade do sujeito passivo acima identificada que vierem a ser "
             + "apuradas. Validade: 20/12/2026";
+    /**
+     * A MESMA certidao, com menos ancoras — conteudo 0,75, dentro da faixa de
+     * triagem (0,70–0,95).
+     *
+     * <p>Existe porque {@link #CND_RFB} pontua <b>1,0</b> so pelo conteudo, e
+     * {@code Math.min(1.0, 1.0 + peso)} e 1,0: sobre ele o bonus e
+     * INVISIVEL. Uma assercao de "a confianca subiu" ali seria estruturalmente
+     * incapaz de ver o que pretende medir — foi exatamente o que aconteceu na
+     * primeira versao deste teste.
+     */
+    static final String CND_RFB_PARCIAL = "MINISTERIO DA FAZENDA Secretaria da Receita "
+            + "Federal do Brasil CERTIDAO POSITIVA COM EFEITOS DE NEGATIVA DE DEBITOS "
+            + "RELATIVOS AOS TRIBUTOS FEDERAIS E A DIVIDA ATIVA DA UNIAO Nome: "
+            + "ENGESOFTWARE TECNOLOGIA S/A CNPJ: 03.681.946/0001-30 Validade: 20/12/2026";
+
     static final String CNDT = "PODER JUDICIARIO JUSTICA DO TRABALHO CERTIDAO NEGATIVA DE "
             + "DEBITOS TRABALHISTAS Nome: ENGESOFTWARE TECNOLOGIA S/A CNPJ: 03.681.946/0001-30 "
             + "Certidao no: 12345678/2026 Expedicao: 01/07/2026 Validade: 28/12/2026 "
@@ -79,6 +94,10 @@ public final class TestesDeIngestao {
                         () -> aVarreduraCosturaOrigemAteOBanco(sgdf));
                 executar("aVarreduraTruncadaNaoDizSucesso",
                         () -> aVarreduraTruncadaNaoDizSucesso(sgdf));
+                executar("aVarreduraAplicaOAliasAprendidoNaTriagem",
+                        () -> aVarreduraAplicaOAliasAprendidoNaTriagem(sgdf));
+                executar("oAliasDesligadoViaja",
+                        () -> oAliasDesligadoViaja(sgdf));
                 executar("aFalhaParcialRegistraOQueJaEntrou",
                         () -> aFalhaParcialRegistraOQueJaEntrou(sgdf));
             } finally {
@@ -368,6 +387,114 @@ public final class TestesDeIngestao {
 
     // -------------------------------------------------------------------------
 
+    /**
+     * RA-19: o alias aprendido na triagem chega ao arquivo que a varredura ingere.
+     *
+     * <p>Ate esta versao a varredura passava {@code null} no lugar do bonus. A
+     * triagem gravava o alias, o RepositorioDeAlias sabia le-lo, e NENHUM
+     * arquivo que a varredura ingeria passava por ele: a promessa da F1-06 — "o
+     * mesmo padrao nao retorna" — valia no teste e nao valia em producao. O
+     * sintoma era o arquivo do mes seguinte voltando a fila, que se parece com
+     * trabalho normal.
+     *
+     * <p>O que se mede e a CONFIANCA gravada. Comparar o desfecho (foi ou nao
+     * para a triagem) dependeria de o conteudo cair exatamente na faixa
+     * 0,70–0,95, o que amarraria o teste a um score que as regras podem mudar.
+     * A confianca e observavel sempre.
+     */
+    static void aVarreduraAplicaOAliasAprendidoNaTriagem(Sgdf sgdf) {
+        Fixture semAlias = fixture(sgdf, "CER.CND_RFB");
+        new VarreduraDeCiclo(sgdf, pipeline()).ingerir(semAlias.ciclo,
+                contratoDo(sgdf, semAlias.ciclo), "2026-06",
+                varredura(coletado(semAlias.arquivo("guia_padrao_alfa.pdf"),
+                        pdf(CND_RFB_PARCIAL), "etag-a")),
+                MARCA);
+        String antes = escalar(sgdf, "SELECT confianca FROM documento WHERE caminho = '"
+                + semAlias.arquivo("guia_padrao_alfa.pdf") + "'");
+        ok("RA-19 . sem alias, a confianca gravada e a do conteudo (0,750)",
+                antes != null && new java.math.BigDecimal(antes)
+                        .compareTo(new java.math.BigDecimal("0.750")) == 0);
+
+        // A triagem ensina: o padrao estavel do nome vira alias do tipo.
+        executarSql(sgdf, "INSERT INTO tipo_alias (tipo_id, texto_original,"
+                + " texto_normalizado, origem, criado_por)"
+                + " SELECT t.id, 'GUIA_PADRAO_ALFA.pdf', 'guia_padrao_alfa', 'TRIAGEM', '"
+                + MARCA + "' FROM tipo_documental t WHERE t.codigo = 'CER.CND_RFB'");
+
+        // O MES SEGUINTE: mesmo conteudo, nome do mesmo padrao, ciclo novo.
+        Fixture comAlias = fixture(sgdf, "CER.CND_RFB");
+        new VarreduraDeCiclo(sgdf, pipeline()).ingerir(comAlias.ciclo,
+                contratoDo(sgdf, comAlias.ciclo), "2026-06",
+                varredura(coletado(comAlias.arquivo("guia_padrao_alfa_07.pdf"),
+                        pdf(CND_RFB_PARCIAL), "etag-b")),
+                MARCA);
+        String depois = escalar(sgdf, "SELECT confianca FROM documento WHERE caminho = '"
+                + comAlias.arquivo("guia_padrao_alfa_07.pdf") + "'");
+
+        double diferenca = new java.math.BigDecimal(depois)
+                .subtract(new java.math.BigDecimal(antes)).doubleValue();
+        ok("RA-19 . com o alias, o arquivo do mes seguinte chega com o bonus do cadastro — "
+                        + "a varredura passou a ler o que a triagem ensinou",
+                Math.abs(diferenca - RepositorioDeAlias.doCadastro(sgdf).peso()) < 1e-6);
+
+        // E A OUTRA METADE, QUE IMPORTA TANTO QUANTO: 0,75 + 0,10 = 0,85, ainda
+        // dentro da faixa. O alias CORROBORA e nao ELEGE — renomear um arquivo
+        // nao pode classifica-lo, e o sistema existe porque o nome nao e
+        // confiavel.
+        ok("Cap. 8.3 . e mesmo com o bonus o documento continua indo a triagem — "
+                        + "0,85 nao fecha a faixa, e nao deve fechar",
+                "PENDENTE".equals(escalar(sgdf, "SELECT status_triagem FROM documento"
+                        + " WHERE caminho = '"
+                        + comAlias.arquivo("guia_padrao_alfa_07.pdf") + "'")));
+    }
+
+    /**
+     * Bonus desligado nao pode ser silencioso — a licao da RA-03, uma camada acima.
+     *
+     * <p>Sem o parametro, o alias deixa de agir e os arquivos que a triagem ja
+     * ensinou voltam a fila. Quem olha a fila crescer nao tem como saber que a
+     * causa e um parametro ausente e nao um mes movimentado. Por isso o motivo
+     * viaja no resultado da varredura, em vez de ser deduzido.
+     */
+    static void oAliasDesligadoViaja(Sgdf sgdf) {
+        Fixture f = fixture(sgdf, "CER.CND_RFB");
+        VarreduraDeCiclo.Ingerida comBonus = new VarreduraDeCiclo(sgdf, pipeline())
+                .ingerir(f.ciclo, contratoDo(sgdf, f.ciclo), "2026-06",
+                        varredura(coletado(f.arquivo("cnd.pdf"), pdf(CND_RFB), "etag-c")), MARCA);
+        ok("RA-19 . com o parametro cadastrado, nada a anunciar",
+                !comBonus.comAliasDesligado() && comBonus.aliasDesligado() == null);
+
+        String anterior = escalar(sgdf, "SELECT valor #>> '{}' FROM parametro WHERE chave = '"
+                + RepositorioDeAlias.CHAVE_PESO + "' AND escopo = 'GLOBAL'");
+        try {
+            executarSql(sgdf, "DELETE FROM parametro WHERE chave = '"
+                    + RepositorioDeAlias.CHAVE_PESO + "' AND escopo = 'GLOBAL'");
+            Fixture g = fixture(sgdf, "CER.CND_RFB");
+            VarreduraDeCiclo.Ingerida sem = new VarreduraDeCiclo(sgdf, pipeline())
+                    .ingerir(g.ciclo, contratoDo(sgdf, g.ciclo), "2026-06",
+                            varredura(coletado(g.arquivo("cnd.pdf"), pdf(CND_RFB), "etag-d")), MARCA);
+
+            ok("RA-19 . sem o parametro, a varredura ANUNCIA que o alias nao agiu",
+                    sem.comAliasDesligado() && sem.aliasDesligado().contains("F1-06"));
+            ok("RA-19 . e isso NAO e incompletude: a pasta foi lida inteira e o job nao "
+                            + "deve falhar por causa de um bonus desligado",
+                    !sem.incompleta() && sem.motivoDaIncompletude() == null);
+            ok("RA-19 . os documentos entraram do mesmo jeito", sem.processados() == 1);
+        } finally {
+            // Restaura o que HAVIA — se nao havia, nao inventa. A primeira
+            // versao deste padrao gravou o jsonb 'null' e envenenou a suite
+            // inteira (achados 56.6).
+            executarSql(sgdf, "DELETE FROM parametro WHERE chave = '"
+                    + RepositorioDeAlias.CHAVE_PESO + "' AND escopo = 'GLOBAL'");
+            if (anterior != null) {
+                executarSql(sgdf, "INSERT INTO parametro (chave, escopo, valor, descricao,"
+                        + " criado_por) VALUES ('" + RepositorioDeAlias.CHAVE_PESO
+                        + "', 'GLOBAL', '" + anterior + "'::jsonb,"
+                        + " 'restaurado pelo teste', 'carga-inicial')");
+            }
+        }
+    }
+
     static br.com.engesoftware.sgdf.coleta.ResultadoVarredura varredura(
             br.com.engesoftware.sgdf.coleta.ArquivoColetado... arquivos) {
         var r = new br.com.engesoftware.sgdf.coleta.ResultadoVarredura();
@@ -520,6 +647,13 @@ public final class TestesDeIngestao {
             "DELETE FROM achado_de_organizacao WHERE contrato_servico_id IN"
                     + " (SELECT id FROM contrato_servico WHERE criado_por = '" + MARCA + "')",
             "DELETE FROM execucao_de_job WHERE instancia = '" + MARCA + "'",
+            // texto_normalizado é UNIQUE e a carga não o traz: sem esta linha o
+            // teste do alias passa uma vez e falha em todas as execuções
+            // seguintes com violação de unicidade. É a quarta vez nesta sessão
+            // que um fixture não limpo produziria um teste que só funciona da
+            // primeira vez — desta vez a limpeza entrou antes de a falha
+            // aparecer.
+            "DELETE FROM tipo_alias WHERE criado_por = '" + MARCA + "'",
             "DELETE FROM exigencia WHERE criado_por = '" + MARCA + "'",
             "DELETE FROM ciclo WHERE criado_por = '" + MARCA + "'",
             "DELETE FROM contrato_servico WHERE criado_por = '" + MARCA + "'",
