@@ -158,7 +158,32 @@ jobs:
       # docker build rodar — a imagem continuou nunca tendo sido construída, e
       # o job vermelho dizia "escaneamento falhou" quando o que falhou foi
       # resolver a própria ação.
-      - name: Escanear
+      # DUAS PASSADAS, E A PRIMEIRA EXISTE PARA SER LIDA.
+      #
+      # Com `format: sarif` o Trivy escreve tudo num arquivo e o console fica
+      # mudo: o job falha com "exit code 1" e quem abre o log não descobre QUAL
+      # pacote, QUAL CVE, nem se há correção. Aconteceu — a primeira vez que
+      # esta etapa de fato rodou, ela reprovou a imagem sem dizer por quê, e a
+      # resposta só existia num SARIF na aba de segurança.
+      #
+      # Uma recusa que não diz o que fazer a seguir custa quase tanto quanto o
+      # defeito que ela evitou. A tabela vai para o log com `exit-code: 0` —
+      # informa e não barra; o SARIF barra. O banco do Trivy é baixado uma vez
+      # e reaproveitado entre as duas etapas.
+      - name: Escanear (tabela legível no log)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: sgdf:${{ github.sha }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+          ignore-unfixed: true
+
+      # `ignore-unfixed: true` é deliberado: CVE sem correção publicada não é
+      # acionável por quem constrói a imagem, e barrar nela produziria a
+      # exceção permanente que mata o gate. O que passa por aqui, portanto,
+      # TEM correção disponível.
+      - name: Escanear (gate)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: sgdf:${{ github.sha }}
