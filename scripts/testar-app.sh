@@ -121,6 +121,10 @@ echo "→ orquestração de jobs (RA-07)"
 java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.persistencia.TestesDeAgendador | filtrar
 
+echo "→ retenção por temporalidade e expurgo (A08, LGPD-02)"
+java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
+    br.com.engesoftware.sgdf.retencao.TestesDeExpurgo | filtrar
+
 echo "→ recertificação de acessos (F3-06, SEC-10)"
 java -Dfile.encoding=UTF-8 -Dsgdf.jdbc="${SGDF_JDBC:-}" -cp "$ALVO:$CP" \
     br.com.engesoftware.sgdf.seguranca.TestesDeRecertificacao | filtrar

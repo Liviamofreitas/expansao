@@ -11,7 +11,7 @@
 --   * os 34 índices parciais, que são regra de unicidade condicional e não
 --     otimização — `ux_excecao_aberta` é o que impede duas exceções em aberto
 --     para a mesma exigência;
---   * os 120 CHECK, que são a última rede quando o serviço erra.
+--   * os 130 CHECK, que são a última rede quando o serviço erra.
 --
 -- Um `pg_dump --data-only` restaurado sobre um esquema recriado à mão, um
 -- `pg_restore` com `--no-privileges`, ou um `CREATE DATABASE` a partir de um
@@ -123,8 +123,8 @@ BEGIN
 
     -- 4. Os CHECK continuam lá ---------------------------------------------------
     SELECT count(*) INTO v_n FROM pg_constraint WHERE contype = 'c';
-    IF v_n < 110 THEN
-        PERFORM teste_falhou('SEC-09 · só ' || v_n || ' restrições CHECK — eram 120. '
+    IF v_n < 120 THEN
+        PERFORM teste_falhou('SEC-09 · só ' || v_n || ' restrições CHECK — eram 130. '
                              'São a última rede quando o serviço erra');
     END IF;
     PERFORM teste_ok('SEC-09 · as restrições CHECK sobreviveram (' || v_n || ')');
@@ -136,6 +136,24 @@ BEGIN
                              'aprovar a própria exceção, e as três camadas viram duas');
     END IF;
     PERFORM teste_ok('SEC-09 · excecao_sod continua impedindo aprovar a própria exceção');
+
+    -- 5b. O REGISTRO DE EXPURGO CONTINUA APPEND-ONLY (A08 / LGPD-02) --------------
+    --
+    -- Vale mais aqui que na trilha. Depois de um expurgo executado, a linha em
+    -- `expurgo` é a ÚNICA prova de que a eliminação aconteceu — o dado que ela
+    -- descreve não existe mais para ser conferido. Uma restauração que perca
+    -- estas RULEs devolve todas as linhas e um banco que sobe, e a eliminação
+    -- deixa de ser demonstrável sem sintoma nenhum. Perante a ANPD, eliminação
+    -- que não se demonstra não aconteceu.
+    SELECT count(*) INTO v_n FROM pg_rules
+    WHERE schemaname = 'public' AND tablename IN ('expurgo', 'expurgo_item');
+    IF v_n <> 4 THEN
+        PERFORM teste_falhou('SEC-09 · o registro de expurgo tem ' || v_n || ' RULEs de '
+                             'append-only, e eram 4 — a prova da eliminação voltou a ser '
+                             'editável, e é a única que sobrou depois que o dado sumiu');
+    END IF;
+    PERFORM teste_ok('SEC-09 · as 4 RULEs de append-only do registro de expurgo '
+                     'sobreviveram (A08)');
 
     -- 6. O esquema está completo -------------------------------------------------
     SELECT count(*) INTO v_n FROM pg_tables WHERE schemaname = 'public';

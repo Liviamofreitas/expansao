@@ -47,6 +47,24 @@ public final class Agendador {
      * @param trabalho devolve quantos itens tratou — zero é resposta legítima
      */
     public Execucao executar(Job job, Supplier<Integer> trabalho) {
+        return executar(job, execucaoId -> trabalho.get());
+    }
+
+    /**
+     * O mesmo, para quem precisa apontar para a execução que o produziu.
+     *
+     * <p>Existe por causa do expurgo (A08). O registro de eliminação tem de
+     * dizer em qual execução aconteceu — sem isso, "quem apagou isto?" só se
+     * responde por aproximação de horário, e um registro de eliminação que se
+     * lê por aproximação não se defende perante a ANPD.
+     *
+     * <p>O id é passado em vez de consultado. Buscar a execução em aberto por
+     * {@code max(id)} funcionaria hoje, com o lock garantindo uma só execução
+     * de verdade — mas a instância que acorda e encontra o lock tomado também
+     * abre linha, e por um instante há duas em aberto. O trabalho poderia
+     * apontar para a execução errada em exatamente a janela que ninguém testa.
+     */
+    public Execucao executar(Job job, Trabalho trabalho) {
         if (job == null) {
             throw new JobNaoAgendavel("job não informado");
         }
@@ -72,7 +90,7 @@ public final class Agendador {
             return new Execucao(job, "CONCORRENTE", 0, null);
         }
         try {
-            int itens = trabalho.get();
+            int itens = trabalho.fazer(id);
             fechar(id, "SUCESSO", itens, null);
             return new Execucao(job, "SUCESSO", itens, null);
         } catch (FalhaParcial e) {
@@ -271,6 +289,13 @@ public final class Agendador {
      */
     static long chaveDo(Job job) {
         return 8_030_000L + job.ordinal();
+    }
+
+    /** O trabalho de um job, que recebe o id da própria execução. */
+    @FunctionalInterface
+    public interface Trabalho {
+        /** @return quantos itens tratou — zero é resposta legítima */
+        int fazer(long execucaoId);
     }
 
     /** Um desfecho. {@code itens} é zero em CONCORRENTE e em FALHA. */

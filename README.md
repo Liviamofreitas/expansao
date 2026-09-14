@@ -239,11 +239,12 @@ Extração de PDF **com posições**, que é a razão técnica da escolha de sta
 
 ## Estado das pendências
 
-Sete das treze pendências do cap. 23 estão **resolvidas**; duas **encaminhadas**; quatro **não são resolvíveis por engenharia** — dependem de conferência documental, decisão jurídica ou alocação de pessoas. O detalhe está em [`docs/PENDENCIAS.md`](docs/PENDENCIAS.md).
+Seis das treze pendências do cap. 23 estão **resolvidas** e uma **parcialmente**; duas **encaminhadas**; quatro **não são resolvíveis por engenharia** — dependem de conferência documental, decisão jurídica ou alocação de pessoas. O detalhe está em [`docs/PENDENCIAS.md`](docs/PENDENCIAS.md).
 
 | | Pendências |
 |---|---|
-| **Resolvidas** | A02, A03, A04, A07, A08, A09, A13 |
+| **Resolvidas** | A02, A03, A04, A07, A09, A13 |
+| **Parcial** — o mecanismo está pronto, a decisão não | A08 (temporalidade: 4 prazos aguardando o jurídico) |
 | **Encaminhadas** — falta insumo externo | A05 (sistema de folha), A12 (RIPD) |
 | **Fora do alcance de engenharia** | A01 (checklists ausentes), A06 (fundamento contratual), A10 (sustentação), A11 (norma) |
 
@@ -254,6 +255,7 @@ Sete das treze pendências do cap. 23 estão **resolvidas**; duas **encaminhadas
 | Fase 1a completa | Nada. **Liberada.** |
 | Fase 1b (conciliação de valores) | **A05** |
 | Entrar em produção | **A12** e **A11** |
+| Parar de reter dado pessoal sem termo final | **A08** — 4 `UPDATE`s de aprovação, não release |
 | Ativar a fase 3 | **A10** |
 
 ### Stack (A13)
@@ -284,11 +286,26 @@ A matriz do Anexo 1 está carregada, desdobrada por contrato-serviço:
 
 Cada contrato-serviço recebe sua **própria** cópia das regras do cliente. É o cenário conservador de R-04: consolidar depois é barato; descobrir tarde que BNB-OUT e BNB-SUS divergem custaria migração e, no intervalo, exigências não cobradas.
 
-### Retenção (A08)
+### Retenção e expurgo (A08 / LGPD-02)
 
-A decisão foi retenção **sem tempo determinado**, implementada como `LEGAL_HOLD`: protege indefinidamente e é reversível por papel autorizado. `COMPLIANCE` — irreversível, nem a conta raiz reduz — existe mas não é o padrão.
+**O mecanismo está pronto; os prazos não estão aprovados — e o sistema recusa cada um pelo nome.**
 
-**Fica registrada uma ressalva para o DPO:** guardar dado pessoal sem termo final tensiona os arts. 6º III, 16 e 18 da LGPD, e os books contêm CPF, remuneração e dado de saúde. `LEGAL_HOLD` mantém a decisão reversível enquanto a tabela de temporalidade não existir — o que `COMPLIANCE` não faria. Ver [`INVENTARIO-DADOS-PESSOAIS.md`](docs/INVENTARIO-DADOS-PESSOAIS.md), seção 4.
+A tabela `temporalidade` declara, por classe de dado, de que **marco** o prazo conta, quantos **meses**, qual a **ação** ao vencer e o **fundamento** escrito. Um job mensal a aplica e registra o que eliminou em `expurgo` / `expurgo_item`, ambas *append-only*. A carga traz **4 classes propostas e nenhuma aprovada**.
+
+| Alvo | Marco | Prazo | Ação | Estado |
+|---|---|---|---|---|
+| `ACESSO_OBSERVADO` | Registro | 12 meses | EXPURGAR | Proposta |
+| `NOTIFICACAO` | Registro | 60 meses | EXPURGAR | Proposta |
+| `DOCUMENTO` | Desligamento | 60 meses | **REVISAR** | Proposta — lista para humano, **não apaga** |
+| `PROFISSIONAL` | Desligamento | 60 meses | ANONIMIZAR | Proposta, e ainda **sem executor** |
+
+**A autorização é uma trava do banco, não um `if`.** `expurgo.autorizado_em` é NOT NULL e é copiada de `temporalidade.aprovado_em` no **mesmo comando** que o DELETE: classe sem aprovação não consegue nem *registrar* o expurgo, e o que não se registra não se apaga. Medido por quebra deliberada — com a verificação em Java removida, o banco segurou sozinho.
+
+**"Apagou zero porque nada venceu" e "apagou zero porque ninguém aprovou" são resultados diferentes.** O primeiro vira linha com `itens = 0`; o segundo sai como recusa nomeada no log em WARN, no `detalhe` da execução e em `GET /api/retencao`. Sem isso, a não conformidade sobreviveria anos com o painel verde — é o quinto caso do mesmo padrão nesta base (achados §52.5).
+
+**Quem aprova não é a TI.** O endpoint é somente leitura de propósito: o cap. 15.1 não nomeia papel para autorizar destruição de dado, e a única permissão técnica que caberia (`CONFIGURAR_SISTEMA`) é da TI. Aprovar é `UPDATE temporalidade SET aprovado_em, aprovado_por` — ato de cadastro registrado, feito por quem a norma interna (**A11**) nomear. **Não é deploy.**
+
+O book segue em `LEGAL_HOLD`: protege indefinidamente e é **reversível**. Migrar para `COMPLIANCE` — irreversível, nem a conta raiz reduz — deve acontecer uma única vez, depois das aprovações. Ver [`INVENTARIO-DADOS-PESSOAIS.md`](docs/INVENTARIO-DADOS-PESSOAIS.md), seção 4, e [achados §52](docs/ACHADOS-MASSA-REAL.md).
 
 ---
 

@@ -3104,3 +3104,153 @@ restauração levou 40 s seria medir a parte fácil e afirmar o todo.**
 
 10 verificações em `T013__garantias_apos_restauracao.sql`, executadas tanto na
 suíte quanto pelo script de restauração. Total: **1227 Java**, **145 SQL**.
+
+---
+
+## 52. A08 — o prazo de guarda é a decisão que o código não pode tomar
+
+A pendência A08 estava registrada há muito tempo como "tabela de temporalidade
+do book", com a decisão provisória de reter **sem prazo** via `LEGAL_HOLD`. Ao
+ir implementá-la, a primeira coisa que apareceu não foi um problema técnico: foi
+que **a parte difícil da A08 não é engenharia nenhuma**.
+
+### 52.1 Os dois erros, e nenhum deles é do desenvolvedor
+
+| Erro | Consequência | Reversível? |
+|---|---|---|
+| Prazo curto demais | O documento é destruído antes de deixar de ser exigível. A prova some no meio de uma reclamatória. | **Não.** |
+| Prazo longo demais | Retenção de dado pessoal sem termo final — art. 6º, III e art. 16 da LGPD, com CPF, remuneração e, em 4 tipos, dado de saúde. | Sim, apagando depois. |
+
+Os dois são decisões jurídicas. O que engenharia pode fazer é construir o
+mecanismo e **impedir que ele funcione antes de alguém com nome decidir**.
+
+### 52.2 A trava é o NOT NULL, e não um `if`
+
+`expurgo.autorizado_em` é NOT NULL e é preenchida por `SELECT t.aprovado_em FROM
+temporalidade t` — dentro do **mesmo comando** que o DELETE. Uma classe não
+aprovada tem `aprovado_em` nula, o INSERT viola o NOT NULL, o comando inteiro
+aborta, e o DELETE não acontece.
+
+A consequência que importa: **não há caminho que apague sem registrar, e não há
+registro possível sem aprovação.** Apagar a verificação em Java não abre o
+buraco — foi medido: com `Temporalidade.aprovada()` devolvendo `true`, o expurgo
+levanta `FalhaDePersistencia` ao tentar eliminar `ACESSO_OBSERVADO`. É a mesma
+escolha da V002 para a trilha: duas primitivas independentes, não uma.
+
+### 52.3 O marco importa mais que o prazo, e é onde se erra
+
+"Cinco anos" não diz nada sem dizer cinco anos **a partir de quê**. A prescrição
+do art. 7º, XXIX da Constituição corre da *extinção do contrato de trabalho*,
+não da competência.
+
+Um documento da competência **2020-01**, de alguém desligado em **2029**, ainda
+é prova em **2034**. Contado da competência, ele teria sido apagado em **2025** —
+quatro anos antes de deixar de ser exigível, e sem sintoma nenhum até o dia em
+que alguém precisasse dele.
+
+Por isso `Temporalidade.Alvo` declara a **única data que aquele alvo possui**, e
+uma política que pede um marco que o alvo não tem é **recusada** em vez de
+reinterpretada. A reinterpretação mais provável seria cair na data que existir —
+que é exatamente o erro acima.
+
+### 52.4 A capacidade é do PAR, não do alvo
+
+`DOCUMENTO` sabe `REVISAR` e **não** sabe `EXPURGAR`. Listar documentos vencidos
+para uma pessoa olhar é reversível; apagar evidência fiscal por decisão de
+agendador não é. Se o jurídico aprovar `EXPURGAR` para o documento, o sistema
+**recusa pelo nome** em vez de obedecer — apagar exige antes resolver a ordem com
+o book que o atesta (selado sob `LEGAL_HOLD`) e com os campos que sustentam a
+conciliação do cap. 9.
+
+Tratar "sabe listar" e "sabe apagar" como a mesma capacidade faria o sistema
+aceitar uma política de destruição de prova fiscal por ter sido escrito o código
+de uma lista.
+
+### 52.5 A quinta vez que a ausência se pareceu com saúde
+
+Hoje **nenhuma** classe está aprovada, logo o expurgo apaga zero. Um job que roda
+todo mês, apaga zero e sai como SUCESSO faria a não conformidade da A08
+sobreviver anos sem sintoma. É o quinto caso do mesmo padrão nesta base:
+
+| # | Onde | O que a ausência imitava |
+|---|---|---|
+| 1 | F0-05 (§33.2) | "nada mudou" = nada foi encontrado |
+| 2 | Completude na 1ª conferência (§43.4) | 100% porque a régua não rodou |
+| 3 | Agendador morto (§46) | nenhum documento novo, nenhum erro |
+| 4 | Ciclo vazio (§50) | ciclo aberto e completo por não ter exigência |
+| 5 | **Expurgo sem política aprovada** | "0 itens eliminados" = nada precisava ser |
+
+A defesa é a mesma das quatro vezes anteriores, e tem duas metades:
+
+- **"Apagou zero porque nada venceu"** vira linha em `expurgo` com `itens = 0`.
+- **"Apagou zero porque ninguém aprovou"** *não pode* virar linha — a trava do
+  §52.2 impede —, e sai como **recusa nomeada**, no `resumo()` da execução, no
+  `detalhe` de `execucao_de_job`, em WARN no log e no campo `ressalva` do
+  endpoint `/api/retencao`.
+
+### 52.6 O log da eliminação não pode recriar o que ela destruiu
+
+Registrar *"apaguei o contracheque de FULANO, CPF 137.810.319-00"* para provar
+que o CPF foi eliminado deixa o CPF vivo na tabela de prova. `expurgo_item`
+aceita **só chave** — uuid ou inteiro — por CHECK, não por convenção. Removido o
+CHECK, a asserção correspondente de `T014` cai.
+
+### 52.7 Quem aprova não é a TI
+
+O `RetencaoController` é **somente leitura**, e a ausência de um endpoint de
+aprovação é a decisão mais importante dele. O cap. 15.1 não nomeia papel para
+autorizar destruição de dado; a única permissão técnica que caberia,
+`CONFIGURAR_SISTEMA`, é da TI. Expor a aprovação atrás dela poria a área que
+*opera* o sistema decidindo por quanto tempo se guarda dado pessoal — a inversão
+de governança exata que a ISO/IEC 27001 e a LGPD pedem para não acontecer.
+
+Aprovar é `UPDATE temporalidade SET aprovado_em, aprovado_por`: ato de cadastro,
+registrado, feito por quem a norma interna (**A11**) nomear. **Não é deploy** —
+o jurídico não depende de release para decidir.
+
+### 52.8 O que ficou de fora, e é preciso dizer
+
+| Alvo | Ação proposta | Estado |
+|---|---|---|
+| `ACESSO_OBSERVADO` | EXPURGAR | Executor pronto e medido |
+| `NOTIFICACAO` | EXPURGAR | Executor pronto e medido |
+| `DOCUMENTO` | REVISAR | Lista pronta e medida; **não apaga** |
+| `PROFISSIONAL` | ANONIMIZAR | **Sem executor** — recusa nomeada |
+| `CAMPO_EXTRAIDO` | — | Sem classe; segue o documento |
+
+`log_auditoria` e `book` estão **fora da lista fechada e não podem entrar**:
+a trilha guarda o identificador do ator e não do titular (inventário §3) e é
+append-only desde a V002; o book se retém no armazenamento (`retencao_modo`), e
+destruí-lo exige antes levantar o `LEGAL_HOLD`, que é ato humano de papel
+autorizado. Dar ao agendador o poder de apagar o book selado que o cliente
+atestou seria o pior desfecho possível desta história.
+
+### 52.9 Sete quebras deliberadas, sete asserções certas
+
+| Quebra | Asserção que caiu |
+|---|---|
+| `Temporalidade.aprovada()` devolve `true` | `FalhaDePersistencia` ao expurgar classe não aprovada — **o banco segurou sozinho** |
+| `expurgo.autorizado_em` perde o NOT NULL | "uma classe NÃO aprovada conseguiu registrar expurgo" (18→2) |
+| `expurgo_item_so_chave` some | "gravou nome e CPF no registro de eliminação" (18→10) |
+| RULE `expurgo_sem_update` some | "o registro de expurgo aceitou UPDATE" |
+| A lista de revisão esquece o corte | "os outros três ficaram de fora" (40→39) |
+| O corte vira inclusivo (um dia cedo) | "12 meses antes de 2026-09-14 é 2025-09-14" (40→39) |
+| O `resumo()` cala sobre a recusa | "o resumo nomeia a não conformidade" (40→39) |
+
+### 52.10 Cobertura
+
+40 asserções em `TestesDeExpurgo` (17 sem banco, 23 contra o PostgreSQL) e 18 em
+`T014__temporalidade_e_expurgo.sql`, mais a verificação nova em `T013` de que as
+4 RULEs de append-only do registro de expurgo sobrevivem a uma restauração.
+Total: **1263 Java**, **164 SQL**.
+
+### 52.11 O que isto NÃO fecha
+
+A A08 continua **aberta**, e tem de continuar. O que mudou é o que ela agora
+pede: antes era "construir o mecanismo"; agora é **"aprovar os quatro prazos"** —
+quatro linhas de `UPDATE`, com fundamento escrito e assinatura de quem decide.
+E duas delas (`PROFISSIONAL`/ANONIMIZAR e uma eventual `DOCUMENTO`/EXPURGAR)
+ainda pedem código depois da decisão.
+
+Enquanto isso durar, o SGDF **retém dado pessoal sem termo final definido**, e
+agora diz isso em quatro lugares em vez de nenhum.

@@ -3,6 +3,7 @@ package br.com.engesoftware.sgdf.web;
 import br.com.engesoftware.sgdf.orquestracao.Job;
 import br.com.engesoftware.sgdf.persistencia.AberturaDeCiclos;
 import br.com.engesoftware.sgdf.persistencia.Agendador;
+import br.com.engesoftware.sgdf.persistencia.ExpurgoPorTemporalidade;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeNotificacao;
 import br.com.engesoftware.sgdf.persistencia.Sgdf;
 import java.time.LocalDate;
@@ -57,7 +58,7 @@ public class Disparador {
     @Scheduled(cron = "${sgdf.agendador.cron.abertura:0 10 3 * * *}",
                zone = "America/Sao_Paulo")
     public void abrirCiclos() {
-        executar(Job.ABERTURA_DE_CICLOS, (sgdf, agendador) -> {
+        executar(Job.ABERTURA_DE_CICLOS, (sgdf, agendador, execucaoId) -> {
             AberturaDeCiclos.Abertura a = new AberturaDeCiclos(sgdf)
                     .abrir(YearMonth.now(), "svc-agendador");
             if (!a.completa()) {
@@ -72,7 +73,7 @@ public class Disparador {
     /** Cap. 11.1: a régua do dia. O banco garante 1 e-mail por área por dia. */
     @Scheduled(cron = "${sgdf.agendador.cron.regua:0 0 8 * * *}", zone = "America/Sao_Paulo")
     public void regua() {
-        executar(Job.REGUA_DE_NOTIFICACAO, (sgdf, agendador) -> {
+        executar(Job.REGUA_DE_NOTIFICACAO, (sgdf, agendador, execucaoId) -> {
             RepositorioDeNotificacao repo = new RepositorioDeNotificacao(sgdf);
             int avisos = 0;
             List<String> falhas = new java.util.ArrayList<>();
@@ -93,6 +94,30 @@ public class Disparador {
         });
     }
 
+    /**
+     * A08/LGPD-02: aplica a tabela de temporalidade. Mensal.
+     *
+     * <p><b>Registra o resumo em WARN quando há classe não cumprida.</b> Hoje
+     * <i>todas</i> estão nessa situação, e é isso que o log tem de dizer. Um
+     * INFO com "SUCESSO (0 itens)" todo mês é exatamente como a não conformidade
+     * da A08 sobreviveria anos sem ninguém notar — o mesmo padrão do agendador
+     * morto, que também só se parece com saúde.
+     */
+    @Scheduled(cron = "${sgdf.agendador.cron.expurgo:0 30 2 5 * *}",
+               zone = "America/Sao_Paulo")
+    public void expurgar() {
+        executar(Job.EXPURGO_POR_TEMPORALIDADE, (sgdf, agendador, execucaoId) -> {
+            ExpurgoPorTemporalidade.Resultado r = new ExpurgoPorTemporalidade(sgdf)
+                    .executar(LocalDate.now(), "svc-agendador", execucaoId);
+            if (r.temNaoConformidade()) {
+                LOG.warn("Retenção (A08): {}", r.resumo());
+            } else {
+                LOG.info("Retenção (A08): {}", r.resumo());
+            }
+            return r.itens();
+        });
+    }
+
     // -------------------------------------------------------------------------
 
     /**
@@ -110,7 +135,7 @@ public class Disparador {
             Sgdf sgdf = new Sgdf(conexao);
             Agendador agendador = new Agendador(sgdf, instancia);
             Agendador.Execucao e = agendador.executar(job,
-                    () -> trabalho.executar(sgdf, agendador));
+                    execucaoId -> trabalho.executar(sgdf, agendador, execucaoId));
             LOG.info("{}: {} ({} item(ns))", job, e.resultado(), e.itens());
         } catch (Agendador.FalhaParcial e) {
             LOG.error("{}: falha parcial após {} item(ns) — {}", job, e.itens(),
@@ -140,6 +165,6 @@ public class Disparador {
 
     @FunctionalInterface
     interface Trabalho {
-        int executar(Sgdf sgdf, Agendador agendador);
+        int executar(Sgdf sgdf, Agendador agendador, long execucaoId);
     }
 }

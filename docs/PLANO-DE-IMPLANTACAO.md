@@ -65,7 +65,7 @@ finalidade e aprovação. **É o caminho crítico e nenhuma engenharia o encurta
 | 1.6 | Bucket de evidências com versionamento e cópia imutável | Infra | **Obrigatório** — cap. 11.2 |
 | 1.7 | ~~Rate limiting e lockout na API (SEC-06)~~ | ~~Engenharia~~ | **Construído** — V019 + `FiltroDeLimite`, achados § 49 |
 | 1.8 | Runbook de DR (SEC-09) | Engenharia + infra | **Parcial** — runbook e teste de restauração verificado (`RUNBOOK-DR.md`); a simulação em infraestrutura nova continua pendente |
-| 1.9 | Retenção e expurgo agendado (A08 / LGPD-02) | Engenharia + DPO | Desejável na Onda 1, obrigatório antes da Onda 3 |
+| 1.9 | Retenção e expurgo agendado (A08 / LGPD-02) | Engenharia + DPO | **Parcial** — mecanismo pronto, medido e agendado (`V020`, `V106`, `T014`, `TestesDeExpurgo`); faltam as **4 aprovações de prazo**, que são `UPDATE` de cadastro do jurídico/DPO e não release. Obrigatório antes da Onda 3 |
 | 1.10 | Fundamento contratual por exigência (A06) | Gestão de contratos | Desejável — sem ele a exigência não se defende perante o cliente |
 
 ### Onda 2 — Portão documental

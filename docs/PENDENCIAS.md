@@ -15,14 +15,27 @@ Esta distinção importa. Declarar "todas resolvidas" quando quatro dependem de 
 | **A03** | BNB e TJCE usam a mesma matriz nas duas modalidades? | Matriz **separada por contrato-serviço**. Cada um recebe sua própria cópia das regras do cliente, com `alvo = CONTRATO`. Cenário conservador de R-04: consolidar depois é barato, separar depois exigiria migração. | `dados/contratos_servico.csv`, `db/seed/V102`, teste `T003` |
 | **A04** | Os 3 contratos-serviço da CAIXA são idênticos? | Mesma decisão de A03. Os 3 entram como contratos-serviço distintos, cada um com sua matriz. | idem |
 | **A07** | Recolhimento por CNPJ único ou por filial? | O modelo suporta N desde a `V004`: a tabela `empresa` é plural e `contrato_servico.empresa_id` diz qual CNPJ fatura cada contrato. A carga entra com a empresa **inativa** e CNPJ marcador — nenhum CNPJ é inventado. Confirmar quantos são é cadastro, não modelagem. | `db/migracoes/V004`, teste `T003` |
-| **A08** | Tabela de temporalidade do book | **Retenção sem tempo determinado**, implementada como `LEGAL_HOLD`: protege indefinidamente e é **reversível** por papel autorizado. `COMPLIANCE` (irreversível) existe mas não é o padrão. **Ver a ressalva abaixo.** | `db/migracoes/V006`, teste `T003` |
+| **A08** | Tabela de temporalidade do book | **Parcialmente resolvida.** O *mecanismo* está pronto: tabela `temporalidade`, expurgo agendado, registro append-only do que foi eliminado. Os **prazos continuam não aprovados**, e o sistema recusa cada classe pelo nome até que sejam. O book segue em `LEGAL_HOLD`. **Ver a ressalva abaixo.** | `db/migracoes/V006` e `V020`, `db/seed/V106`, testes `T003` e `T014`, `TestesDeExpurgo`, achados §52 |
 | **A09** | Repositório-mestre quando o tipo existe no OwnCloud e no Jira | Declarado **por tipo, no cadastro**. Derivado da coluna `REPOSITORIO` da matriz: 41 tipos OwnCloud, 7 Jira, 3 com OwnCloud como mestre e Jira como alternativa — os 3 fiscais, e a leitura vem do próprio cap. 14.2, que chama o Jira de "fonte complementar". | `db/migracoes/V006`, `V100`, teste `T003` |
 | **A13** | Stack de desenvolvimento | **Java 21 + Spring Boot.** A função de prazo foi portada e passa nos mesmos 32 casos da suíte, provando que a decisão não invalida o construído. | [`adr/ADR-001-stack.md`](adr/ADR-001-stack.md), `app/.../matriz/` |
 | **A02** | Natureza de "APOIO A GESTÃO" | Não aparece na matriz do Anexo 1 como cliente, e nenhuma das 176 linhas a referencia. Tratada como **atividade interna, fora do escopo de faturamento por medição** — se fosse contrato com checklist, teria linhas. Reversível: basta acrescentar um contrato-serviço ao CSV. | `dados/contratos_servico.csv` (ausência deliberada) |
 
 ### Ressalva registrada sobre A08
 
-A decisão pedida foi "retenção sem tempo determinado". Ela está implementada, mas há uma tensão que precisa ser avaliada pelo DPO antes da produção, e não por engenharia:
+**O que mudou.** A A08 deixou de pedir código e passou a pedir decisão. A tabela `temporalidade` existe com **4 classes propostas, fundamentadas e não aprovadas**; o expurgo roda mensalmente e **recusa as quatro pelo nome**, registrando a não conformidade no log, no `detalhe` da execução e em `GET /api/retencao`. Aprovar é `UPDATE temporalidade SET aprovado_em, aprovado_por` — **ato de cadastro, não deploy**.
+
+| Alvo | Marco proposto | Prazo | Ação | Fundamento resumido |
+|---|---|---|---|---|
+| `ACESSO_OBSERVADO` | Registro | 12 meses | EXPURGAR | Marco Civil art. 15 + um ciclo de recertificação |
+| `NOTIFICACAO` | Registro | 60 meses | EXPURGAR | Acompanha a prescrição do que a régua cobrou |
+| `DOCUMENTO` | Desligamento | 60 meses | **REVISAR** | Art. 7º, XXIX CF; lista para humano, **não apaga** |
+| `PROFISSIONAL` | Desligamento | 60 meses | ANONIMIZAR | Art. 16 da LGPD |
+
+**A trava é estrutural, não um `if`.** `expurgo.autorizado_em` é NOT NULL e copiada de `temporalidade.aprovado_em` no mesmo comando que o DELETE: classe sem aprovação não consegue nem *registrar* o expurgo, e o que não se registra não se apaga. Medido por quebra deliberada — ver achados §52.2 e §52.9.
+
+**Quem aprova não é a TI.** O endpoint é somente leitura de propósito: o cap. 15.1 não nomeia papel para autorizar destruição de dado, e a única permissão técnica que caberia (`CONFIGURAR_SISTEMA`) é da TI. Quem aprova é quem a norma interna (**A11**) nomear. Ver achados §52.7.
+
+A tensão de fundo, que continua sendo do DPO e não de engenharia:
 
 Guardar dado pessoal por prazo indeterminado é tratamento sem termo final definido. Isso tensiona o **art. 6º, III** (necessidade), o **art. 16** (eliminação após a finalidade) e o **art. 18, IV e VI** (direito do titular à eliminação). Os books contêm CPF, remuneração e — em 4 tipos — dado de saúde.
 
@@ -96,6 +109,8 @@ Estado dos 10 achados de [`ERRATA-V1.md`](ERRATA-V1.md):
 | Fase 1a completa (varredura, reconhecimento, book) | Nada. **Liberada.** |
 | Fase 1b (conciliação de valores) | ~~A05~~ — **liberada** pela FOPAG. Falta o cadastro de tolerâncias das 11 regras (decisão da AP) e o recorte por centro de custo. |
 | Selar book com prazo irreversível | **A08** — hoje sela em `LEGAL_HOLD`, o que é suficiente para operar |
+| Parar de reter dado pessoal sem termo final | **A08** — 4 prazos aguardando aprovação do jurídico/DPO. O mecanismo está pronto e recusa cada um pelo nome |
+| Expurgar documento e anonimizar profissional | **A08** + código: `PROFISSIONAL`/ANONIMIZAR não tem executor, e `DOCUMENTO` hoje só lista |
 | Entrar em produção | **A12** (RIPD) e **A11** (norma) |
 | Ativar a fase 3 | **A10** |
 | Carregar os 3 contratos faltantes | **A01** |

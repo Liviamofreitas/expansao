@@ -14,7 +14,24 @@ DADOS="${PGDATA_TESTE:-/tmp/pgdata}"
 SOQUETE="${PGSOCK_TESTE:-/tmp/pgrun}"
 PORTA="${PGPORT_TESTE:-5433}"
 
-[[ "${1:-}" == "--recriar" ]] && rm -rf "$DADOS"
+# PARAR ANTES DE APAGAR. Apagar o diretório com o servidor no ar deixa o
+# postmaster vivo segurando a porta e sem PG_VERSION para o pg_ctl encontrar —
+# o script perde a única alça que tinha e não consegue mais subir nem parar
+# nada. O sintoma é "could not bind: Address already in use" numa porta que,
+# pelo status do pg_ctl, está livre. Aconteceu.
+if [[ "${1:-}" == "--recriar" ]]; then
+    if [[ -s "$DADOS/PG_VERSION" ]]; then
+        su postgres -c "$BIN/pg_ctl -D $DADOS -m immediate -w stop" >/dev/null 2>&1 || true
+    fi
+    # Cobre o cluster já meio apagado por uma execução anterior que morreu no
+    # meio. O PID vem do postmaster.pid: matar por padrão de linha de comando
+    # aqui pegaria o próprio shell que roda este script — também aconteceu.
+    if [[ -s "$DADOS/postmaster.pid" ]]; then
+        kill -QUIT "$(head -1 "$DADOS/postmaster.pid")" 2>/dev/null || true
+        sleep 2
+    fi
+    rm -rf "$DADOS"
+fi
 
 if [[ ! -s "$DADOS/PG_VERSION" ]]; then
     echo "→ criando o cluster em $DADOS"

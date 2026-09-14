@@ -54,7 +54,22 @@ public enum Job {
      * que só roda quando a folha chega. Um alerta de silêncio sobre ele
      * dispararia todo mês em que não houve folha nova, que é a maioria.
      */
-    DERIVACAO_DE_EVENTOS(Disparo.EVENTO, null);
+    DERIVACAO_DE_EVENTOS(Disparo.EVENTO, null),
+
+    /**
+     * A08/LGPD-02: aplica a tabela de temporalidade.
+     *
+     * <p>Mensal. Um atraso de dias não cria risco — o dado vencido continua
+     * vencido —, mas o silêncio prolongado cria: é ele que faz a retenção
+     * indevida virar permanente sem ninguém notar.
+     *
+     * <p><b>Vem por último no enum de propósito.</b> {@code Agendador.chaveDo}
+     * deriva a chave do lock consultivo do ordinal; inserir um job no meio
+     * deslocaria os ordinais de todos os seguintes e, numa implantação
+     * escalonada, duas versões dariam nomes diferentes ao mesmo lock — dois
+     * jobs distintos disputariam a mesma chave e um deles nunca rodaria.
+     */
+    EXPURGO_POR_TEMPORALIDADE(Disparo.CALENDARIO, Duration.ofDays(32));
 
     /** Quem puxa o gatilho. */
     public enum Disparo {

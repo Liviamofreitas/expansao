@@ -3,7 +3,7 @@
 **Pendência A12 · requisito LGPD-01 · classificação: Interno — Restrito**
 
 > **GERADO** por `tools/gerar_inventario_lgpd.py` a partir do catálogo. Não editar à mão.
-> Regenerado em 2026-09-04.
+> Regenerado em 2026-09-14.
 
 Este documento é a **parte factual** do RIPD: o que o sistema trata, de que
 natureza, onde fica e por quanto tempo. O que ele **não** é: a avaliação de
@@ -95,34 +95,88 @@ cifragem em repouso.
 
 ---
 
-## 4. Retenção — o ponto aberto mais grave
+## 4. Retenção — o mecanismo existe; os prazos, não
 
-> **Decisão registrada em A08: retenção sem tempo determinado.**
+> **Decisão registrada em A08: retenção sem tempo determinado — e, desde a
+> V020, um caminho para sair dela sem trocar código.**
 
-O sistema a implementa como `LEGAL_HOLD`: o book fica protegido
-indefinidamente, mas de forma **reversível** por papel autorizado. O modo
-`COMPLIANCE`, que é irreversível até a data — nem a conta raiz reduz —,
-existe mas não é o padrão.
+### 4.1 O que passou a existir
 
-**A ressalva que o DPO precisa avaliar.** Guardar dado pessoal por prazo
-indeterminado é tratamento sem termo final definido, o que tensiona:
+A tabela `temporalidade` declara, por classe de dado: de que **marco** o prazo
+conta, **quantos meses**, qual a **ação** ao vencer, e o **fundamento** escrito.
+Um job mensal (`EXPURGO_POR_TEMPORALIDADE`) a aplica e registra o que eliminou
+em `expurgo` / `expurgo_item`, ambas **append-only**.
+
+| Alvo | Marco proposto | Prazo | Ação | Estado |
+|---|---|---|---|---|
+| `ACESSO_OBSERVADO` | Registro | 12 meses | EXPURGAR | Proposta, **não aprovada** |
+| `NOTIFICACAO` | Registro | 60 meses | EXPURGAR | Proposta, **não aprovada** |
+| `DOCUMENTO` | Desligamento | 60 meses | **REVISAR** | Proposta, **não aprovada** |
+| `PROFISSIONAL` | Desligamento | 60 meses | ANONIMIZAR | Proposta, **não aprovada**, e **sem executor** |
+
+`log_auditoria` e `book` **não podem** receber temporalidade: a lista de alvos é
+fechada por CHECK. A trilha guarda o identificador do *ator*, não do titular
+(seção 3), e é append-only desde a V002; o book se retém no armazenamento
+(`retencao_modo`), e destruí-lo exige antes levantar o `LEGAL_HOLD`, que é ato
+humano de papel autorizado.
+
+### 4.2 Nada é eliminado hoje, e o sistema diz isso
+
+Nenhuma das quatro classes está aprovada. Logo, **o expurgo não apaga nada** — o
+que é o comportamento correto e também o modo de falha mais perigoso possível:
+um job que roda todo mês, elimina zero e sai verde faria esta não conformidade
+sobreviver anos sem sintoma.
+
+Por isso os dois desfechos são distinguíveis por construção:
+
+- *"Nada venceu"* → linha em `expurgo` com `itens = 0`.
+- *"Ninguém aprovou"* → **não pode** virar linha (ver 4.3), e sai como recusa
+  nomeada no log em WARN, no `detalhe` da execução e no campo `ressalva` de
+  `GET /api/retencao`.
+
+### 4.3 A autorização é uma trava do banco
+
+`expurgo.autorizado_em` é NOT NULL e é copiada de `temporalidade.aprovado_em`
+pelo próprio INSERT, **no mesmo comando que o DELETE**. Classe não aprovada tem
+`aprovado_em` nula → violação de NOT NULL → o comando aborta → o DELETE não
+acontece. Não há caminho que elimine sem registrar, nem registro possível sem
+alguém com nome ter aprovado o prazo.
+
+### 4.4 O marco é onde se erra
+
+A prescrição do art. 7º, XXIX da CF corre da **extinção do contrato de
+trabalho**, não da competência. Um documento de 2020-01 de alguém desligado em
+2029 ainda é prova em 2034; contado da competência, teria sido apagado em 2025.
+Cada alvo declara a única data que possui, e uma política que pede marco que o
+alvo não tem é **recusada** em vez de reinterpretada.
+
+Efeito colateral que o DPO precisa conhecer: **um profissional desligado cujo
+`desligamento` nunca foi registrado no cadastro parece estar na casa para
+sempre** — e o seu dado nunca vence. O erro é na direção segura (retenção a
+mais, nunca prova a menos), mas é retenção indevida e depende da qualidade do
+cadastro de RH, não do SGDF.
+
+### 4.5 O que ainda é `LEGAL_HOLD`, e por quê
+
+O book continua selado em `LEGAL_HOLD` — protegido indefinidamente e
+**reversível** por papel autorizado. Migrar para `COMPLIANCE` (irreversível até
+a data, nem a conta raiz reduz) deve acontecer **uma única vez**, depois da
+temporalidade aprovada, porque o caminho não tem volta.
+
+### 4.6 A ressalva que o DPO precisa avaliar
+
+Enquanto os quatro prazos não forem aprovados, o SGDF guarda dado pessoal por
+prazo indeterminado, o que tensiona:
 
 - **art. 6º, III (necessidade)** — o tratamento deve limitar-se ao mínimo
   necessário para a finalidade;
-- **art. 15, I e art. 16** — o dado deve ser eliminado quando a finalidade
-  se exaure, salvo hipóteses legais de guarda;
-- **art. 18, IV e VI** — o titular pode pedir anonimização ou eliminação, e
-  um book sob retenção irreversível impede o atendimento.
+- **art. 15, I e art. 16** — o dado deve ser eliminado quando a finalidade se
+  exaure, salvo hipóteses legais de guarda;
+- **art. 18, IV e VI** — o titular pode pedir anonimização ou eliminação.
 
-A finalidade aqui (prova de regularidade trabalhista) **tem** termo natural:
-a prescrição quinquenal do art. 7º, XXIX da Constituição. É esse o prazo que
-a tabela de temporalidade tende a fixar.
-
-**Enquanto a temporalidade não existir, `LEGAL_HOLD` é a escolha certa** —
-protege a evidência sem tornar a decisão irreversível. Migrar para
-`COMPLIANCE` deve acontecer **uma única vez**, depois da tabela aprovada,
-porque o caminho não tem volta.
-
+A finalidade **tem** termo natural: a prescrição quinquenal do art. 7º, XXIX da
+Constituição. Aprovar cada classe é um `UPDATE temporalidade SET aprovado_em,
+aprovado_por` — **cadastro, não deploy**: o jurídico não depende de release.
 ---
 
 ## 5. O que falta para fechar A12
@@ -132,7 +186,9 @@ porque o caminho não tem volta.
 | Confirmar a classificação de sigilo dos 51 tipos (achado **E-05**; hoje derivada, `CONFIRMADO=NAO`) | Gestão de Contratos + DAF |
 | Confirmar a base legal por finalidade | Jurídico |
 | Avaliação de risco e medidas de mitigação (o RIPD propriamente) | DPO |
-| Tabela de temporalidade (**A08**) e migração para `COMPLIANCE` | Jurídico |
+| **Aprovar as 4 classes de temporalidade** (**A08**) — o mecanismo está pronto e recusa cada uma pelo nome | Jurídico + DPO |
+| Migração do book de `LEGAL_HOLD` para `COMPLIANCE`, depois das aprovações | Jurídico |
+| Decidir se `DOCUMENTO` algum dia passa de REVISAR a EXPURGAR — hoje o sistema recusa a segunda | DPO + Jurídico |
 | Definir o fluxo de atendimento a pedido de titular sobre documento já publicado em book | DPO + Jurídico |
 | Contrato de operador com o contratante, quando aplicável | Jurídico |
 

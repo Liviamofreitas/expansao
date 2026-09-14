@@ -12,6 +12,7 @@ import br.com.engesoftware.sgdf.persistencia.RepositorioDeExcecao;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeOrganizacao;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeBloqueio;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeParametro;
+import br.com.engesoftware.sgdf.persistencia.RepositorioDeTemporalidade;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeRascunho;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeTriagem;
 import br.com.engesoftware.sgdf.persistencia.Sgdf;
@@ -97,6 +98,12 @@ public class ConfiguracaoDoBanco {
     @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
     RepositorioDeParametro repositorioDeParametro(Sgdf sgdf) {
         return new RepositorioDeParametro(sgdf);
+    }
+
+    @Bean
+    @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
+    RepositorioDeTemporalidade repositorioDeTemporalidade(Sgdf sgdf) {
+        return new RepositorioDeTemporalidade(sgdf);
     }
 
     @Bean
