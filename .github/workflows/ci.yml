@@ -232,6 +232,18 @@ jobs:
       # acionável por quem constrói a imagem, e barrar nela produziria a
       # exceção permanente que mata o gate. O que passa por aqui, portanto,
       # TEM correção disponível.
+      # `limit-severities-for-sarif` É OBRIGATÓRIO AQUI, E A FALTA DELE MENTIA.
+      #
+      # Com `format: sarif` a ação IGNORA o input `severity` por padrão e roda
+      # o Trivy com UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL — o log da execução 16
+      # mostra `INPUT_SEVERITY: CRITICAL,HIGH` seguido de "Building SARIF report
+      # with all severities". Como o veredito do `exit-code` sai do que o Trivy
+      # reporta, o gate barrava em QUALQUER achado, inclusive LOW, enquanto o
+      # job anunciava barrar em CRITICAL/HIGH.
+      #
+      # É o pior tipo de gate errado: o que reprova por um critério diferente do
+      # que declara. Quem visse o vermelho iria procurar uma CVE alta que podia
+      # não existir.
       - name: Escanear (gate)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -239,6 +251,7 @@ jobs:
           format: sarif
           output: trivy.sarif
           severity: CRITICAL,HIGH
+          limit-severities-for-sarif: true
           exit-code: "1"
           ignore-unfixed: true
 

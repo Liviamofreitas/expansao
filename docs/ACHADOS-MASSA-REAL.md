@@ -4104,3 +4104,31 @@ de empurrar:
 rodou"* (§46), e que o expurgo faz entre *"nada venceu"* e *"ninguém aprovou"*
 (§52.5). Terceiro lugar desta base onde a ausência precisou de nome próprio
 para não ser lida como resultado.
+
+### 60.11 O gate reprovava por um critério diferente do que declarava
+
+Com a tabela legível ligada, o log da execução 16 mostrou, no passo do gate:
+
+```
+INPUT_SEVERITY: CRITICAL,HIGH
+INPUT_LIMIT_SEVERITIES_FOR_SARIF:            ← vazio
+Building SARIF report with all severities
+```
+
+A `trivy-action` **ignora o input `severity` quando o formato é SARIF**, a menos
+que se passe `limit-severities-for-sarif: true`. E como o veredito do
+`exit-code` sai do que o Trivy reporta, **o gate barrava em qualquer achado,
+inclusive LOW** — enquanto o job anunciava barrar em CRITICAL/HIGH.
+
+**É o pior tipo de gate errado: o que reprova por um critério diferente do que
+declara.** Quem visse o vermelho iria procurar uma CVE alta que podia não
+existir — e, não achando, concluiria que o scanner é barulhento. É assim que se
+aprende a ignorar um gate.
+
+E note como isto só apareceu: **a correção anterior (a tabela legível) foi o que
+tornou o defeito visível.** Com `format: sarif` sozinho, o log não imprimia nem
+os inputs efetivos. Consertar a legibilidade de um gate não é cosmética — é o
+que permite ver que ele estava medindo outra coisa.
+
+Quarta vez nesta base que a distinção entre "o que o componente diz" e "o que o
+componente faz" precisou ser medida em vez de lida.
