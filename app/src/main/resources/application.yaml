@@ -31,3 +31,19 @@ management:
   endpoint:
     health:
       show-details: never
+
+# --- agendador (RA-07, cap. 7.6) --------------------------------------------
+# DESLIGADO POR PADRÃO, e a ausência de configuração não liga nada. Ligar é ato
+# deliberado, e continua gated na F3-01 para a régua de notificação: o sistema só
+# deve cobrar áreas depois de a divergência estar medida (risco P01, cap. 22).
+#
+# Na Onda 1 do plano de implantação ele roda SEM notificar — e é o que faz o
+# painel ter o que mostrar.
+sgdf:
+  agendador:
+    ativo: ${SGDF_AGENDADOR_ATIVO:false}
+    cron:
+      # Horários em America/Sao_Paulo. Madrugada para a abertura (cap. 7.6) e
+      # início do expediente para a régua, que é quando a cobrança tem efeito.
+      abertura: ${SGDF_CRON_ABERTURA:0 10 3 * * *}
+      regua: ${SGDF_CRON_REGUA:0 0 8 * * *}

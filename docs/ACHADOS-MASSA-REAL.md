@@ -2916,3 +2916,107 @@ controle.**
 33 asserções em `TestesDeLimite` (16 sem banco, sobre a janela e a política) e 6
 no `T012__bloqueio_de_ator.sql`.
 Total: **1209 Java** (1205 sem a massa), **135 SQL**.
+
+## 50. Ligar a abertura revelou que o sistema abriria 12 ciclos vazios
+
+Nada criava a linha de `ciclo`. O `RepositorioDaMatriz` sabia materializar
+exigências **de um ciclo que já existisse**, e ele só existia porque um fixture o
+inseria. Em produção o sistema abriria exatamente zero ciclos e o painel ficaria
+vazio — **sem erro nenhum**.
+
+Ao ligar a `AberturaDeCiclos` contra a carga real, o resultado foi pior que zero.
+
+### 50.1 Doze ciclos abertos, zero exigências
+
+```
+vigentes=12  abertos=12  exigencias=0  completa=false
+```
+
+Todos os doze contratos falharam, por **dois defeitos de dados**:
+
+| Defeito | Escala | O que o motor fez |
+|---|---|---|
+| Duas regras de alvo CONTRATO para o mesmo (contrato, tipo, evento) | **17 pares** | `REGRA_AMBIGUA` — o `Resolvedor` recusa, e recusa **certo**: escolher uma das duas em silêncio aplicaria um prazo ou uma criticidade que ninguém decidiu |
+| `empresa_id` nulo no contrato | **todos os 12** | V004 exige empresa emitente para exigência de escopo corporativo. Há **uma** empresa cadastrada: `PRESTADOR A CADASTRAR / 00000000000000` — um placeholder |
+
+**O motor estava certo nas duas.** O que faltava era recusar o **resultado
+vazio**.
+
+### 50.2 Um ciclo sem exigência aparece no painel como um ciclo completo
+
+Nenhuma pendência, nenhum bloqueio, nada faltando. O sistema estaria dizendo
+*"não falta nada"* sobre uma competência que **não conseguiu conferir** — num
+sistema cuja função é notar o que falta, é o pior resultado possível. E é a
+quarta aparição do mesmo padrão nesta base (§ 46, § 47, § 43.4): **ausência que
+se parece com saúde.**
+
+A abertura passou a desfazer o ciclo em **dois** caminhos, e o segundo só
+apareceu porque o primeiro foi testado:
+
+1. materializou zero, sem erro;
+2. **a materialização lançou** — o `catch` registrava a falha e deixava o ciclo
+   de pé, vazio, exatamente como o caso 1.
+
+Foi o caso 2 que produziu os doze ciclos órfãos. Quebras deliberadas: sem o
+guarda, **4 asserções caem**; sem a recusa por falta de matriz, **1**; exigindo
+vigência no mês inteiro, **2**; abortando no primeiro contrato com defeito,
+**5 caem e 5 nem rodam**.
+
+### 50.3 A competência é a corrente, e a razão vem do prazo
+
+A âncora `INICIO_COMPETENCIA` do cap. 7.3 resolve para o dia 1º da competência —
+`{INICIO_COMPETENCIA, CORRIDO, 21}` é *"até o dia 21 desse mesmo mês"*. Um ciclo
+aberto para a competência anterior faria **todo prazo ancorado no início já
+nascer vencido**. A leitura sai do modelo de prazo já construído e verificado por
+32 casos de conformidade, não de suposição.
+
+E a vigência é **em qualquer dia** da competência, não no mês inteiro: um
+contrato que começa no dia 20 ou termina no dia 10 prestou serviço e tem o que
+faturar — e é justamente na entrada e na saída que há admissão e rescisão a
+documentar.
+
+### 50.4 As 303 regras são todas de alvo CONTRATO
+
+Zero regras de modalidade. O cap. 7.1, passo 2, manda *"unir blocos da modalidade
++ regras específicas do contrato"*, e a carga produziu só o segundo termo.
+Consequência prática: **um contrato-serviço novo materializa zero** até alguém
+escrever regras para ele especificamente.
+
+Pode ser deliberado — cada contrato tem o seu checklist no Anexo 1 — mas então o
+cadastro de um contrato novo tem um passo obrigatório que nada no sistema exige
+nem lembra. Registrado como **RA-17**.
+
+### 50.5 O agendador, e a thread única que engoliria um job
+
+O `@Scheduled` do Spring usa **uma thread por padrão**. Com dois jobs agendados,
+se a varredura levar vinte minutos, a régua marcada para dentro dessa janela
+**não roda** — e não roda em silêncio: nenhum erro, nenhum log, nenhuma linha em
+`execucao_de_job`, porque o job nunca começou. O alerta do § 46 o pegaria, mas um
+dia depois. O pool custa nada e remove a causa.
+
+E o disparador é **desligado por padrão**: `@ConditionalOnProperty` sem
+`matchIfMissing` significa que o componente **não existe** a menos que alguém
+escreva `sgdf.agendador.ativo=true`. A ausência de configuração não liga nada —
+a mesma decisão do `Autorizador` e da adesão por contrato da F3-02.
+
+### 50.6 Quatro correções nos meus próprios testes
+
+Todas da mesma família, e vale registrar por quê:
+
+- Asserções sobre `completa()` **global** falhavam por causa dos 12 contratos da
+  carga. Medir o todo quando se quer medir o motor manda procurar defeito onde
+  não há.
+- O teste da matriz ausente **derrubava uma chave estrangeira** e a devolvia no
+  `finally`: um teste que altera o **esquema** deixa o banco quebrado se morrer
+  no meio, e o próximo falha por um motivo que não é o dele. Virou transação
+  desfeita.
+- A limpeza não seguia as FKs — a exigência corporativa aponta para a **empresa**,
+  não só para o ciclo.
+- E o teste do ciclo vazio **não existia**: a quebra deliberada passou 13/13 com o
+  guarda removido, porque todo fixture tinha regra. É o quarto caso nesta base de
+  um teste que não testava, e o quarto achado pela quebra.
+
+### 50.7 Cobertura
+
+18 asserções em `TestesDeAbertura`. Total: **1227 Java** (1223 sem a massa),
+**135 SQL**.
