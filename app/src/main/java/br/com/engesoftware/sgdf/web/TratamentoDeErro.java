@@ -1,6 +1,8 @@
 package br.com.engesoftware.sgdf.web;
 
 import br.com.engesoftware.sgdf.persistencia.ConsultaDeAuditoria;
+import br.com.engesoftware.sgdf.persistencia.RepositorioDeBloqueio;
+import br.com.engesoftware.sgdf.seguranca.Ator;
 import br.com.engesoftware.sgdf.persistencia.ConsultaDeRecertificacao;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeCadastro;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeParametro;
@@ -28,6 +30,50 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  */
 @RestControllerAdvice
 public class TratamentoDeErro {
+
+    private final AtorDaRequisicao atores;
+    private final org.springframework.beans.factory.ObjectProvider<RepositorioDeBloqueio>
+            bloqueios;
+
+    public TratamentoDeErro(AtorDaRequisicao atores,
+                            org.springframework.beans.factory.ObjectProvider<
+                                    RepositorioDeBloqueio> bloqueios) {
+        this.atores = atores;
+        this.bloqueios = bloqueios;
+    }
+
+    /**
+     * O 403, e a contagem que o SEC-06 faz dele.
+     *
+     * <p><b>É aqui que a negativa vira número.</b> Antes disto o
+     * {@code AcessoNegado} subia direto para o {@code @ResponseStatus} e ninguém
+     * contava: a trilha registrava, o comentário dizia "é o que permite ver
+     * tentativa repetida de acesso", e não havia quem visse.
+     *
+     * <p>O corpo continua <b>sem o motivo</b>. Dizer "o contrato X está fora do
+     * seu escopo" revela que X existe a quem não pode vê-lo — e é exatamente
+     * quem está sondando que leria a mensagem com mais atenção.
+     */
+    @ExceptionHandler(AcessoNegado.class)
+    ResponseEntity<Map<String, String>> acessoNegado(AcessoNegado e,
+                                                     jakarta.servlet.http.HttpServletRequest req) {
+        Ator ator = atores.atual();
+        RepositorioDeBloqueio repo = bloqueios.getIfAvailable();
+        if (ator != null && repo != null) {
+            var bloqueio = repo.contarNegativaE(ator.identificador(),
+                    ator.papeis().stream().map(Enum::name).sorted()
+                            .collect(java.util.stream.Collectors.joining("+")),
+                    req.getMethod() + " " + req.getRequestURI());
+            if (bloqueio.isPresent()) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .header("Retry-After", String.valueOf(bloqueio.get()
+                                .segundosRestantes(java.time.OffsetDateTime.now())))
+                        .body(Map.of("motivo",
+                                "acesso temporariamente bloqueado por tentativas repetidas"));
+            }
+        }
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+    }
 
     /** Pedido que não faz sentido sobre o alvo — o cliente pode corrigir e repetir. */
     @ExceptionHandler(RepositorioDeTriagem.DecisaoInvalida.class)

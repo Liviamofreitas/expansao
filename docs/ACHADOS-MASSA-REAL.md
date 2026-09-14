@@ -2821,3 +2821,98 @@ mostrado sucesso. **O código de saída é que contava a verdade.**
 
 12 asserções novas em `TestesDeIngestao` (36 na suíte).
 Total: **1176 Java** (1172 sem a massa), **129 SQL**.
+
+## 49. SEC-06 — o SGDF não autentica, e isso muda o que "lockout" significa
+
+Requisito: *"rate limiting e lockout progressivo na API; sessões com timeout de
+inatividade"*, verificado por *"teste de força bruta"* (cap. 15.2).
+
+### 49.1 A leitura literal produziria um controle que o sistema não exerce
+
+"Lockout progressivo" costuma significar *bloquear login após N senhas erradas*.
+O SGDF é **resource server**: quem valida senha e aplica MFA é o IdP (cap. 14.4),
+e o token já chega assinado. Construir contador de senha aqui daria a impressão
+de um controle que **não existe neste processo** — e num relatório de
+conformidade isso é pior que a lacuna, porque fecha o item sem fechar o risco.
+
+O que é do SGDF: barrar um ator **já autenticado** que insiste em pedir o que não
+pode. E isso já estava metade pronto sem que ninguém notasse — a
+`TrilhaDeAuditoria` registra `NEGADO` desde a F1-06, com o comentário *"é o que
+permite ver tentativa repetida de acesso"*. **Ver não é reagir.** O bloqueio é a
+reação a um padrão que já estava gravado e ninguém lia.
+
+### 49.2 Por ator, e não por IP
+
+Num sistema interno atrás de proxy corporativo o IP é o mesmo para todo mundo:
+bloquear por IP tiraria o escritório do ar por causa de uma pessoa. E aqui a
+identidade é **forte** — vem assinada pelo IdP —, ao contrário de um formulário
+público, onde o IP é tudo o que se tem. O teste verifica: o sondador é bloqueado
+e quem não fez nada continua passando.
+
+### 49.3 A virada da janela, que dobra o limite sem ninguém ver
+
+Um contador que zera de minuto em minuto aceita **o dobro do teto na virada**:
+100 pedidos no segundo 59 e mais 100 no segundo 61 passam, e o pico real é 200 em
+dois segundos num limite declarado de 100. A janela deslizante mede sempre os
+últimos N segundos e por isso não tem virada. Quebra deliberada trocando por
+balde fixo: **3 asserções caem**.
+
+### 49.4 O bloqueio pune o excesso, não a insistência
+
+Duas decisões com a mesma raiz, e as duas seriam invisíveis até produção:
+
+- **A tentativa barrada não entra na contagem.** Contá-la faria cada retry
+  empurrar a liberação para a frente, e um cliente com retry automático se
+  prenderia indefinidamente. Quebra contando: **3 asserções caem**.
+- **`ON CONFLICT DO NOTHING`, e não `DO UPDATE`.** Insistir durante o bloqueio
+  não renova a expiração. O sintoma da versão errada seria um bloqueio de quinze
+  minutos durando horas, sem ninguém entender por quê. Quebra renovando:
+  **1 asserção cai**.
+
+E o `Retry-After` nunca é zero: mandar tentar agora produz uma tentativa que é
+barrada de novo.
+
+### 49.5 Os números, e por que não são mais severos
+
+| Limite | Valor | Por quê |
+|---|---:|---|
+| Pedidos/minuto | 120 | Folgado: painel que atualiza sozinho e operador navegando fazem muitos pedidos legítimos. O que isto barra é laço automatizado, não pessoa |
+| Escritas/minuto | 30 | Não existe fluxo humano que decida trinta triagens em um minuto. Acima disto é script |
+| Negativas antes do bloqueio | 10 | **Não três.** Um 403 legítimo é comum — alguém abre o link de um ciclo de outro contrato. Bloquear na terceira faria o sistema punir o uso desatento como sondagem, e o efeito prático seria a operação pedir para desligar o controle |
+
+**Um controle severo demais é um controle desligado.** Foi o critério em todos os
+três.
+
+### 49.6 O bloqueio tem fim, e o banco garante
+
+Um bloqueio permanente vira chamado de suporte, e chamado repetido vira um bypass
+que alguém cria e ninguém remove. A restrição `bloqueio_expira_depois` recusa
+gravar um que não expire — e **ela pegou o meu próprio fixture**: para envelhecer
+um bloqueio eu movia só `expira_em` para o passado, criando um estado impossível
+(expira antes de começar). A restrição estava certa; o teste é que media um
+estado que não pode existir.
+
+E a expiração é **comparada na consulta**, não varrida por faxina: um bloqueio
+que depende de job para acabar dura para sempre quando o job morre — e job cuja
+morte é silenciosa é exatamente o § 46. Quebra ignorando a expiração:
+**1 asserção cai**.
+
+### 49.7 O que fica em memória, e o que isso custa
+
+O contador de **volume** vive na memória de cada instância: com N réplicas, o
+teto efetivo é **N × 120/min**. Compartilhá-lo custaria uma escrita por
+requisição, e para o que ele protege — laço automatizado, não exfiltração fina —
+não se paga. **Está declarado em `PoliticaDeUso.LIMITACAO_CONHECIDA`**, e há
+asserção sobre a declaração existir.
+
+O **bloqueio** é diferente e vive no banco: em memória ele sumiria no reinício da
+réplica e não existiria na outra. As duas propriedades são exploráveis sem
+nenhuma sofisticação — quem sonda espera o deploy, ou tenta até cair na réplica
+que não o conhece. **Um controle que o adversário desliga esperando não é
+controle.**
+
+### 49.8 Cobertura
+
+33 asserções em `TestesDeLimite` (16 sem banco, sobre a janela e a política) e 6
+no `T012__bloqueio_de_ator.sql`.
+Total: **1209 Java** (1205 sem a massa), **135 SQL**.
