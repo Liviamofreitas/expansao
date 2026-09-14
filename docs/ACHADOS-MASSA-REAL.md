@@ -3554,3 +3554,106 @@ sim medidas por `T009` —, então a ausência aqui não deixa o ciclo desproteg
 Registrado por ser diferente de "coberto".
 
 Total: **1298 Java**, **164 SQL**.
+
+---
+
+## 56. RA-03 — o último valor ajustável que morava no código
+
+O cap. 1, princípio 2, pede que todo valor ajustável venha do cadastro. A F0-05
+tirou os limiares de classificação do código-fonte; o **peso do alias** ficou
+para trás, em `RepositorioDeAlias.PESO_DO_ALIAS = 0.10`.
+
+Era menor que a RA-10 num aspecto e pior noutro. Menor porque **não havia
+duplicação**: o valor existia só no Java, e não havia uma segunda fonte para
+divergir dele. Pior porque mudar o quanto o nome de um arquivo influencia a
+classificação exigia recompilar e implantar — e é o tipo de ajuste que se faz
+olhando a fila de triagem crescer, não numa janela de release.
+
+### 56.1 A ausência não vira padrão em código
+
+A tentação era óbvia: ler o cadastro e, se não houver linha, cair em `0.10`.
+**Isso recriaria exatamente a RA-10** — duas fontes que concordam hoje, e a que
+ninguém edita é a que o código lê.
+
+Sem cadastro, o peso é **zero**. É a direção segura: o alias deixa de
+corroborar, o documento vai para a fila de triagem, e uma pessoa decide — o
+comportamento do sistema antes de qualquer alias existir.
+
+### 56.2 Mas zero em silêncio seria o defeito de sempre
+
+Sem o parâmetro, a F1-06 para de cumprir o que promete — *"o mesmo padrão não
+retorna"*. Quem triou no mês passado vê o arquivo voltar, e aprende que triar
+não adianta. **O único sintoma é a fila crescendo, e fila crescendo parece
+trabalho normal.**
+
+Por isso `desligadoPorque()` existe e é legível:
+
+> o parâmetro `classificacao.peso_do_alias` não está cadastrado: o alias não
+> soma nada ao score, e o mesmo padrão volta à fila de triagem todo mês (a
+> F1-06 promete o contrário). Cadastrar é um INSERT em `parametro`, não um
+> release.
+
+### 56.3 Quatro desfechos, porque são quatro fatos
+
+| Cadastro | Peso | Desfecho |
+|---|---|---|
+| Ausente | 0 | Desligado, com motivo: **ninguém cadastrou** |
+| `0` | 0 | Desligado, com motivo: **alguém desligou deliberadamente** |
+| `0.10` | 0,10 | Ativo |
+| `0.5` | — | **Recusa** |
+| `"alto"` | — | **Recusa** |
+
+*"Ninguém cadastrou"* e *"cadastraram zero"* produzem o mesmo comportamento e
+leituras opostas na hora de investigar — juntá-los num só valor seria o erro que
+a RA-15 acabou de custar.
+
+**Fora da faixa levanta, não degrada.** Um peso de 0,5 faria o **nome do
+arquivo** classificar sozinho — a única coisa que este sistema existe para não
+fazer. Recusar é melhor que classificar errado. E texto inválido também levanta,
+em vez de virar ausência: tratá-lo como "não cadastrado" aplicaria um
+comportamento que ninguém pediu enquanto a pessoa acredita ter configurado.
+
+### 56.4 Um teto, não dois
+
+`Bonus.MAXIMO = 0.20` passou a ser público, e a validação do cadastro o lê. Dois
+números para o mesmo limite seriam a duplicação que a §54 acabou de custar caro.
+
+### 56.5 GLOBAL, e não por contrato
+
+O alias é aprendido por **tipo documental**, que é global, e o peso mede quanto
+se pode confiar no nome do arquivo. Um peso por contrato sugeriria que o mesmo
+alias vale mais num cliente que noutro, o que ninguém decidiu. Estreitar agora é
+reversível; alargar depois de alguém ter cadastrado valores por contrato, não.
+
+### 56.6 Minha limpeza corrompeu o que ela existia para preservar
+
+O `finally` do teste reinseria o valor anterior **sempre**. Com a carga ausente
+— o estado criado pela primeira quebra deliberada — `anterior` era nulo, e o
+INSERT gravava o jsonb `null`: um valor que não é ausência nem número.
+
+A partir daí **toda execução seguinte falhava a primeira asserção**, e o sintoma
+aparecia longe da causa: as quebras de outros pontos passaram a derrubar este
+caso também, mandando procurar no lugar errado. Foi assim que a poluição
+apareceu em quatro quebras seguidas antes de eu olhar para o `finally`.
+
+Segunda vez nesta sessão que uma limpeza de teste corrompeu o estado que ela
+preservava — a primeira foi a contagem absoluta contra a trilha append-only
+(§53.6). O padrão é o mesmo: **o `finally` assumiu que havia algo a restaurar.**
+
+### 56.7 Quatro quebras deliberadas
+
+| Quebra | Asserções que caem |
+|---|---|
+| A carga perde o parâmetro | "a carga cadastra o peso" + "o arquivo do mês seguinte chega com bônus" (61→59) |
+| A ausência volta a cair num `0.10` no Java | "sem cadastro o bônus é zero" + "nenhum nome recebe bônus" (61→59) |
+| Fora da faixa degrada em vez de recusar | "peso acima do teto é RECUSADO" |
+| Texto inválido vira ausência | "valor que não é número é recusado" |
+
+### 56.8 O que isto NÃO resolve
+
+`RepositorioDeAlias` **ainda não está ligado ao pipeline de produção** — só o
+teste o constrói. O bônus de alias existe, é lido do cadastro e é medido, e
+nenhum arquivo que a varredura ingere passa por ele hoje. Fica registrado como
+**RA-19**, porque é diferente de "pronto".
+
+Total: **1307 Java**, **164 SQL**.

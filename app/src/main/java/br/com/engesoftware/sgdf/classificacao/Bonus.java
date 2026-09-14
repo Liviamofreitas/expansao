@@ -12,13 +12,24 @@ import java.util.Map;
  */
 public record Bonus(Map<String, Double> porTipo) {
 
+    /**
+     * O teto do bônus, e ele é o mesmo para quem monta e para quem cadastra.
+     *
+     * <p>Público porque o peso do alias agora vem do cadastro (RA-03) e alguém
+     * precisa validar o valor <b>antes</b> de ele virar {@code Bonus} — recusar
+     * só aqui transformaria um número errado numa linha do cadastro em falha no
+     * meio da classificação de cada arquivo. Dois números diferentes para o
+     * mesmo limite seriam a duplicação que a RA-10 acabou de custar caro.
+     */
+    public static final double MAXIMO = 0.20;
+
     private static final Bonus NENHUM = new Bonus(Map.of());
 
     public Bonus {
         porTipo = Map.copyOf(porTipo);
         porTipo.forEach((tipo, valor) -> {
-            if (valor < 0 || valor > 0.20) {
-                throw new IllegalArgumentException("bônus de " + tipo + " fora de [0; 0,20]: "
+            if (valor < 0 || valor > MAXIMO) {
+                throw new IllegalArgumentException("bônus de " + tipo + " fora de [0; " + MAXIMO + "]: "
                         + valor + ". Bônus grande vira classificação pelo nome do arquivo.");
             }
         });

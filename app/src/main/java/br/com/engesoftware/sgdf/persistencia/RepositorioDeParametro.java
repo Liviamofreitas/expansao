@@ -132,6 +132,47 @@ public final class RepositorioDeParametro {
         return "true".equals(valor(Ativacao.CHAVE_ENVIO_ATIVO, contratoId));
     }
 
+    /**
+     * Um parâmetro numérico de escopo global — RA-03.
+     *
+     * <p><b>Devolve nulo para ausente e levanta para inválido</b>, e os dois
+     * desfechos são diferentes de propósito. Ausente é um estado legítimo: o
+     * cadastro ainda não recebeu aquele valor, e cabe a quem chama decidir o que
+     * fazer sem ele. <b>Inválido não é:</b> um texto que não é número, ou um
+     * número fora da faixa, é alguém tendo cadastrado errado — tratá-lo como
+     * ausente aplicaria um padrão em vez do que a pessoa quis, em silêncio, e
+     * ela continuaria achando que configurou o sistema.
+     *
+     * @param minimo e maximo a faixa que o valor tem de respeitar, inclusive
+     */
+    public java.math.BigDecimal decimalGlobal(String chave, double minimo, double maximo) {
+        String texto = valor(chave, null);
+        if (texto == null || texto.isBlank()) {
+            return null;
+        }
+        java.math.BigDecimal numero;
+        try {
+            numero = new java.math.BigDecimal(texto.strip());
+        } catch (NumberFormatException e) {
+            throw new ParametroInvalido("o parâmetro " + chave + " tem o valor \"" + texto
+                    + "\", que não é número");
+        }
+        if (numero.doubleValue() < minimo || numero.doubleValue() > maximo) {
+            throw new ParametroInvalido("o parâmetro " + chave + " vale " + numero
+                    + ", fora da faixa aceita [" + minimo + "; " + maximo + "]");
+        }
+        return numero;
+    }
+
+    /** Cadastrado errado não é o mesmo que não cadastrado. */
+    public static final class ParametroInvalido extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        public ParametroInvalido(String motivo) {
+            super(motivo);
+        }
+    }
+
     private String valor(String chave, UUID contratoId) {
         String sql = contratoId == null
                 ? "SELECT valor #>> '{}' FROM parametro WHERE chave = ? AND escopo = 'GLOBAL'"

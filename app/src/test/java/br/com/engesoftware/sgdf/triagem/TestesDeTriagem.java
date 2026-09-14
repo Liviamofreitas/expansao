@@ -2,6 +2,7 @@ package br.com.engesoftware.sgdf.triagem;
 
 import br.com.engesoftware.sgdf.classificacao.Bonus;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeAlias;
+import br.com.engesoftware.sgdf.persistencia.RepositorioDeParametro;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeTriagem;
 import br.com.engesoftware.sgdf.persistencia.Sgdf;
 import java.sql.Connection;
@@ -50,6 +51,8 @@ public final class TestesDeTriagem {
                 try {
                     Sgdf sgdf = new Sgdf(conexao);
                     executar("confirmarVinculaEEnsina", () -> confirmarVinculaEEnsina(sgdf));
+                    executar("oPesoVemDoCadastroENaoDoCodigo",
+                            () -> oPesoVemDoCadastroENaoDoCodigo(sgdf));
                     executar("oMesmoPadraoNaoRetorna", () -> oMesmoPadraoNaoRetorna(sgdf));
                     executar("decidirDuasVezesERecusado", () -> decidirDuasVezesERecusado(sgdf));
                     executar("reclassificarDevolveAPendente",
@@ -140,15 +143,23 @@ public final class TestesDeTriagem {
     /**
      * O bonus corrobora, nao elege. 0,10 sobre 0,86 fecha a faixa de triagem;
      * sobre 0,72 nao fecha — e nao deve fechar.
+     *
+     * <p>O peso nao vem mais de constante Java (RA-03): o que se verifica aqui e
+     * a ARITMETICA da faixa, que vale para qualquer peso cadastrado. Que o
+     * cadastro traga 0,10 e verificado contra o banco em
+     * {@link #oPesoVemDoCadastroENaoDoCodigo}.
      */
     static void aliasFechaAFaixaDeTriagem() {
-        double peso = RepositorioDeAlias.PESO_DO_ALIAS;
+        double peso = 0.10;
         ok("F1-06 . o alias fecha a faixa para quem o conteudo ja pos perto",
                 0.86 + peso >= 0.95);
         ok("F1-06 . e NAO fecha para quem o conteudo deixou longe",
                 0.72 + peso < 0.95);
         ok("Cap. 8.3 . o peso cabe no teto que o Bonus impoe",
                 new Bonus(java.util.Map.of("TST.X", peso)).para("TST.X") == peso);
+        ok("Cap. 8.3 . e o teto e um so, compartilhado por quem monta e quem cadastra",
+                Bonus.MAXIMO == 0.20 && recusa(() -> new Bonus(
+                        java.util.Map.of("TST.X", Bonus.MAXIMO + 0.01))));
     }
 
     // --- contra o banco ------------------------------------------------------
@@ -187,7 +198,7 @@ public final class TestesDeTriagem {
      */
     static void oMesmoPadraoNaoRetorna(Sgdf sgdf) {
         Fixture f = fixture(sgdf, "RELATORIO_BRAVO_06.2026.pdf");
-        RepositorioDeAlias aliases = new RepositorioDeAlias(sgdf);
+        RepositorioDeAlias aliases = RepositorioDeAlias.doCadastro(sgdf);
 
         ok("F1-06 . antes de confirmar, o nome nao concede bonus nenhum",
                 aliases.doNome("RELATORIO_BRAVO_07.2026.pdf").para(f.tipoCodigo) == 0.0);
@@ -198,9 +209,106 @@ public final class TestesDeTriagem {
         // O arquivo do MES SEGUINTE — nome diferente, padrao igual.
         Bonus depois = aliases.doNome("RELATORIO_BRAVO_07.2026.pdf");
         ok("F1-06 . depois de confirmar, o arquivo do mes seguinte ja chega com bonus",
-                depois.para(f.tipoCodigo) == RepositorioDeAlias.PESO_DO_ALIAS);
+                depois.para(f.tipoCodigo) == aliases.peso() && aliases.peso() > 0);
         ok("F1-06 . e o bonus e do tipo confirmado, nao de outro",
                 depois.para("TST.NAO_EXISTE") == 0.0);
+    }
+
+    /**
+     * RA-03: o peso vem do cadastro, e a ausencia dele NAO vira padrao em codigo.
+     *
+     * <p>Cair num 0,10 escrito no Java recriaria a duplicacao que a RA-10 custou
+     * caro: duas fontes que concordam hoje, e a que ninguem edita e a que o
+     * codigo le. Aqui a ausencia desliga o bonus — direcao segura, porque o
+     * documento vai para a fila e uma pessoa decide — e o MOTIVO fica legivel,
+     * porque zero em silencio quebraria a promessa da F1-06 com a fila crescendo
+     * como unico sintoma, e fila crescendo parece trabalho normal.
+     */
+    static void oPesoVemDoCadastroENaoDoCodigo(Sgdf sgdf) {
+        RepositorioDeAlias comCadastro = RepositorioDeAlias.doCadastro(sgdf);
+        ok("RA-03 . a carga cadastra o peso, e e 0,10",
+                comCadastro.peso() == 0.10 && comCadastro.desligadoPorque() == null);
+
+        String anterior = escalar(sgdf, "SELECT valor #>> '{}' FROM parametro"
+                + " WHERE chave = '" + RepositorioDeAlias.CHAVE_PESO + "'"
+                + " AND escopo = 'GLOBAL'");
+        try {
+            // 1. AUSENTE: desliga, e diz por que.
+            executar(sgdf, "DELETE FROM parametro WHERE chave = '"
+                    + RepositorioDeAlias.CHAVE_PESO + "' AND escopo = 'GLOBAL'");
+            RepositorioDeAlias sem = RepositorioDeAlias.doCadastro(sgdf);
+            ok("RA-03 . sem cadastro o bonus e zero — nunca um 0,10 escondido no Java",
+                    sem.peso() == 0.0);
+            ok("RA-03 . e o motivo esta legivel, em vez de a fila crescer sem explicacao",
+                    sem.desligadoPorque() != null
+                            && sem.desligadoPorque().contains("F1-06")
+                            && sem.desligadoPorque().contains("nao um release".replace(
+                                    "nao", "não")));
+            ok("RA-03 . e nenhum nome recebe bonus nesse estado",
+                    sem.doNome("CONTRACHEQUE_ALFA.pdf").porTipo().isEmpty());
+
+            // 2. ZERO CADASTRADO: tambem desliga, mas e OUTRO fato — alguem
+            //    decidiu. "Ninguem cadastrou" e "cadastraram zero" produziriam o
+            //    mesmo comportamento e leituras opostas na hora de investigar.
+            executar(sgdf, "INSERT INTO parametro (chave, escopo, valor, descricao,"
+                    + " criado_por) VALUES ('" + RepositorioDeAlias.CHAVE_PESO
+                    + "', 'GLOBAL', '0'::jsonb, 'desligado no teste', 'teste')");
+            RepositorioDeAlias zerado = RepositorioDeAlias.doCadastro(sgdf);
+            ok("RA-03 . zero cadastrado tambem desliga",
+                    zerado.peso() == 0.0 && zerado.desligadoPorque() != null);
+            ok("RA-03 . mas com motivo diferente: alguem DESLIGOU, nao esqueceu",
+                    zerado.desligadoPorque().contains("deliberadamente"));
+
+            // 3. FORA DA FAIXA: levanta. Um peso de 0,5 faria o NOME do arquivo
+            //    classificar sozinho, que e a unica coisa que este sistema
+            //    existe para nao fazer. Recusar e melhor que classificar errado.
+            executar(sgdf, "UPDATE parametro SET valor = '0.5'::jsonb WHERE chave = '"
+                    + RepositorioDeAlias.CHAVE_PESO + "' AND escopo = 'GLOBAL'");
+            RepositorioDeParametro.ParametroInvalido fora = null;
+            try {
+                RepositorioDeAlias.doCadastro(sgdf);
+            } catch (RepositorioDeParametro.ParametroInvalido e) {
+                fora = e;
+            }
+            ok("RA-03 . peso acima do teto e RECUSADO, nao degradado — com 0,5 o nome do "
+                            + "arquivo classificaria sozinho",
+                    fora != null && fora.getMessage().contains("0.5")
+                            && fora.getMessage().contains("fora da faixa"));
+
+            // 4. NAO E NUMERO: tambem levanta, e nao vira ausencia. Tratar texto
+            //    invalido como "nao cadastrado" aplicaria um comportamento que
+            //    ninguem pediu enquanto a pessoa acredita ter configurado.
+            executar(sgdf, "UPDATE parametro SET valor = to_jsonb('alto'::text)"
+                    + " WHERE chave = '" + RepositorioDeAlias.CHAVE_PESO
+                    + "' AND escopo = 'GLOBAL'");
+            RepositorioDeParametro.ParametroInvalido texto = null;
+            try {
+                RepositorioDeAlias.doCadastro(sgdf);
+            } catch (RepositorioDeParametro.ParametroInvalido e) {
+                texto = e;
+            }
+            ok("RA-03 . valor que nao e numero e recusado, e nao confundido com ausencia",
+                    texto != null && texto.getMessage().contains("não é número"));
+        } finally {
+            // RESTAURAR O QUE HAVIA, INCLUSIVE QUANDO NAO HAVIA NADA.
+            //
+            // A primeira versao deste finally reinseria `anterior` sempre. Com a
+            // carga ausente, `anterior` era nulo e o INSERT gravava o jsonb
+            // 'null' — um valor que nao e ausencia nem numero. A partir dai TODA
+            // execucao seguinte falhava a primeira assercao, e o sintoma
+            // aparecia longe da causa: as quebras deliberadas de outros pontos
+            // passaram a derrubar este caso tambem, mandando procurar no lugar
+            // errado. Segunda vez nesta sessao que uma limpeza de teste
+            // corrompeu o estado que ela existia para preservar.
+            executar(sgdf, "DELETE FROM parametro WHERE chave = '"
+                    + RepositorioDeAlias.CHAVE_PESO + "' AND escopo = 'GLOBAL'");
+            if (anterior != null) {
+                executar(sgdf, "INSERT INTO parametro (chave, escopo, valor, descricao,"
+                        + " criado_por) VALUES ('" + RepositorioDeAlias.CHAVE_PESO
+                        + "', 'GLOBAL', '" + anterior + "'::jsonb,"
+                        + " 'restaurado pelo teste', 'carga-inicial')");
+            }
+        }
     }
 
     /** Duas pessoas na mesma fila. A segunda recebe recusa, nao um segundo vinculo. */
