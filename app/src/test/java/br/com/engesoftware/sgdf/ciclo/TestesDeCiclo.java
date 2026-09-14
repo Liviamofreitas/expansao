@@ -13,6 +13,8 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Maquina de estados do ciclo e indicador D+3 — historias F3-03 e F3-04.
@@ -64,6 +66,10 @@ public final class TestesDeCiclo {
                             () -> oIndicadorD3ContaSobreOsFaturados(sgdf));
                     executar("oTempoPorContratoSeparaOQueAindaNaoFaturou",
                             () -> oTempoPorContratoSeparaOQueAindaNaoFaturou(sgdf));
+                    executar("aJanelaEntreLerEGravarEUmaCorridaDeVerdade",
+                            () -> aJanelaEntreLerEGravarEUmaCorridaDeVerdade(sgdf, url));
+                    executar("doisCliquesNoMesmoBotaoSoMovemUmaVez",
+                            () -> doisCliquesNoMesmoBotaoSoMovemUmaVez(sgdf, url));
                 } finally {
                     limpar(conexao);
                 }
@@ -534,6 +540,164 @@ public final class TestesDeCiclo {
         repo.mover(f.ciclo, EstadoDoCiclo.ATESTADO, "ana.lima", "PUBLICADOR_FIN",
                 "ateste recebido do cliente por e-mail");
         return f;
+    }
+
+    /**
+     * RA-12: a clausula que repete a pre-condicao dentro do UPDATE, MEDIDA.
+     *
+     * <p>Ate aqui o {@code RepositorioDeCiclo} afirmava, em comentario, que essa
+     * clausula cobre a janela entre ler o estado em Java e gravar o efeito — e
+     * dizia, honestamente, que a suite NAO media isso. Remove-la nao derrubava
+     * asserção nenhuma. A garantia era do banco, nao do teste.
+     *
+     * <p><b>A janela se reproduz sem tocar no codigo de producao.</b> Uma
+     * terceira conexao segura o lock da linha do ciclo. A conexao que chama
+     * {@code mover} LE o estado sem bloquear — leitura nao espera lock em MVCC —,
+     * passa pela guarda de Java, e entao BLOQUEIA no UPDATE. Nesse exato
+     * instante a terceira conexao muda o ciclo para BLOQUEADO e comita. O UPDATE
+     * desbloqueia, o PostgreSQL reavalia a condicao contra a versao nova da
+     * linha em READ COMMITTED, {@code c.status = 'EM_COLETA'} deixou de valer, e
+     * zero linhas sao afetadas.
+     *
+     * <p>O ponto de sincronizacao e o proprio banco, nao um sleep:
+     * {@code pg_stat_activity} diz quando a outra sessao esta de fato esperando
+     * o lock. Um sleep tornaria o teste intermitente — e um teste de corrida
+     * intermitente e pior que nenhum, porque falha as vezes e ninguem acredita
+     * nele.
+     */
+    static void aJanelaEntreLerEGravarEUmaCorridaDeVerdade(Sgdf sgdf, String url)
+            throws Exception {
+        Fixture f = fixture(sgdf);
+        publicar(sgdf, f.exigencia);
+        RepositorioDeCiclo repo = new RepositorioDeCiclo(sgdf);
+        repo.mover(f.ciclo, EstadoDoCiclo.EM_COLETA, "ana.lima", "PUBLICADOR_FIN",
+                "varredura iniciada na competencia");
+
+        try (Connection trava = DriverManager.getConnection(url);
+             Connection corredor = DriverManager.getConnection(url)) {
+            trava.setAutoCommit(false);
+            corredor.setAutoCommit(true);
+
+            // 1. A terceira conexao segura a linha. Quem for gravar vai esperar.
+            try (Statement st = trava.createStatement()) {
+                st.executeQuery("SELECT id FROM ciclo WHERE id = '" + f.ciclo
+                        + "' FOR UPDATE").close();
+            }
+
+            // 2. O corredor le EM_COLETA (nao bloqueia), passa na guarda de
+            //    Java, e para no UPDATE.
+            AtomicReference<Throwable> erro = new AtomicReference<>();
+            Thread t = new Thread(() -> {
+                try {
+                    new RepositorioDeCiclo(new Sgdf(corredor)).mover(f.ciclo,
+                            EstadoDoCiclo.PRONTO, "bruno.dias", "PUBLICADOR_FIN",
+                            "bloqueantes publicadas no book da competencia");
+                } catch (Throwable e) {
+                    erro.set(e);
+                }
+            });
+            t.start();
+            ok("RA-12 . o corredor chega ao UPDATE e fica esperando o lock — a janela "
+                            + "entre ler e gravar esta aberta, e e essa que a clausula cobre",
+                    esperouPeloLock(sgdf, f.ciclo));
+
+            // 3. DENTRO da janela, outra pessoa bloqueia o ciclo.
+            try (Statement st = trava.createStatement()) {
+                st.execute("UPDATE ciclo SET status = 'BLOQUEADO' WHERE id = '"
+                        + f.ciclo + "'");
+            }
+            trava.commit();
+            t.join(15_000);
+
+            ok("RA-12 . o movimento foi RECUSADO: a pre-condicao deixou de valer entre "
+                            + "a verificacao e a gravacao",
+                    erro.get() instanceof RepositorioDeCiclo.TransicaoInvalida
+                            && erro.get().getMessage().contains("mudou entre a"));
+            ok("RA-12 . e o ciclo ficou BLOQUEADO — o PRONTO nao sobrescreveu a decisao "
+                            + "de quem chegou primeiro",
+                    "BLOQUEADO".equals(escalar(sgdf,
+                            "SELECT status FROM ciclo WHERE id = '" + f.ciclo + "'")));
+        }
+    }
+
+    /**
+     * O caso mais banal da mesma janela: duas pessoas no mesmo botao.
+     *
+     * <p>As duas leem EM_COLETA, as duas passam na guarda de Java, as duas
+     * gravam. Sem a clausula no UPDATE, as duas "conseguem" — e a segunda
+     * sobrescreve a primeira sem que nada acuse. Com ela, exatamente uma move.
+     */
+    static void doisCliquesNoMesmoBotaoSoMovemUmaVez(Sgdf sgdf, String url) throws Exception {
+        Fixture f = fixture(sgdf);
+        publicar(sgdf, f.exigencia);
+        new RepositorioDeCiclo(sgdf).mover(f.ciclo, EstadoDoCiclo.EM_COLETA, "ana.lima",
+                "PUBLICADOR_FIN", "varredura iniciada na competencia");
+
+        try (Connection trava = DriverManager.getConnection(url);
+             Connection um = DriverManager.getConnection(url);
+             Connection dois = DriverManager.getConnection(url)) {
+            trava.setAutoCommit(false);
+            um.setAutoCommit(true);
+            dois.setAutoCommit(true);
+            try (Statement st = trava.createStatement()) {
+                st.executeQuery("SELECT id FROM ciclo WHERE id = '" + f.ciclo
+                        + "' FOR UPDATE").close();
+            }
+
+            AtomicInteger moveram = new AtomicInteger();
+            List<Throwable> recusas = java.util.Collections.synchronizedList(
+                    new ArrayList<>());
+            List<Thread> threads = new ArrayList<>();
+            for (Connection c : List.of(um, dois)) {
+                Thread t = new Thread(() -> {
+                    try {
+                        new RepositorioDeCiclo(new Sgdf(c)).mover(f.ciclo,
+                                EstadoDoCiclo.PRONTO, "quem.clicou", "PUBLICADOR_FIN",
+                                "bloqueantes publicadas no book da competencia");
+                        moveram.incrementAndGet();
+                    } catch (Throwable e) {
+                        recusas.add(e);
+                    }
+                });
+                threads.add(t);
+                t.start();
+            }
+            ok("RA-12 . as duas chegam ao UPDATE e esperam — as duas ja passaram pela "
+                            + "guarda de Java, que por si so nao impede nada",
+                    esperaramPeloLock(sgdf, f.ciclo, 2));
+
+            trava.rollback();
+            for (Thread t : threads) {
+                t.join(15_000);
+            }
+
+            ok("RA-12 . exatamente UMA moveu", moveram.get() == 1);
+            ok("RA-12 . e a outra foi recusada com o motivo certo, em vez de sobrescrever "
+                            + "em silencio",
+                    recusas.size() == 1
+                            && recusas.get(0) instanceof RepositorioDeCiclo.TransicaoInvalida);
+            ok("RA-12 . o ciclo esta em PRONTO uma vez so",
+                    "PRONTO".equals(escalar(sgdf,
+                            "SELECT status FROM ciclo WHERE id = '" + f.ciclo + "'")));
+        }
+    }
+
+    /** O ponto de sincronizacao e o banco: ele sabe quem esta esperando lock. */
+    static boolean esperouPeloLock(Sgdf sgdf, UUID ciclo) throws InterruptedException {
+        return esperaramPeloLock(sgdf, ciclo, 1);
+    }
+
+    static boolean esperaramPeloLock(Sgdf sgdf, UUID ciclo, int quantas)
+            throws InterruptedException {
+        for (int tentativa = 0; tentativa < 300; tentativa++) {
+            String bloqueadas = escalar(sgdf, "SELECT count(*) FROM pg_stat_activity"
+                    + " WHERE wait_event_type = 'Lock' AND query LIKE 'UPDATE ciclo%'");
+            if (Long.parseLong(bloqueadas) >= quantas) {
+                return true;
+            }
+            Thread.sleep(50);
+        }
+        return false;
     }
 
     static void publicar(Sgdf sgdf, UUID exigencia) {

@@ -3479,3 +3479,78 @@ a conciliação compara, o que é leitura de contrato. O que mudou é que agora
 ### 54.9 Cobertura
 
 Total: **1291 Java**, **164 SQL**.
+
+---
+
+## 55. RA-12 — a única garantia que esta base afirmava sem provar
+
+O `RepositorioDeCiclo` checa cada transição **duas vezes**: em Java, onde existe
+a mensagem que explica o que falta; e dentro do próprio `UPDATE`, repetida como
+cláusula `WHERE`. As duas parecem a mesma verificação e não são — a de Java
+acontece num instante, a escrita acontece noutro, e entre os dois cabe uma
+exceção sendo aprovada, um book sendo publicado ou outra pessoa clicando no
+mesmo botão.
+
+A cláusula estava lá desde a F3-03. **Removê-la não derrubava nenhuma das 57
+asserções** (§41.2), e isso ficou registrado como RA-12 em vez de ser confundido
+com garantia. A razão declarada então: reproduzir a janela exigiria pausar o
+código *dentro* da transação, e expor um gancho só para o teste seria pior que
+não medir.
+
+**A razão estava errada.** Não é preciso pausar o código: basta fazer o banco
+pausá-lo.
+
+### 55.1 A janela, reproduzida sem tocar em produção
+
+1. Uma terceira conexão faz `SELECT ... FOR UPDATE` na linha do ciclo e segura o
+   lock.
+2. A conexão que chama `mover` **lê** o estado — leitura não espera lock em MVCC —,
+   vê `EM_COLETA`, passa pela guarda de Java, e **bloqueia no `UPDATE`**.
+3. Dentro dessa janela, a terceira conexão move o ciclo para `BLOQUEADO` e comita.
+4. O `UPDATE` desbloqueia. Em READ COMMITTED o PostgreSQL reavalia a condição
+   contra a **versão nova** da linha; `c.status = 'EM_COLETA'` deixou de valer;
+   zero linhas afetadas; `TransicaoInvalida`.
+
+### 55.2 O ponto de sincronização é o banco, não um sleep
+
+`pg_stat_activity` diz quando a outra sessão está de fato esperando o lock
+(`wait_event_type = 'Lock'`). Um `Thread.sleep` calibrado tornaria o teste
+intermitente — e **um teste de corrida intermitente é pior que nenhum**, porque
+falha às vezes, ninguém acredita nele, e em pouco tempo alguém o desliga.
+Cinco execuções seguidas: 64/64 em todas.
+
+### 55.3 O caso banal da mesma janela
+
+Duas pessoas no mesmo botão. As duas leem `EM_COLETA`, as duas passam na guarda
+de Java, as duas gravam. Sem a cláusula, as duas "conseguem" e a segunda
+sobrescreve a primeira sem que nada acuse. Com ela, **exatamente uma move**.
+
+### 55.4 A quebra, e uma asserção que nasceu cega
+
+Trocado `AND c.status = ?` por `AND ? IS NOT NULL`, **quatro** asserções caem:
+
+| Asserção | Cai? |
+|---|---|
+| o movimento foi RECUSADO | **sim** |
+| o ciclo ficou BLOQUEADO, o PRONTO não sobrescreveu | **sim** |
+| exatamente UMA moveu | **sim** |
+| a outra foi recusada, em vez de sobrescrever em silêncio | **sim** |
+| o ciclo está em PRONTO uma vez só | **não** |
+
+A última **sobrevive à quebra** — com a cláusula removida, as duas movem para
+PRONTO e o estado final continua sendo PRONTO. Ela parece uma verificação de
+integridade e é estruturalmente incapaz de ver o defeito. Fica no teste porque é
+verdadeira, mas quem lesse só ela concluiria que a corrida está coberta. É a
+terceira vez nesta base que uma asserção de aparência sólida não mede nada — as
+outras duas foram a ordenação do `Set.copyOf` (§41) e o `pg_restore
+--no-privileges` satisfeito pelo vazio (§51).
+
+### 55.5 O que continua sem medição
+
+As cláusulas de `ATESTADO` (`ateste_em IS NOT NULL`) e `FATURADO`
+(`nf_emitida_em IS NOT NULL`) não foram exercitadas pela mesma corrida. Elas têm
+uma segunda rede que a de estado não tem — as restrições `CHECK` da V016, essas
+sim medidas por `T009` —, então a ausência aqui não deixa o ciclo desprotegido.
+Registrado por ser diferente de "coberto".
+
+Total: **1298 Java**, **164 SQL**.

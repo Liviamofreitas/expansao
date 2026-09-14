@@ -29,15 +29,18 @@ import java.util.UUID;
  * Um {@code executeUpdate()} que devolve zero é, portanto, informação: alguém
  * mudou o estado no meio do caminho.
  *
- * <p><b>E a suíte NÃO mede essa cláusula — dito aqui para não ser confundido
- * com garantia.</b> Removê-la deliberadamente não derruba nenhuma das 57
- * asserções (achados § 41.2). Não porque ela seja inútil, mas porque o que ela
- * cobre é a janela entre a leitura em Java e a gravação, e reproduzir essa
- * janela exigiria pausar o código <i>dentro</i> da transação — o que este
- * código não expõe, e expor só para o teste seria pior que não medir. A guarda
- * em Java, essa sim, está medida: sem ela, duas asserções caem e duas nem
- * chegam a rodar, porque a recusa muda de tipo e perde a lista do que falta.
- * A cláusula fica pelo que o banco garante, não pelo que o teste prova.
+ * <p><b>E agora a suíte mede essa cláusula (RA-12, fechada).</b> Ela era, até
+ * a versão anterior, a única garantia desta classe que se afirmava sem provar:
+ * removê-la não derrubava asserção nenhuma. A janela se reproduz sem pausar
+ * este código e sem expor nada só para o teste — uma terceira conexão segura o
+ * lock da linha, a conexão que chama {@code mover} <i>lê</i> sem bloquear
+ * (leitura não espera lock em MVCC), passa pela guarda de Java e <b>para no
+ * UPDATE</b>; dentro dessa janela outra sessão muda o ciclo e comita. O
+ * PostgreSQL reavalia a condição contra a versão nova da linha em READ
+ * COMMITTED, {@code c.status = ?} deixa de valer, e zero linhas são afetadas.
+ * O ponto de sincronização é o próprio banco — {@code pg_stat_activity} diz
+ * quem está esperando lock —, e não um sleep: teste de corrida intermitente é
+ * pior que nenhum. Medido: sem a cláusula, <b>quatro</b> asserções caem.
  *
  * <p><b>Registrar não é transitar.</b> {@link #registrarAteste} grava o ateste
  * e deixa o ciclo onde está; mover para ATESTADO é um segundo ato. Fundir os
