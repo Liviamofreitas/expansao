@@ -3829,3 +3829,72 @@ decisões de curadoria", o segundo revelou "1 pergunta e uma deduplicação" —
 
 Total: **1320 Java**, **164 SQL**, **19 casos normativos de materialização**,
 **32 de prazo**.
+
+---
+
+## 59. O ensaio de cadastro: o que só aparece quando se aplica de verdade
+
+O script `db/decisoes/D001__decisoes_de_cadastro.sql` aplica as três decisões que
+bloqueavam a abertura. Escrevê-lo foi rápido; **rodá-lo produziu três correções
+que a leitura não teria produzido.**
+
+### 59.1 O psql não interpola dentro de `$$...$$`
+
+A primeira versão usava `:'EMPRESA_CNPJ'` dentro dos blocos `DO $$`. O psql
+**não** substitui variáveis dentro de string dollar-quoted: o arquivo falha com
+`syntax error at or near ":"`.
+
+E falharia **no meio** — as seções anteriores já teriam escrito. Um script de
+cadastro que aborta depois de aplicar metade é pior que um que não roda.
+Corrigido para passar os valores por `set_config` e lê-los com
+`current_setting`, que atravessa a fronteira do bloco.
+
+### 59.2 `array || 'texto'` não é append
+
+PostgreSQL tenta ler o texto como literal de array e falha com *"malformed array
+literal"*. O guarda de recusa abortava — pelo motivo errado, e com a mensagem
+errada. `array_append` é o operador que faz o que eu queria.
+
+**A recusa funcionava por acidente.** Se o bug estivesse numa seção posterior
+ao primeiro `INSERT`, teria escrito antes de abortar.
+
+### 59.3 Encerrar vigência "ontem" não encerra nada — e o relatório mentia junto
+
+O desempate de B1 encerrava a regra perdedora em `CURRENT_DATE - 1`, isto é,
+**2026-09-13**. Mas `Regra.vigenteEm` compara a vigência contra o **mês inteiro**
+da competência, não contra o dia 1 — deliberadamente, para que uma regra que
+passa a valer no meio do mês valha no mês em que alguém decidiu que passaria a
+valer.
+
+A regra perdedora continuou vigente. O ensaio abriu **7 de 12 ciclos** e recusou
+5, com a mensagem denunciando exatamente isso:
+`vigência (2025-01-01..null e 2025-01-01..2026-09-13)`.
+
+**E o relatório do script dizia "0 pares divergentes"** — porque contava
+`vigencia_fim IS NULL`, e a linha passara a ter data. **Dois critérios
+diferentes para a mesma pergunta: um no motor, um no relatório.** O relatório
+reportava saúde que o motor não reconhecia.
+
+Corrigidos os dois: a vigência encerra no **último dia do mês anterior**, e o
+relatório passou a usar o mesmo critério de vigência que o motor.
+
+### 59.4 O que o ensaio completo mostrou
+
+Com as três decisões aplicadas: **12 de 12 ciclos, 104 exigências, zero falhas.**
+
+E **85 regras de escopo PROFISSIONAL não materializaram nada** — não há
+profissional nem alocação no cadastro. O sistema **anunciou**: 85 alertas na
+trilha, um por tipo. Sem eles, o ciclo abriria com 104 exigências, pareceria
+saudável, e jamais teria cobrado a evidência de pessoa alguma.
+
+Registrado como **B5** no parecer de go-live. Não bloqueia a abertura — bloqueia
+a utilidade dela.
+
+### 59.5 A lição, que é a mesma da §58.5
+
+Escrever o script é dizer o que deveria acontecer. **Rodá-lo é a única forma de
+saber o que acontece.** Três defeitos, nenhum deles visível na leitura, dois
+deles capazes de escrever pela metade e um capaz de reportar sucesso sobre um
+cadastro que o motor ainda recusava.
+
+Total: **1320 Java**, **164 SQL**, **19 casos de materialização**, **32 de prazo**.
