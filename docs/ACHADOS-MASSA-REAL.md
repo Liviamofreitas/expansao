@@ -4316,3 +4316,132 @@ E fica o padrão, que é o que interessa guardar: **uma regra de pipeline que
 obriga a parar de trabalhar para que o gate funcione é uma regra errada.** O
 sintoma apareceu como um commit retido "para não cancelar a corrida" — e um
 commit retido por causa da ferramenta é sempre um defeito da ferramenta.
+
+## 61. A aplicação nunca subiu
+
+O SCA finalmente produziu um veredito, e o caminho para atendê-lo passava por
+subir a aplicação. Ao iniciar o jar pela primeira vez:
+
+```
+Cannot subclass final class br.com.engesoftware.sgdf.persistencia.Sgdf
+```
+
+Dezesseis classes de persistência eram `public final class` e, ao mesmo tempo,
+`@Bean` com `ScopedProxyMode.TARGET_CLASS`. Esse modo de proxy exige subclasse
+CGLIB; CGLIB não estende classe final. **Não havia combinação de versões em que
+isso funcionasse.**
+
+### 61.1 O controle, antes da conclusão
+
+A tentação era concluir "o Spring Boot 4 quebrou". Rodei o controle — o mesmo
+jar, o mesmo teste, o Spring Boot 3.5.16 já commitado:
+
+```
+CONTROLE 3.5.16 FALHOU: Cannot subclass final class ...RepositorioDeCadastro
+```
+
+Falha idêntica. **Não é regressão de nada: a camada web deste sistema nunca foi
+ligada, em nenhuma versão.**
+
+### 61.2 Por que nada apontava para isso
+
+| O que existia | O que ele mede | O que ele não mede |
+|---|---|---|
+| 1320 asserções Java | as classes de domínio, montadas à mão | o contexto do Spring |
+| 164 testes SQL | o esquema, sem passar por Java | idem |
+| 19 + 32 casos normativos | a regra contra `referencia.py` | idem |
+| Gate da imagem | CVEs nos pacotes e nos jars | se o jar sobe |
+| Fumaça da imagem | `java -version`, uid, `wget` | se a *aplicação* sobe |
+
+A fiação — `@Bean`, escopos, proxies — não tinha **um único teste**. E a
+ausência não era visível: tudo verde, imagem construída, escaneada e publicável.
+
+É o defeito que este projeto vem catalogando desde o começo, agora na sua forma
+mais cara: **um componente cuja falha se parece com sucesso.** Só que aqui o
+"componente" era o sistema inteiro.
+
+### 61.3 O que o CI ganhou, e a prova de que funciona
+
+Um passo que sobe o jar empacotado contra o PostgreSQL do serviço e olha a
+resposta HTTP.
+
+**O critério é 401, não 200, e isso é deliberado.** Um 401 prova duas coisas de
+uma vez: o servidor está no ar respondendo HTTP, e **nega sem credencial**
+(cap. 15.1 — negar é o padrão). Um 200 aqui seria notícia pior que não subir:
+significaria endpoint aberto.
+
+Verificado dos dois lados, que é o que transforma um teste em prova:
+
+```
+com a correção:      HTTP 401 · Started SgdfApplication in 2.56 seconds · verde
+com `final` de volta: A APLICACAO NAO SOBE · Cannot subclass final class ... · vermelho
+```
+
+E, durante a segunda metade desse experimento, **as 1320 asserções continuavam
+passando** — que é exatamente a cegueira que o passo remove.
+
+### 61.4 Dois defeitos no próprio passo, achados rodando
+
+Escrevi o passo, e rodá-lo antes de empurrar mostrou que ele não funcionava:
+
+1. `codigo=$(curl -w '%{http_code}' || echo 000)` concatena os dois `000`
+   quando o curl falha, produzindo `000000`. Como `"000000" != "000"`, **o laço
+   de espera quebrava na primeira tentativa** e a aplicação nunca tinha chance
+   de subir. O passo teria reprovado builds bons.
+2. `pkill -f 'sgdf-.*jar'` **mata o próprio shell do passo**: o script inteiro é
+   argumento da linha de comando e casa com o padrão. O passo morreria com a
+   aplicação no ar e saudável.
+
+O segundo é a repetição literal de uma armadilha que `scripts/banco-de-teste.sh`
+já documenta neste repositório — *"matar por padrão de linha de comando aqui
+pegaria o próprio shell que roda este script"*. Escrita há semanas, por mim, e
+repetida assim mesmo. **Um aprendizado registrado num arquivo não se aplica
+sozinho no arquivo seguinte.**
+
+### 61.5 A sobreposição de versão tem prazo de validade
+
+`<tomcat.version>10.1.59</tomcat.version>` foi a correção certa quando o parent
+era 3.x e trazia um Tomcat com 42 CVEs. Sob o Spring Boot 4, a mesma linha passou
+a forçar Tomcat 10.1 debaixo de um Spring Framework 7 — que exige Servlet 6.1,
+entregue só pelo Tomcat 11.
+
+E **a suíte inteira passava assim**: 1320 verdes sobre um contêiner que a
+aplicação não conseguiria usar. Não apareceu em teste nenhum; apareceu ao ler a
+árvore de dependências resolvida.
+
+A lição é maior que o Tomcat: **uma sobreposição de versão é uma afirmação com
+prazo de validade, e o prazo vence quando o que está por baixo muda.** Ao trocar
+o parent, toda propriedade dessa seção precisa ser reexaminada — não porque
+quebre, mas porque pode continuar funcionando enquanto já está errada.
+
+### 61.6 O veredito do SCA, e por que exigiu o salto de major
+
+Primeira vez em 21 execuções que o job de SCA chegou ao fim — e em **26
+segundos**, não 2h10, porque o cache da NVD finalmente foi gravado e restaurado.
+O passo Veredito (§60.10) distinguiu corretamente:
+
+```
+::error title=SCA REPROVOU::Há dependência com CVE de CVSS >= 7,0. Isto É um veredito.
+```
+
+| Dependência | CVEs | Pior | Saída |
+|---|---|---|---|
+| spring-core / spring-web 6.2.19 | 12 cada | **9,8** | só no Framework 7 |
+| spring-security-* 6.5.11 | 2 cada | **9,1** | só no Security 7 |
+| log4j-api 2.24.3 | 4 | 7,5 | 2.26.1, mesma linha |
+
+6.2.19 é a última da linha 6.2.x; 6.5.11, a última da 6.5.x. **Não havia patch
+para subir** — a correção só existe em Spring Boot 4. O salto foi medido, não
+opinado: compila, 1320/1320, 19 + 32 casos normativos, e a aplicação sobe com
+Tomcat 11.0.24 em 2,6 s.
+
+### 61.7 O que isto custa à data de go-live
+
+O documento de go-live tratava o sistema como pronto à espera de decisões de
+cadastro. Isso deixou de ser verdade no instante em que se descobriu que **o
+artefato publicável não inicia**. O defeito está corrigido e o teste que o
+pegaria existe — mas a lição de governança é outra:
+
+**um pipeline verde não é evidência de que o sistema funciona; é evidência de
+que o que ele mede está certo.** O que ele não mede não aparece em lugar nenhum,
+e a única forma de descobrir foi tentar usar o sistema.
