@@ -4258,10 +4258,44 @@ simultâneas competem pelo cache cuja razão de existir é evitar aquele downloa
 Nenhuma das quatro chegaria a um veredito antes de a seguinte tornar seu commit
 obsoleto.
 
-`concurrency` com `cancel-in-progress: true`, sem exceção por ramo. A exceção
-usual — *"em `main` a execução é evidência de conformidade"* — foi considerada e
-descartada por um motivo concreto: **este ramo é o ramo padrão deste
-repositório**. A evidência que vale é a do commit que fica, não a de um commit
+#### O primeiro conserto trocou um defeito por outro pior
+
+Pus `concurrency` no nível da **execução**, com `cancel-in-progress: true`.
+Resolvia a disputa de cache — e criava algo bem pior, que só percebi ao ser
+lembrado de empurrar um commit retido:
+
+**Num ramo ativo, sob essa regra, um job de 2h10 nunca termina.** O que ela
+cancela com mais frequência é exatamente o job mais longo: cada commit o mata
+perto do fim e reinicia o relógio. O gate deixaria de reprovar não por estar
+aprovando, mas **por nunca chegar a um veredito** — a mesma "ausência tratada
+como resultado" que o passo Veredito (§60.10) existe para impedir, agora
+produzida pelo próprio pipeline.
+
+E eu já estava operando sob o sintoma sem nomeá-lo: tinha acabado de reter um
+commit de documentação "para não cancelar a corrida". Quando a regra obriga a
+parar de trabalhar para que o gate funcione, a regra está errada.
+
+#### A regra correta não é uma só
+
+Os jobs não têm o mesmo custo nem o mesmo papel, então o agrupamento é **por
+job**:
+
+| Job | Duração | Regra | Por quê |
+|---|---|---|---|
+| testes, imagem, segredos | minutos | cancela em cadeia | o veredito que importa é o do último commit |
+| sca | ~2h10 | **não cancela o que está rodando**; o novo espera | um veredito a 90% do caminho vale mais que recomeçar |
+
+O GitHub mantém no máximo um em execução e um na fila para o mesmo grupo: um
+terceiro push descarta o que estava **só esperando** — que é exatamente o que se
+quer descartar.
+
+Efeito colateral bem-vindo da correção: como o grupo sai do nível da execução, a
+corrida em andamento deixa de compartilhar grupo com a próxima e **sobrevive ao
+push** que trouxe esta mudança.
+
+A exceção usual — *"em `main` a execução é evidência de conformidade"* — foi
+considerada e descartada por um motivo concreto: **este ramo é o ramo padrão
+deste repositório**. A evidência que vale é a do commit que fica, não a de um commit
 superado noventa segundos depois; e a execução cancelada continua no histórico,
 marcada como cancelada.
 
@@ -4274,6 +4308,11 @@ Duas ressalvas honestas:
 1. O bloco só alcança execuções enfileiradas **depois** dele. As execuções 16 a
    19 continuaram rodando, e não tenho permissão para cancelá-las (403,
    a mesma limitação que impediu apagar o cache envenenado).
-2. Com `cancel-in-progress` ativo, **qualquer push cancela o SCA em curso e
-   reinicia o relógio de 2h10.** Enquanto não houver `NVD_API_KEY`, chegar a um
-   veredito de dependências exige parar de empurrar e esperar.
+2. A regra por job só vale para execuções enfileiradas depois dela; na
+   transição, a corrida antiga e a nova ainda ficam em grupos diferentes e
+   rodam juntas uma última vez.
+
+E fica o padrão, que é o que interessa guardar: **uma regra de pipeline que
+obriga a parar de trabalhar para que o gate funcione é uma regra errada.** O
+sintoma apareceu como um commit retido "para não cancelar a corrida" — e um
+commit retido por causa da ferramenta é sempre um defeito da ferramenta.

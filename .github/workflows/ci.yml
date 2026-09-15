@@ -16,36 +16,41 @@ permissions:
   contents: read
   security-events: write   # para publicar o SARIF do SCA
 
-# QUATRO EXECUÇÕES DO MESMO RAMO DISPUTANDO O MESMO CACHE.
+# QUATRO EXECUÇÕES DO MESMO RAMO DISPUTANDO O MESMO CACHE — E O CONSERTO ERRADO.
 #
-# Sem chave da NVD o job de SCA leva ~2h10. Cinco commits seguidos nesta tarde
-# deixaram as execuções 16, 17, 18 e 19 rodando AO MESMO TEMPO, todas baixando a
-# base da NVD do zero, todas tentando gravar a mesma chave de cache — e o log da
-# 19 registrou o resultado: "Failed to save: Unable to reserve cache with key
-# ..., another job may be creating this cache".
+# Sem chave da NVD o job de SCA leva ~2h10. Cinco commits numa tarde deixaram as
+# execuções 16 a 19 rodando AO MESMO TEMPO, todas baixando a base da NVD do
+# zero, todas tentando gravar a mesma chave: "Failed to save: Unable to reserve
+# cache with key ..., another job may be creating this cache".
 #
-# É desperdício que se multiplica sozinho: quanto mais lento o job, maior a
-# chance de o próximo commit chegar antes do fim, e mais corridas simultâneas
-# competem pelo cache que existe justamente para torná-las rápidas. Nenhuma das
-# quatro chegaria a um veredito antes de a seguinte tornar o commit obsoleto.
+# A PRIMEIRA CORREÇÃO TROCOU UM DEFEITO POR OUTRO PIOR. `concurrency` no nível
+# da EXECUÇÃO com `cancel-in-progress: true` cancela TUDO a cada push — e o que
+# ela cancela com mais frequência é justamente o job mais longo. Num ramo ativo,
+# um job de 2h10 sob essa regra NUNCA TERMINA: cada commit o mata perto do fim e
+# reinicia o relógio. O gate deixaria de reprovar não por estar aprovando, mas
+# por nunca chegar a um veredito — a mesma "ausência tratada como resultado" que
+# o passo Veredito existe para impedir, agora produzida pelo próprio pipeline.
 #
-# `cancel-in-progress: true` sem exceção por ramo, DE PROPÓSITO. A exceção usual
-# ("em `main` a execução é evidência de conformidade") não se aplica aqui: este
-# ramo É o ramo padrão deste repositório, e a evidência que vale é a do commit
-# que fica — não a de um commit superado noventa segundos depois. O registro
-# também não some: a execução cancelada continua no histórico, marcada como
-# cancelada.
+# A regra correta não é uma só, porque os jobs não têm o mesmo custo nem o mesmo
+# papel. O agrupamento é POR JOB:
+#
+#   - testes, imagem, segredos: minutos, e o veredito que importa é o do último
+#     commit. Cancelam em cadeia.
+#   - sca: horas, e um veredito de dependências a 90% do caminho vale muito mais
+#     que recomeçar. NÃO cancela o que está rodando; o novo espera. O GitHub
+#     mantém no máximo um em execução e um na fila — um terceiro push descarta o
+#     que estava só esperando, que é exatamente o que se quer descartar.
 #
 # QUANDO HOUVER RAMO DE RELEASE OU TAG, ISTO PRECISA SER REVISTO: aí a execução
-# do artefato publicado passa a ser evidência de auditoria e não pode ser
-# cancelada por um push posterior.
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+# do artefato publicado é evidência de auditoria e não pode ser cancelada por um
+# push posterior, nem mesmo nos jobs rápidos.
 
 jobs:
   testes:
     name: Compilar e testar
+    concurrency:
+      group: ci-testes-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -96,6 +101,9 @@ jobs:
 
   sca:
     name: SCA de dependências (SEC-07)
+    concurrency:
+      group: ci-sca-${{ github.ref }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -216,6 +224,9 @@ jobs:
 
   imagem:
     name: Construir e escanear a imagem (SEC-07)
+    concurrency:
+      group: ci-imagem-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     needs: testes
     steps:
@@ -322,6 +333,9 @@ jobs:
 
   segredos:
     name: Varredura de segredos
+    concurrency:
+      group: ci-segredos-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
