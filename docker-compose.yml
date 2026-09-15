@@ -91,8 +91,26 @@ services:
       SGDF_CLAMD_HOST: clamd
       SGDF_CLAMD_PORTA: "3310"
       SGDF_INSTANCIA: ${SGDF_INSTANCIA:-hml-01}
+    # O ENDEREÇO DE ESCUTA É CONFIGURÁVEL, E O PADRÃO CONTINUA SENDO FECHADO.
+    #
+    # `127.0.0.1` por padrão: em HML, publicar a porta para toda a rede é o
+    # caminho mais curto para alguém apontar uma ferramenta de produção para cá
+    # por engano.
+    #
+    # Num servidor dedicado atrás de proxy reverso — que é o caso do
+    # sad.engesoftware.com.br — o proxy está em OUTRA máquina e precisa alcançar
+    # esta porta. Aí `SGDF_BIND=0.0.0.0` é necessário, e a proteção passa a ser
+    # de rede (firewall e grupo de segurança), não de bind.
+    #
+    # Abrir isto é decisão de implantação e fica explícita no .env, em vez de
+    # ficar escondida numa linha do compose que ninguém releu.
+    #
+    # A APLICAÇÃO CONTINUA SEM RODAR COMO ROOT, mesmo na porta 80: quem escuta
+    # 80 é o Docker, no host; dentro do contêiner o processo segue em 8080 como
+    # o usuário `sgdf` (cap. 15.1). Trocar o EXPOSE para 80 exigiria root no
+    # contêiner — que é exatamente o que não se faz.
     ports:
-      - "127.0.0.1:${SGDF_PORTA:-8080}:8080"
+      - "${SGDF_BIND:-127.0.0.1}:${SGDF_PORTA:-8080}:8080"
     # Endurecimento que custa nada e fecha caminhos inteiros de exploração.
     read_only: true
     tmpfs:
