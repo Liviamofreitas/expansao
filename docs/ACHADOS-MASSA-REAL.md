@@ -4445,3 +4445,131 @@ pegaria existe — mas a lição de governança é outra:
 **um pipeline verde não é evidência de que o sistema funciona; é evidência de
 que o que ele mede está certo.** O que ele não mede não aparece em lugar nenhum,
 e a única forma de descobrir foi tentar usar o sistema.
+
+## 62. O passo que existia para impedir vereditos falsos deu um veredito falso
+
+Corrigido o Tomcat para 11.0.25, três jobs ficaram verdes e o SCA continuou
+vermelho. O passo Veredito anunciou:
+
+```
+::error title=SCA REPROVOU::Há dependência com CVE de CVSS >= 7,0.
+Isto É um veredito: suba a versão da dependência.
+```
+
+Não havia dependência a subir. O que tinha acontecido era outra coisa:
+
+```
+[ERROR] Invalid credentials for the OSS Index, disabling the analyzer
+[ERROR] AnalysisException: Invalid credentials provided for OSS Index
+[ERROR]   caused by TransportException: Unexpected response; status: 401
+```
+
+**O scanner abortou.** E o passo que foi escrito exatamente para separar "o gate
+reprovou" de "o scanner não rodou" (§60.10) colocou a segunda situação na
+primeira caixa — com a frase mais assertiva possível: *"Isto É um veredito."*
+
+Quem lesse iria procurar uma CVE inexistente e, não achando, concluiria que o
+scanner é barulhento. **É assim que se aprende a ignorar um gate** — a mesma
+frase escrita em §60.11 sobre outro gate, agora aplicável ao passo que eu
+escrevi para evitá-la.
+
+### 62.1 Um erro mascarado por outro erro
+
+O 401 do OSS Index não era novo. Fui ao log da execução 22: **as mesmas quatro
+`AnalysisException` já estavam lá.** Só que ali o build falhava ANTES, por CVE
+de verdade, e o erro do analisador nunca chegava a ser a causa.
+
+Corrigidas as CVEs do Spring e do Tomcat, ele emergiu. **Consertar um defeito é
+o que revela o que estava atrás dele** — e um erro que nunca é a causa raiz é um
+erro que ninguém vê enquanto houver outro na frente.
+
+### 62.2 A causa: um sinal que correlaciona, não um sinal que identifica
+
+O passo perguntava **"o relatório existe?"**. O raciocínio parecia sólido e
+estava escrito no próprio workflow: *"o relatório existir é equivalente a a
+análise ter rodado até o fim"*.
+
+Não é. Na execução 23 o relatório existia **e** a análise tinha abortado. O
+relatório prova que a base da NVD carregou — só isso, e é exatamente o que o
+passo de cache precisa saber. Não prova que a análise terminou.
+
+**Um sinal que correlaciona com o que interessa basta até o dia em que não
+basta.** O sinal que identifica é a frase que o próprio scanner emite ao
+reprovar por CVSS:
+
+```
+vulnerabilities that have a CVSS score greater than or equal to '7.0'
+```
+
+Ela só existe quando houve veredito.
+
+### 62.3 Verificado contra os dois logs reais
+
+Não reescrevi a lógica e confiei nela — rodei a nova classificação contra os
+dois logs de verdade, o que teve veredito e o que abortou:
+
+| Log | Classificação nova | Classificação antiga | Correto |
+|---|---|---|---|
+| Execução 22 (CVE real no Spring) | `SCA REPROVOU` | `SCA REPROVOU` | ✅ |
+| Execução 23 (OSS Index abortou) | `O SCA NÃO CONCLUIU` | `SCA REPROVOU` ❌ | ✅ |
+
+E o passo agora imprime os últimos erros do scanner antes de declarar ausência
+de veredito — conferido que `tail -20` alcança a `AnalysisException`, e não só o
+boilerplate de ajuda do Maven que vem depois dela.
+
+### 62.4 Desligar o analisador não é afrouxar o gate
+
+`ossindexAnalyzerEnabled=false`. Sem credencial o analisador não contribui
+**nenhum** achado — devolve 401 em cada jar — e só acumula exceção até derrubar
+o build por erro próprio. `failBuildOnCVSS=7` continua intacto e a base do gate
+continua sendo a NVD.
+
+Religá-lo exige cadastrar `ossIndexServerId` com usuário e token do Sonatype.
+Enquanto isso não existir, mantê-lo ligado é ruído que produz veredito falso.
+
+O nome do parâmetro foi conferido no descritor do plugin **antes** de entrar no
+pom — um parâmetro inexistente seria ignorado em silêncio e o gate continuaria
+quebrado com a aparência de consertado:
+
+```
+ossindexAnalyzerEnabled
+  Whether or not the Sonatype OSS Index analyzer is enabled.
+```
+
+### 62.5 O primeiro CI inteiramente verde, e o que confirma que é verde de verdade
+
+Execução 24, os quatro jobs:
+
+| Job | O que ele afirma |
+|---|---|
+| Compilar e testar | 1320 asserções, 164 SQL, 19 + 32 casos normativos, **e a aplicação sobe e nega sem credencial (401)** |
+| SCA de dependências | veredito real: nenhuma dependência com CVE ≥ 7,0 |
+| Construir e escanear a imagem | imagem sobe, não roda como root, 50 alvos com zero achados |
+| Varredura de segredos | limpo |
+
+"Verde porque analisou" e "verde porque não analisou" têm a mesma cor — é a
+lição que esta base vem repetindo desde o §60.10. O que separa as duas aqui:
+
+1. A linha `SCA: nenhuma dependência com CVE >= 7,0.` só é impressa no ramo
+   `dc.outcome == success` — o `mvn -Psca verify` terminou **sem erro**, não caiu
+   em fallback.
+2. O passo levou 39 s, produziu o SARIF e gravou a base da NVD.
+3. **O mesmo gate reprovou duas vezes seguidas neste mesmo código** — execução 22
+   por CVE real, 23 por aborto do scanner. Um gate que acabou de demonstrar que
+   sabe falhar, e que passa depois de correções dirigidas a cada falha, é
+   evidência. Um gate que nunca falhou não é.
+
+### 62.6 O placar das 24 execuções
+
+Vinte e três vermelhas, e **nenhuma por instabilidade de CI**. Cada uma era um
+defeito real: 42 CVEs no Tomcat do Boot 3.3.4, mais seis dependências escondidas
+pela cauda do log, a base da NVD sem cache, o cache envenenado pelo próprio
+conserto, o gate que media outro critério, 13 CVEs no sistema operacional da
+imagem, quatro corridas disputando o cache, a correção que fazia o job de 2h10
+nunca terminar, **a aplicação que não subia**, as CVE 9.8 do Spring sem patch na
+linha, as nove do Tomcat que o Boot 4 fixa, e o veredito falso deste capítulo.
+
+O plano de implantação previa *"é razoável que a primeira execução falhe uma ou
+duas vezes"*. Falhou 23. A previsão errou no número e acertou no princípio: **o
+CI não é cerimônia de verificação de coisas já sabidas — é o primeiro lugar onde
+o sistema é olhado por inteiro.**
