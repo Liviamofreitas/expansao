@@ -56,7 +56,11 @@ public class FiltroDeLimite extends OncePerRequestFilter {
         // limite, ele mata o pod — e o sistema se derruba sozinho exatamente
         // quando está sob carga.
         String caminho = requisicao.getRequestURI();
-        return caminho.startsWith("/actuator") || caminho.equals("/saude");
+        // O prefixo "/actuator" saiu porque não existe mais: o actuator mora
+        // em "/saude" (management.endpoints.web.base-path). Uma isenção para um
+        // caminho que não existe é uma lista de rotas públicas que mente sobre
+        // o que isenta — e esconde que a rota real nunca esteve isenta.
+        return caminho.equals("/saude/health");
     }
 
     @Override

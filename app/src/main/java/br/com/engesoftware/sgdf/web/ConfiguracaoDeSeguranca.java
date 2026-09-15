@@ -30,7 +30,19 @@ public class ConfiguracaoDeSeguranca {
     SecurityFilterChain filtros(HttpSecurity http) throws Exception {
         http
             .authorizeHttpRequests(rotas -> rotas
-                .requestMatchers("/saude").permitAll()
+                // "/saude/health" E NÃO "/saude": O CAMINHO EXATO DO ENDPOINT.
+                //
+                // `requestMatchers` casa o caminho exato, e o actuator responde
+                // em <base-path>/health. Com o matcher em "/saude" e o endpoint
+                // em "/saude/health", a checagem de saúde caía no
+                // `anyRequest().authenticated()` — medido: HTTP 401, e o
+                // HEALTHCHECK do contêiner em falha permanente.
+                //
+                // Fica o caminho exato, e não "/saude/**": a lista de rotas
+                // públicas não deve aceitar prefixo. Hoje só `health` está
+                // exposto, mas expor outro endpoint amanhã não pode torná-lo
+                // público por tabela.
+                .requestMatchers("/saude/health").permitAll()
                 .anyRequest().authenticated())
             .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()))
             // API sem estado: o token é a sessão. Sem cookie, não há CSRF a

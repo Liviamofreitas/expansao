@@ -33,11 +33,38 @@ services:
     expose:
       - "5432"
 
+  # SEM ESTE SERVIÇO, `docker compose up -d` SOBE A APLICAÇÃO CONTRA UM BANCO
+  # VAZIO — E ELA FICA "SAUDÁVEL".
+  #
+  # Medido: `docker compose up -d` e, em seguida, `\dt` no banco:
+  # "Did not find any relations." O arquivo montava ./db no contêiner do
+  # postgres e nada rodava aquilo. Pior, o HEALTHCHECK da aplicação bate em
+  # /actuator/health, cujo indicador de banco faz um `SELECT 1` — que funciona
+  # numa base sem tabela nenhuma. O contêiner reportaria saudável e a primeira
+  # requisição de verdade quebraria.
+  #
+  # Roda uma vez, antes da aplicação, e ela só sobe se isto terminar bem
+  # (`service_completed_successfully`).
+  migracao:
+    image: postgres:16.4-alpine
+    depends_on:
+      banco:
+        condition: service_healthy
+    environment:
+      PGHOST: banco
+      PGUSER: ${SGDF_JDBC_USUARIO:-sgdf_app}
+      PGPASSWORD: ${SGDF_JDBC_SENHA:?defina SGDF_JDBC_SENHA no .env}
+      PGDATABASE: sgdf
+    volumes:
+      - ./db:/db:ro
+    command: ["sh", "/db/subir.sh"]
+    restart: "no"
+
   clamd:
     # SEC-05: a varredura verifica antes de extrair. Sem este serviço o veredito
     # sai NAO_APLICAVEL e o documento segue com a marca de não verificado — o
     # sistema não trava (cap. 1, princípio 1), mas a trilha registra.
-    image: clamav/clamav:1.4.1
+    image: clamav/clamav:1.5.4
     expose:
       - "3310"
     healthcheck:
@@ -54,6 +81,8 @@ services:
     depends_on:
       banco:
         condition: service_healthy
+      migracao:
+        condition: service_completed_successfully
     environment:
       SGDF_JDBC_URL: jdbc:postgresql://banco:5432/sgdf
       SGDF_JDBC_USUARIO: ${SGDF_JDBC_USUARIO:-sgdf_app}

@@ -22,8 +22,13 @@ COPY app/src ./src
 # Os testes NÃO rodam aqui. Eles rodam no CI, contra um PostgreSQL de verdade —
 # e 129 dos 1305 precisam de banco. Um `mvn package` que os pula em silêncio
 # daria a impressão de ter testado; este comando é explícito sobre o que faz.
+# O NOME FIXO NÃO É CAPRICHO: o jar sai com a versão no nome
+# (sgdf-0.1.0-SNAPSHOT.jar) e o ENTRYPOINT é uma lista literal, sem shell para
+# expandir curinga. Renomear aqui é o que permite `-jar sgdf.jar` lá embaixo
+# sem que subir a versão quebre a imagem em silêncio.
 RUN mvn -B -q -DskipTests package \
- && java -Djarmode=tools -jar target/sgdf-*.jar extract --layers --destination /camadas
+ && java -Djarmode=tools -jar target/sgdf-*.jar extract --layers --destination /camadas \
+ && mv /camadas/application/sgdf-*.jar /camadas/application/sgdf.jar
 
 # --- etapa de execução -------------------------------------------------------
 FROM eclipse-temurin:21.0.12_8-jre-alpine-3.24
@@ -77,6 +82,29 @@ ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError \
 # `management.endpoint.health.show-details: never`. Um health que conta qual
 # dependência caiu conta topologia a quem não está autenticado.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:8080/actuator/health | grep -q '"status":"UP"' || exit 1
+  CMD wget -qO- http://127.0.0.1:8080/saude/health | grep -q '"status":"UP"' || exit 1
 
-ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]
+# `-jar sgdf.jar` E NÃO A CLASSE DO LOADER — A IMAGEM NUNCA SUBIU COM A OUTRA.
+#
+# O ENTRYPOINT anterior era `java org.springframework.boot.loader.launch.JarLauncher`,
+# sem `-jar` e sem `-cp`. Isso só funciona com o layout EXPLODIDO que o antigo
+# `-Djarmode=layertools` produzia, em que as classes do loader ficam soltas na
+# raiz de /app. Este Dockerfile usa `-Djarmode=tools`, que produz outra coisa:
+#
+#   application/sgdf.jar        o jar fino, com Class-Path apontando para lib/
+#   dependencies/lib/*.jar      as 56 dependências
+#   spring-boot-loader/         VAZIO
+#
+# Sem as classes do loader no classpath, o contêiner morria na primeira linha
+# com "Could not find or load main class ...JarLauncher". Medido subindo a
+# pilha do compose.
+#
+# E NÃO É REGRESSÃO DO SPRING BOOT 4. A tabela do Trivy da execução 19, ainda
+# com o Boot 3.5.16, já listava `app/lib/HikariCP-6.3.3.jar` — o mesmo layout
+# `lib/`. A imagem nunca pôde iniciar, desde o primeiro build.
+#
+# O que escondeu isso foi o meu próprio passo de fumaça da imagem: ele roda
+# `docker run --entrypoint java ... -version`, justamente para NÃO subir a
+# aplicação. Um teste que contorna o ENTRYPOINT não testa o ENTRYPOINT. Quem
+# pega isto agora é a fumaça da PILHA, no job da imagem.
+ENTRYPOINT ["java", "-jar", "sgdf.jar"]

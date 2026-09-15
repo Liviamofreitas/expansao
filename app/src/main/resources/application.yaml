@@ -26,6 +26,24 @@ spring:
 management:
   endpoints:
     web:
+      # O BASE-PATH FALTAVA, E SEM ELE O HEALTHCHECK NUNCA PODIA PASSAR.
+      #
+      # A ConfiguracaoDeSeguranca libera "/saude" com permitAll e exige
+      # autenticação em todo o resto. Sem esta linha o endpoint de saúde mora em
+      # /actuator/health, que cai no `anyRequest().authenticated()` — medido:
+      # HTTP 401 em /actuator/health, /saude e /saude/health, e o HEALTHCHECK do
+      # contêiner registrando "wget: server returned error: HTTP/1.1 401" a cada
+      # 30 segundos, para sempre.
+      #
+      # Um contêiner permanentemente unhealthy é reiniciado em laço pelo
+      # orquestrador, com a aplicação funcionando perfeitamente. O sintoma não
+      # aponta para a causa em lugar nenhum.
+      #
+      # Expor saúde sem autenticação é deliberado e seguro AQUI por causa do
+      # `show-details: never` logo abaixo: a resposta é {"status":"UP"} e nada
+      # mais. Um health que diz QUAL dependência caiu conta topologia a quem não
+      # está autenticado.
+      base-path: /saude
       exposure:
         include: health
   endpoint:

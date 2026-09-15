@@ -346,36 +346,104 @@ jobs:
       - name: Construir
         run: docker build -t sgdf:${{ github.sha }} .
 
-      # O `apk upgrade` do Dockerfile é o que fecha as CVE do sistema — e é
-      # também o que pode quebrar a imagem sem avisar: um musl ou um openssl
-      # novo que não case com o JRE derruba o processo só na primeira execução
-      # em produção. Um escaneamento verde sobre uma imagem que não sobe é
-      # exatamente o defeito que este projeto recusa: uma falha que se parece
-      # com aprovação.
+      # A FUMAÇA ANTERIOR CONTORNAVA EXATAMENTE O QUE ESTAVA QUEBRADO.
       #
-      # Três perguntas, as três baratas: o JRE ainda roda, roda SEM ser root, e o
-      # `wget` do HEALTHCHECK continua existindo. A segunda é o controle do
-      # cap. 15.1 verificado no artefato e não no Dockerfile — `USER sgdf` só
-      # vale se a imagem construída de fato o honrar. A terceira existe porque
-      # um HEALTHCHECK cujo binário sumiu marca o contêiner como unhealthy para
-      # sempre, e o orquestrador o reinicia em laço sem que nada esteja errado
-      # com a aplicação.
+      # Ela rodava `docker run --entrypoint java ... -version`. O `--entrypoint`
+      # era necessário para não subir a aplicação — e por isso o passo NUNCA
+      # exercitou o ENTRYPOINT. Quando a imagem foi de fato iniciada, pela
+      # primeira vez, o contêiner morreu na primeira linha:
       #
-      # `--entrypoint` é obrigatório nas três: o ENTRYPOINT desta imagem é o
-      # JarLauncher, então `docker run sgdf java -version` NÃO roda `java
-      # -version` — passa "java -version" como argumento para a aplicação e a
-      # sobe de verdade, sem banco, e o passo só terminaria no timeout.
-      - name: Fumaça (a imagem sobe, e não sobe como root)
+      #   Error: Could not find or load main class
+      #          org.springframework.boot.loader.launch.JarLauncher
+      #
+      # E não era regressão: a tabela do Trivy da execução 19 já mostrava
+      # `app/lib/*.jar`, o layout do `-Djarmode=tools`, em que as classes do
+      # loader não existem. A imagem nunca pôde iniciar, e quatro execuções
+      # verdes disseram que estava tudo bem.
+      #
+      # UM TESTE QUE CONTORNA O ENTRYPOINT NÃO TESTA O ENTRYPOINT. Este passo
+      # sobe a pilha inteira — a imagem escaneada, o banco, a migração do
+      # esquema — exatamente como o docker-compose.yml faz em HML, e espera o
+      # HEALTHCHECK DO PRÓPRIO DOCKERFILE virar `healthy`.
+      #
+      # O healthcheck como critério é deliberado: ele também estava quebrado
+      # (batia em /actuator/health, que exige autenticação, e registrava 401 a
+      # cada 30s para sempre). Um contêiner permanentemente unhealthy é
+      # reiniciado em laço pelo orquestrador com a aplicação funcionando. Agora
+      # o CI reprova se isso voltar.
+      #
+      # `up -d app` e não `up -d`: o clamd puxa ~1 GB e leva 3 minutos para
+      # aquecer, e a aplicação não depende dele para subir (SEC-05: sem ele o
+      # veredito sai NAO_APLICAVEL e a trilha registra). O banco e a migração
+      # vêm junto porque a aplicação depende dos dois.
+      - name: "Fumaça (a pilha sobe: imagem, banco, esquema e healthcheck)"
+        env:
+          SGDF_TAG: ${{ github.sha }}
+          SGDF_JDBC_USUARIO: sgdf_app
+          SGDF_OIDC_ISSUER: https://idp.exemplo.invalido/realms/ci
+          SGDF_PORTA: "8099"
         run: |
-          set -euo pipefail
-          docker run --rm --entrypoint java sgdf:${{ github.sha }} -version
-          uid=$(docker run --rm --entrypoint id sgdf:${{ github.sha }} -u)
-          echo "uid em execução: $uid"
-          if [ "$uid" = "0" ]; then
-            echo "::error::a imagem roda como root"
+          set -uo pipefail
+          export SGDF_JDBC_SENHA=$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 24)
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d app || true
+
+          estado=desconhecido
+          for i in $(seq 1 60); do
+            cid=$(docker compose -f docker-compose.yml -f docker-compose.ci.yml ps -q app)
+            if [ -z "$cid" ]; then estado=ausente; break; fi
+            estado=$(docker inspect "$cid" --format '{{.State.Health.Status}}' 2>/dev/null || echo desconhecido)
+            [ "$estado" = "healthy" ] && break
+            [ "$estado" = "unhealthy" ] && break
+            sleep 4
+          done
+          echo "estado do healthcheck: $estado"
+
+          if [ "$estado" != "healthy" ]; then
+            echo "::error title=A PILHA NAO SOBE::A imagem, o banco ou a migração \
+          falharam, ou o HEALTHCHECK do Dockerfile nunca passou. Logs abaixo."
+            echo "--- migracao ---"
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml logs migracao 2>&1 | tail -20
+            echo "--- app ---"
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml logs app 2>&1 | tail -40
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v || true
             exit 1
           fi
-          docker run --rm --entrypoint sh sgdf:${{ github.sha }} -c 'command -v wget'
+
+          # Saúde liberada sem credencial E SEM DETALHE: {"status":"UP"} e nada
+          # mais. Um health que diz qual dependência caiu conta topologia.
+          saude=$(curl -s --max-time 5 http://127.0.0.1:8099/saude/health)
+          echo "/saude/health -> $saude"
+          echo "$saude" | grep -q '"status":"UP"' || {
+            echo "::error title=SAUDE INESPERADA::Esperado {\"status\":\"UP\"}; veio: $saude"
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v || true
+            exit 1
+          }
+          echo "$saude" | grep -q "components" && {
+            echo "::error title=SAUDE DETALHADA DEMAIS::A resposta traz detalhe de \
+          componentes sem autenticação — isso conta topologia. Ver show-details."
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v || true
+            exit 1
+          }
+
+          # E tudo o mais continua negado por padrão (cap. 15.1).
+          codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
+                   http://127.0.0.1:8099/indicadores) || codigo=000
+          echo "/indicadores sem credencial -> HTTP $codigo"
+          if [ "$codigo" != "401" ]; then
+            echo "::error title=NEGAR NAO E O PADRAO::Esperado 401 em /indicadores \
+          sem credencial; veio $codigo."
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v || true
+            exit 1
+          fi
+
+          uid=$(docker exec "$(docker compose -f docker-compose.yml -f docker-compose.ci.yml ps -q app)" id -u)
+          echo "uid em execução: $uid"
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v || true
+          if [ "$uid" = "0" ]; then
+            echo "::error title=A IMAGEM RODA COMO ROOT::cap. 15.1"
+            exit 1
+          fi
+          echo "a pilha sobe, o healthcheck passa, a saúde não vaza topologia e nada mais é liberado."
 
       # "imagem base fixada E ESCANEADA". Fixar sem escanear dá a ilusão de
       # controle: a base congelada continua acumulando CVE, e congelá-la é

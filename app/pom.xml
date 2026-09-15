@@ -159,6 +159,32 @@
       dependency-check-maven pula o escopo de teste por padrão — o que é
       correto aqui, já que este artefato não roda em produção.
     -->
+    <!--
+      O ACTUATOR NUNCA ESTEVE AQUI, E TUDO QUE DEPENDIA DELE ERA FICÇÃO.
+      
+      O application.yaml configurava `management.endpoints.web.exposure.include:
+      health` e `show-details: never`; a ConfiguracaoDeSeguranca liberava
+      "/saude"; o FiltroDeLimite isentava "/actuator"; o Dockerfile tinha
+      HEALTHCHECK batendo em /actuator/health. Quatro arquivos coordenados em
+      torno de um endpoint que NÃO EXISTIA — nenhuma dependência de actuator
+      entre as 56 do classpath.
+      
+      O sintoma escondia a causa: /saude/health devolvia 401, não 404. O log de
+      segurança mostrou por quê — "Secured GET /saude/health" (a liberação
+      funcionava), o handler devolvia 404, o Spring encaminhava para /error, e
+      /error exige autenticação. Um 404 disfarçado de 401 manda procurar
+      permissão onde o problema é rota inexistente.
+      
+      Com a dependência, /saude/health passa a existir de verdade. A superfície
+      continua mínima: só `health` exposto, `show-details: never` (a resposta é
+      {"status":"UP"} e nada mais — um health que diz QUAL dependência caiu
+      conta topologia), e todo o resto segue no anyRequest().authenticated().
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>

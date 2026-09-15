@@ -1,0 +1,15 @@
+# =============================================================================
+# Override usado só pelo CI.
+#
+# A imagem já foi construída e escaneada no passo anterior do job; este arquivo
+# aponta o compose para ela, pela tag do commit, em vez de construir de novo.
+# Como `docker compose up` sem `--build` reaproveita a imagem existente, o build
+# acontece uma vez só.
+#
+# Não muda mais nada: banco, migração, ordem, healthcheck e endurecimento são os
+# mesmos do docker-compose.yml. É de propósito — o que o CI sobe precisa ser a
+# mesma coisa que alguém sobe em HML, ou o teste não prova nada sobre HML.
+# =============================================================================
+services:
+  app:
+    image: sgdf:${SGDF_TAG:?defina SGDF_TAG}
