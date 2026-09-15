@@ -4132,3 +4132,148 @@ que permite ver que ele estava medindo outra coisa.
 
 Quarta vez nesta base que a distinção entre "o que o componente diz" e "o que o
 componente faz" precisou ser medida em vez de lida.
+
+### 60.12 Fixar a imagem base não é o mesmo que mantê-la segura
+
+Com o gate finalmente medindo o que declarava, ele reprovou — e dessa vez a
+reprovação era verdadeira. **2 CRITICAL e 11 HIGH, todas em pacotes do sistema
+operacional da imagem base, todas com correção publicada:**
+
+| Pacote | CVE | Severidade | Instalada | Corrigida em |
+|---|---|---|---|---|
+| openssl | CVE-2026-31789 | **CRITICAL** | 3.3.2-r4 | 3.3.7-r0 |
+| sqlite-libs | CVE-2025-3277 | **CRITICAL** | 3.47.1-r0 | 3.48.0-r1 |
+| openssl | CVE-2024-12797, CVE-2025-15467, CVE-2025-69421, CVE-2026-28387/88/89/90 | HIGH | 3.3.2-r4 | 3.3.3-r0 … 3.3.7-r0 |
+| sqlite-libs | CVE-2025-29087, CVE-2025-6965 | HIGH | 3.47.1-r0 | 3.48.0-r1/r3 |
+| musl, musl-utils | CVE-2025-26519, CVE-2026-40200 | HIGH | — | 1.2.5-r11 |
+| p11-kit, p11-kit-trust | CVE-2026-2100 | HIGH | 0.25.5-r2 | 0.26.2-r0 |
+| zlib | CVE-2026-22184 | HIGH | 1.3.1-r2 | 1.3.2-r0 |
+
+**O escaneamento do `[jar]` não achou nada.** A subida de Spring Boot 3.5.16,
+Tomcat 10.1.59, PDFBox 3.0.8 e driver 42.7.13 limpou o lado Java por inteiro —
+o que restava era tudo do Alpine 3.21.2 que vinha com
+`eclipse-temurin:21.0.5_11-jre-alpine`.
+
+#### Subir a tag era a resposta óbvia, e ela estava errada
+
+Antes de escrever a correção, subi um Docker no próprio ambiente de
+desenvolvimento, puxei a tag mais nova disponível
+(`21.0.12_8-jre-alpine-3.24`, Alpine 3.24.1) e **rodei o Trivy com o critério
+idêntico ao do CI** — `CRITICAL,HIGH` e `ignore-unfixed`. Resultado:
+
+```
+Total: 5 (HIGH: 5, CRITICAL: 0)
+libcrypto3  CVE-2026-14456  3.5.7-r0 -> 3.5.8-r0
+libssl3     CVE-2026-14456  3.5.7-r0 -> 3.5.8-r0
+openssl     CVE-2026-14456  3.5.7-r0 -> 3.5.8-r0
+libexpat    CVE-2026-76956  2.8.3-r0 -> 2.8.4-r0
+libexpat    CVE-2026-76957  2.8.3-r0 -> 2.8.4-r0
+```
+
+Zero CRITICAL, mas **ainda cinco HIGH corrigíveis**. A tag mais nova do mundo
+reprovaria no mesmo gate.
+
+Não é azar de versão. **A imagem base é construída num dia e os patches do ramo
+saem depois dele** — a desta era de 21/08, e o escaneamento é de 14/09. Três
+semanas bastaram. Qualquer tag fixada começa a envelhecer no instante em que é
+publicada, e quanto mais tempo passa entre publicar a base e escanear o build,
+maior o atraso acumulado.
+
+#### A palavra "fixada" estava confundindo duas coisas
+
+O comentário original do `Dockerfile` dizia: *"Fixada não é a tag `latest` nem
+`21`: é a versão exata, para que o build de hoje e o de daqui a três meses
+produzam a mesma base."* Correto quanto à reprodutibilidade, e **silencioso
+quanto à segurança** — que era o controle que o SEC-07 pedia.
+
+A correção separa as duas:
+
+| | governa | serve a |
+|---|---|---|
+| Tag `21.0.12_8-jre-alpine-3.24` | **o quê** roda: o JRE e o ramo do Alpine | reprodutibilidade |
+| `apk upgrade --no-cache` | **o nível de patch** do mesmo ramo, no build | fechamento das CVEs |
+| Escaneamento do CI | o veredito sobre a imagem que vai a produção | o gate |
+
+O build deixa de ser bit a bit reprodutível. É a troca certa: **"reprodutível e
+vulnerável" não é controle, é uma foto antiga com carimbo.**
+
+#### O conserto trouxe um risco novo, e ele precisava de teste
+
+Um `musl` ou `openssl` novo que não case com o JRE derruba o processo — e só na
+primeira execução em produção. Um **escaneamento verde sobre uma imagem que não
+sobe** é exatamente o defeito que esta base recusa em todo lugar: a falha que se
+parece com aprovação.
+
+Daí o passo de fumaça, antes do gate, com três perguntas baratas: o JRE roda,
+roda **sem ser root** (cap. 15.1 verificado no artefato e não no `Dockerfile`) e
+o `wget` do HEALTHCHECK ainda existe — um healthcheck sem binário marca o
+contêiner como unhealthy para sempre, e o orquestrador o reinicia em laço sem
+que nada esteja errado com a aplicação.
+
+**E o passo de fumaça quase passou despercebido como defeito meu.** Escrevi
+`docker run sgdf java -version`. Com `ENTRYPOINT ["java", "…JarLauncher"]`,
+isso **não roda `java -version`**: passa `"java -version"` como argumento para a
+aplicação e a sobe de verdade, sem banco, até o timeout. Os três comandos
+precisam de `--entrypoint`. Peguei relendo o `Dockerfile` antes de empurrar.
+
+#### O resultado, medido
+
+```
+Detected OS  family="alpine" version="3.24.1"
+[alpine] Detecting vulnerabilities...  pkg_num=73
+
+│ sgdf:34b0594… (alpine 3.24.1) │ alpine │ 0 │
+```
+
+50 alvos na tabela, **todos com zero**. O mesmo gate, com o mesmo critério,
+reprovou a execução 18 e aprovou a 19 — e repetiu o verde na 20. É isso que
+torna o resultado uma prova, e não uma ausência de vermelho.
+
+O passo de fumaça marcou **0 segundo**, o que não é plausível para três
+`docker run`. Fui ao log em vez de aceitar o verde:
+
+```
+openjdk version "21.0.12" 2026-07-21 LTS
+uid em execução: 100
+/usr/bin/wget
+```
+
+0,6 s, arredondado para zero. Rodou.
+
+### 60.13 O cache que existia para acelerar não conseguia ser gravado
+
+O log da execução 19 trouxe, num canto que ninguém olha:
+
+```
+Failed to save: Unable to reserve cache with key cache-trivy-2026-09-14,
+another job may be creating this cache
+```
+
+Cinco commits numa tarde deixaram as execuções 16, 17, 18 e 19 rodando **ao
+mesmo tempo**, todas baixando a base do zero, todas disputando a mesma chave.
+
+**O desperdício se realimenta:** quanto mais lento o job (2h10 sem chave da
+NVD), maior a chance de o próximo commit chegar antes do fim — e mais corridas
+simultâneas competem pelo cache cuja razão de existir é evitar aquele download.
+Nenhuma das quatro chegaria a um veredito antes de a seguinte tornar seu commit
+obsoleto.
+
+`concurrency` com `cancel-in-progress: true`, sem exceção por ramo. A exceção
+usual — *"em `main` a execução é evidência de conformidade"* — foi considerada e
+descartada por um motivo concreto: **este ramo é o ramo padrão deste
+repositório**. A evidência que vale é a do commit que fica, não a de um commit
+superado noventa segundos depois; e a execução cancelada continua no histórico,
+marcada como cancelada.
+
+Ficou registrado no próprio workflow o que muda essa conta: **quando houver ramo
+de release ou tag, a execução do artefato publicado vira evidência de auditoria
+e não pode ser cancelada por um push posterior.**
+
+Duas ressalvas honestas:
+
+1. O bloco só alcança execuções enfileiradas **depois** dele. As execuções 16 a
+   19 continuaram rodando, e não tenho permissão para cancelá-las (403,
+   a mesma limitação que impediu apagar o cache envenenado).
+2. Com `cancel-in-progress` ativo, **qualquer push cancela o SCA em curso e
+   reinicia o relógio de 2h10.** Enquanto não houver `NVD_API_KEY`, chegar a um
+   veredito de dependências exige parar de empurrar e esperar.
