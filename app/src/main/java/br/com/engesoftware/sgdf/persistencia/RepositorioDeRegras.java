@@ -3,10 +3,12 @@ package br.com.engesoftware.sgdf.persistencia;
 import br.com.engesoftware.sgdf.classificacao.Ancora;
 import br.com.engesoftware.sgdf.classificacao.CargaDeRegras;
 import br.com.engesoftware.sgdf.classificacao.RegraDeReconhecimento;
+import br.com.engesoftware.sgdf.classificacao.VerificadorDeRegra;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -94,6 +96,142 @@ public class RepositorioDeRegras {
             // Os comprovantes entram aqui, do código, pelo motivo no javadoc.
             regras.addAll(CargaDeRegras.comprovantesBancarios());
             return List.copyOf(regras);
+        });
+    }
+
+
+    /**
+     * Todos os exemplos guardados, de todos os tipos.
+     *
+     * <p>São a base da terceira recusa do {@link VerificadorDeRegra}: uma regra
+     * nova é rejeitada se passar a reconhecer o exemplo positivo de outro tipo.
+     * Sem carregá-los todos, essa verificação não existiria — e ela é a única
+     * das três que olha para fora da regra que está entrando.
+     */
+    public List<VerificadorDeRegra.Exemplo> exemplos() {
+        return sgdf.emTransacao(conexao -> {
+            String sql = """
+                    SELECT t.codigo, e.rotulo, e.texto, e.deve_reconhecer
+                      FROM regra_exemplo e
+                      JOIN regra_reconhecimento r ON r.id = e.regra_id
+                      JOIN tipo_documental t ON t.id = r.tipo_id
+                     WHERE r.ativo
+                     ORDER BY t.codigo, e.rotulo
+                    """;
+            List<VerificadorDeRegra.Exemplo> lista = new ArrayList<>();
+            try (PreparedStatement ps = conexao.prepareStatement(sql);
+                 ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    lista.add(new VerificadorDeRegra.Exemplo(rs.getString(1), rs.getString(2),
+                            rs.getString(3), rs.getBoolean(4)));
+                }
+            } catch (java.sql.SQLException e) {
+                throw new IllegalStateException("falha ao carregar os exemplos", e);
+            }
+            return List.copyOf(lista);
+        });
+    }
+
+    /**
+     * Grava a regra e os exemplos que a provam, numa transação só.
+     *
+     * <p><b>A versão anterior é desativada, não apagada.</b> Documentos já
+     * classificados guardam {@code versao_da_regra}; apagar a regra tornaria
+     * impossível responder "com que critério este documento foi aceito?", que é
+     * a pergunta do cap. 16. Desativar preserva a resposta e tira a regra de
+     * circulação — as duas coisas ao mesmo tempo.
+     *
+     * @return o id da regra gravada
+     */
+    public UUID cadastrar(UUID tipoId, String emissor, String identificacao,
+                          String ancorasJson, double pesoPorCampo,
+                          double limiarAuto, double limiarTriagem,
+                          List<VerificadorDeRegra.Exemplo> exemplos, String ator) {
+        return sgdf.emTransacao(conexao -> {
+            try {
+                int proxima = 1;
+                try (PreparedStatement ps = conexao.prepareStatement(
+                        "SELECT coalesce(max(versao), 0) + 1 FROM regra_reconhecimento "
+                        + "WHERE tipo_id = ?")) {
+                    ps.setObject(1, tipoId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        rs.next();
+                        proxima = rs.getInt(1);
+                    }
+                }
+
+                try (PreparedStatement ps = conexao.prepareStatement(
+                        "UPDATE regra_reconhecimento SET ativo = false WHERE tipo_id = ?")) {
+                    ps.setObject(1, tipoId);
+                    ps.executeUpdate();
+                }
+
+                UUID id;
+                String sql = """
+                        INSERT INTO regra_reconhecimento
+                               (tipo_id, emissor, identificacao, ancoras, campos,
+                                campos_essenciais, peso_por_campo, limiar_auto,
+                                limiar_triagem, versao, ativo, criado_por)
+                        VALUES (?, ?, ?, ?::jsonb, '[]'::jsonb, '[]'::jsonb, ?, ?, ?, ?,
+                                true, ?)
+                        RETURNING id
+                        """;
+                try (PreparedStatement ps = conexao.prepareStatement(sql)) {
+                    ps.setObject(1, tipoId);
+                    ps.setString(2, emissor);
+                    ps.setString(3, identificacao);
+                    ps.setString(4, ancorasJson);
+                    ps.setDouble(5, pesoPorCampo);
+                    ps.setDouble(6, limiarAuto);
+                    ps.setDouble(7, limiarTriagem);
+                    ps.setInt(8, proxima);
+                    ps.setString(9, ator);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        rs.next();
+                        id = rs.getObject(1, UUID.class);
+                    }
+                }
+
+                try (PreparedStatement ps = conexao.prepareStatement(
+                        "INSERT INTO regra_exemplo (regra_id, rotulo, texto, deve_reconhecer,"
+                        + " criado_por) VALUES (?, ?, ?, ?, ?)")) {
+                    for (VerificadorDeRegra.Exemplo e : exemplos) {
+                        ps.setObject(1, id);
+                        ps.setString(2, e.rotulo());
+                        ps.setString(3, e.texto());
+                        ps.setBoolean(4, e.deveReconhecer());
+                        ps.setString(5, ator);
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+                return id;
+            } catch (java.sql.SQLException e) {
+                throw new IllegalStateException("falha ao cadastrar a regra: " + e.getMessage(), e);
+            }
+        });
+    }
+
+    /**
+     * Tira o tipo do checklist: desativa a regra dele.
+     *
+     * <p>"Excluir" aqui é desativar, e a diferença não é semântica. O tipo
+     * aparece em exigências de ciclos passados, em vínculos de documento e em
+     * books já publicados. Apagá-lo arrastaria tudo isso ou deixaria referência
+     * pendurada; desativá-lo faz o que se quer — parar de exigir daqui para a
+     * frente — sem reescrever o passado.
+     *
+     * @return quantas regras saíram de circulação
+     */
+    public int desativar(UUID tipoId, String ator) {
+        return sgdf.emTransacao(conexao -> {
+            try (PreparedStatement ps = conexao.prepareStatement(
+                    "UPDATE regra_reconhecimento SET ativo = false WHERE tipo_id = ? AND ativo")) {
+                ps.setObject(1, tipoId);
+                return ps.executeUpdate();
+            } catch (java.sql.SQLException e) {
+                throw new IllegalStateException("falha ao desativar as regras do tipo", e);
+            }
         });
     }
 

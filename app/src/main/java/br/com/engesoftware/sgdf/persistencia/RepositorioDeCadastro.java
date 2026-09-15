@@ -232,6 +232,28 @@ public class RepositorioDeCadastro {
                                      boolean ativo, String pastaOrigem) {
     }
 
+    /**
+     * O código do tipo, ou {@code null} se ele não existe.
+     *
+     * <p>Quem cadastra regra manda o id na URL; o classificador trabalha com o
+     * CÓDIGO. Traduzir aqui, contra o banco, evita que a regra seja gravada para
+     * um tipo e verificada contra outro — que é o tipo de erro que só apareceria
+     * quando um documento fosse classificado errado, semanas depois.
+     */
+    public String codigoDoTipo(java.util.UUID tipoId) {
+        return sgdf.emTransacao(conexao -> {
+            try (java.sql.PreparedStatement ps = conexao.prepareStatement(
+                    "SELECT codigo FROM tipo_documental WHERE id = ?")) {
+                ps.setObject(1, tipoId);
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    return rs.next() ? rs.getString(1) : null;
+                }
+            } catch (java.sql.SQLException e) {
+                throw new IllegalStateException("falha ao ler o tipo " + tipoId, e);
+            }
+        });
+    }
+
     /** Uma unicidade do esquema, traduzida. */
     public static final class JaCadastrado extends RuntimeException {
         private static final long serialVersionUID = 1L;

@@ -8,6 +8,7 @@ import br.com.engesoftware.sgdf.pipeline.DocumentoProcessado;
 import br.com.engesoftware.sgdf.pipeline.Pipeline;
 import br.com.engesoftware.sgdf.validacao.ValidacaoDeSeguranca;
 import java.io.ByteArrayOutputStream;
+import br.com.engesoftware.sgdf.classificacao.VerificadorDeRegra;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -103,6 +104,10 @@ public final class TestesDeIngestao {
                 executar("oAlvoDaVarreduraVemDoCiclo", () -> oAlvoDaVarreduraVemDoCiclo(sgdf));
                 executar("oBancoCarregaAsMesmasRegrasQueOCodigoTinha",
                         () -> oBancoCarregaAsMesmasRegrasQueOCodigoTinha(sgdf));
+                executar("asTresRecusasDoCadastroDeRegra",
+                        () -> asTresRecusasDoCadastroDeRegra(sgdf));
+                executar("aRegraCadastradaEntraValendoNaHora",
+                        () -> aRegraCadastradaEntraValendoNaHora(sgdf));
                 executar("oDeltaCompraAUltimaVersaoRegistrada",
                         () -> oDeltaCompraAUltimaVersaoRegistrada(sgdf));
             } finally {
@@ -617,6 +622,149 @@ public final class TestesDeIngestao {
             try (java.sql.PreparedStatement ps = conexao.prepareStatement(
                     "SELECT count(*) FROM tipo_documental WHERE codigo LIKE ?")) {
                 ps.setString(1, prefixo + "%");
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    rs.next();
+                    return rs.getInt(1);
+                }
+            } catch (java.sql.SQLException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+    }
+
+    /**
+     * As tres recusas do cadastro de regra — ADR-004.
+     *
+     * <p>Enquanto as regras viviam em Java, cada uma passava por code review e
+     * por um teste contra documento real. Digitada num formulario, uma regra
+     * errada NAO falha alto: ela classifica errado em silencio, e o erro so
+     * aparece no book. O exemplo e o que substitui a revisao.
+     */
+    static void asTresRecusasDoCadastroDeRegra(Sgdf sgdf) {
+        RepositorioDeRegras repo = new RepositorioDeRegras(sgdf);
+        java.util.List<br.com.engesoftware.sgdf.classificacao.RegraDeReconhecimento> demais =
+                new java.util.ArrayList<>();
+        for (var r : repo.ativas()) {
+            if (!r.tipo().equals("TST.NOVO")) {
+                demais.add(r);
+            }
+        }
+        java.util.List<VerificadorDeRegra.Exemplo> guardados = repo.exemplos();
+
+        // 1 — NAO RECONHECE O PROPRIO EXEMPLO.
+        var fraca = regraDeTeste("certidao que nao existe em lugar nenhum");
+        var v1 = VerificadorDeRegra.verificar(fraca, demais,
+                java.util.List.of(new VerificadorDeRegra.Exemplo("TST.NOVO", "o proprio",
+                        CND_RFB, true)), guardados);
+        ok("ADR-004 . regra que nao reconhece o proprio exemplo e recusada", !v1.aprovada());
+        ok("ADR-004 . e a recusa diz qual exemplo falhou e o que fazer",
+                v1.recusas().stream().anyMatch(m -> m.contains("o proprio")
+                        && m.contains("Fortaleça as âncoras")));
+
+        // 2 — RECONHECE UM EXEMPLO NEGATIVO.
+        var ampla = regraDeTeste("certidao");
+        var v2 = VerificadorDeRegra.verificar(ampla, demais,
+                java.util.List.of(
+                        new VerificadorDeRegra.Exemplo("TST.NOVO", "positivo", CND_RFB, true),
+                        new VerificadorDeRegra.Exemplo("TST.NOVO", "negativo", CNDT, false)),
+                guardados);
+        ok("ADR-004 . regra que reconhece o exemplo NEGATIVO e recusada", !v2.aprovada());
+
+        // 3 — ROUBA O EXEMPLO DE OUTRO TIPO.
+        //
+        // Esta e a unica das tres que olha para FORA da regra que entra. Uma
+        // ancora ampla demais passa nas duas primeiras e quebra o que ja
+        // funcionava, sem que nada apite: o documento roubado continua sendo
+        // classificado, so que errado.
+        var ladra = regraDeTeste("certidao negativa de debitos trabalhistas");
+        var v3 = VerificadorDeRegra.verificar(ladra, demais,
+                java.util.List.of(new VerificadorDeRegra.Exemplo("TST.NOVO", "positivo",
+                        CNDT, true)),
+                guardados);
+        ok("ADR-004 . regra que mexe no exemplo de outro tipo e recusada", !v3.aprovada());
+        // COPIAR A ANCORA NAO ROUBA: EMPATA. E empate manda para triagem.
+        // O exemplo continua sendo CER.CNDT e DEIXA de ser automatico — que e o
+        // estrago que o criterio antigo ("mudou de tipo?") nao via.
+        ok("ADR-004 . e a recusa diz que o exemplo alheio foi REBAIXADO, e de quem ele e",
+                v3.recusas().stream().anyMatch(m -> m.contains("REBAIXA")
+                        && m.contains("CER.CNDT")));
+
+        // SEM EXEMPLO POSITIVO NAO HA O QUE VERIFICAR.
+        var v4 = VerificadorDeRegra.verificar(regraDeTeste("qualquer coisa"), demais,
+                java.util.List.of(), guardados);
+        ok("ADR-004 . regra sem exemplo positivo e recusada", !v4.aprovada());
+    }
+
+    /**
+     * A regra cadastrada vale na varredura seguinte, sem restart.
+     *
+     * <p>"Entra valendo na hora" foi requisito explicito. O classificador
+     * carrega do banco a cada varredura; este teste e a prova de que nao ha
+     * cache escondido no caminho.
+     */
+    static void aRegraCadastradaEntraValendoNaHora(Sgdf sgdf) {
+        RepositorioDeRegras repo = new RepositorioDeRegras(sgdf);
+
+        // LIMPA O QUE A EXECUCAO ANTERIOR DEIXOU, ANTES DE CONTAR QUALQUER COISA.
+        //
+        // `tipo_documental.codigo` e unico e este teste cria um tipo fixo. Sem
+        // esta limpeza a segunda execucao morre em duplicate key — e a contagem
+        // de "antes" ficaria errada mesmo que nao morresse. Terceira vez nesta
+        // base que limpeza de teste esconde ou cria o defeito que ela deveria
+        // evitar; a ordem importa: apagar ANTES de medir, nao depois.
+        executarSql(sgdf, "DELETE FROM regra_exemplo e USING regra_reconhecimento r,"
+                + " tipo_documental t WHERE e.regra_id = r.id AND r.tipo_id = t.id"
+                + " AND t.codigo = 'TST.NAHORA'");
+        executarSql(sgdf, "DELETE FROM regra_reconhecimento r USING tipo_documental t"
+                + " WHERE r.tipo_id = t.id AND t.codigo = 'TST.NAHORA'");
+        executarSql(sgdf, "DELETE FROM tipo_documental WHERE codigo = 'TST.NAHORA'");
+
+        int antes = repo.ativas().size();
+
+        java.util.UUID tipo = uuid(sgdf, "INSERT INTO tipo_documental (codigo, nome, familia,"
+                + " escopo, evento, defasagem, criticidade, sigilo, repositorio_mestre,"
+                + " criado_por) VALUES ('TST.NAHORA', 'Tipo na hora', 'Teste', 'CORPORATIVO',"
+                + " 'MENSAL', 'M', 'BLOQUEANTE', 'INTERNO', 'OWNCLOUD', '" + MARCA + "')"
+                + " RETURNING id");
+
+        repo.cadastrar(tipo, null, "ANCORA",
+                "[{\"expressao\": \"documento sintetico de teste na hora\", \"peso\": 3,"
+                + " \"discriminante\": true, \"ignorando_espacos\": false}]",
+                0.0, 0.95, 0.70,
+                java.util.List.of(new VerificadorDeRegra.Exemplo("TST.NAHORA", "sintetico",
+                        "documento sintetico de teste na hora, com texto suficiente para "
+                        + "passar do minimo exigido pelo esquema", true)),
+                MARCA);
+
+        ok("ADR-004 . a regra nova aparece na carga seguinte, sem restart",
+                repo.ativas().size() == antes + 1);
+        ok("ADR-004 . e o classificador ja a conhece",
+                repo.ativas().stream().anyMatch(r -> r.tipo().equals("TST.NAHORA")));
+
+        // EXCLUIR E DESATIVAR, E A DIFERENCA NAO E SEMANTICA.
+        int saiu = repo.desativar(tipo, MARCA);
+        ok("ADR-004 . excluir do checklist desativa a regra", saiu == 1);
+        ok("ADR-004 . e ela some da carga seguinte", repo.ativas().stream()
+                .noneMatch(r -> r.tipo().equals("TST.NAHORA")));
+        ok("ADR-004 . mas a linha continua no banco, para o cap. 16 responder "
+                + "com que criterio um documento foi aceito",
+                contarRegras(sgdf, tipo) == 1);
+    }
+
+    static br.com.engesoftware.sgdf.classificacao.RegraDeReconhecimento regraDeTeste(
+            String ancora) {
+        return new br.com.engesoftware.sgdf.classificacao.RegraDeReconhecimento(
+                "TST.NOVO", null,
+                java.util.List.of(br.com.engesoftware.sgdf.classificacao.Ancora.discriminante(
+                        ancora, 3)),
+                java.util.List.of(), java.util.List.of(), 0.0, 0.95, 0.70, 1);
+    }
+
+    static int contarRegras(Sgdf sgdf, java.util.UUID tipoId) {
+        return sgdf.emTransacao(conexao -> {
+            try (java.sql.PreparedStatement ps = conexao.prepareStatement(
+                    "SELECT count(*) FROM regra_reconhecimento WHERE tipo_id = ?")) {
+                ps.setObject(1, tipoId);
                 try (java.sql.ResultSet rs = ps.executeQuery()) {
                     rs.next();
                     return rs.getInt(1);
