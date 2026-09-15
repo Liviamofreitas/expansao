@@ -35,17 +35,39 @@ public final class Autorizador {
         // impedir que quem administra a regra de reconhecimento veja o documento
         // sobre o qual a regra roda. A vedação está na guarda de escopo
         // profissional, adiante, que é onde o capítulo a coloca.
+        //
+        // CADASTRAR É DELE E SÓ DELE — E ISSO É UMA DECISÃO DA ORGANIZAÇÃO,
+        // NÃO UMA LEITURA DO CAPÍTULO.
+        //
+        // O cap. 15.1 atribui "cadastro de contratos/regras" ao CURADOR_MATRIZ,
+        // e era assim que este mapa estava. A decisão de concentrar o cadastro
+        // de cliente, contrato, tipo e regra de reconhecimento no ADMIN_SISTEMA
+        // foi tomada explicitamente pela área, com o risco declarado: a mesma
+        // pessoa passa a DEFINIR O QUE O SISTEMA COBRA e a ADMINISTRAR O
+        // SISTEMA QUE COBRA. Ver ADR-004.
+        //
+        // O que a separação anterior protegia continua protegido por outro
+        // lado: publicar a versão da matriz — o ato que muda o que cada
+        // contrato deve entregar — segue com o CURADOR_MATRIZ. Cadastrar um
+        // tipo novo não o coloca em contrato nenhum; é preciso alguém publicar
+        // a matriz para que ele passe a ser cobrado.
         CONCEDIDAS.put(Papel.ADMIN_SISTEMA, EnumSet.of(
                 Permissao.CONFIGURAR_SISTEMA,
+                Permissao.CADASTRAR,
                 Permissao.VER_PAINEL,
                 Permissao.VER_CONTEUDO_DOCUMENTO));
 
         // "Cadastro de contratos/regras; publicar versão da matriz; publicar e
         // enviar book". Não aprova exceção nem altera criticidade bloqueante.
+        //
+        // CADASTRAR SAIU DAQUI POR DECISÃO DA ÁREA (ADR-004), e a metade que
+        // ficou é a que decide o que cada contrato deve entregar: publicar a
+        // versão da matriz. O curador não cria mais o tipo; ele escolhe se o
+        // tipo que existe passa a ser exigido — e essas duas coisas continuam
+        // em mãos diferentes.
         CONCEDIDAS.put(Papel.CURADOR_MATRIZ, EnumSet.of(
                 Permissao.VER_PAINEL,
                 Permissao.VER_CONTEUDO_DOCUMENTO,
-                Permissao.CADASTRAR,
                 Permissao.PUBLICAR_MATRIZ,
                 Permissao.PUBLICAR_BOOK,
                 Permissao.SOLICITAR_EXCECAO,

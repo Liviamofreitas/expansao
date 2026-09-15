@@ -63,10 +63,27 @@ public final class TestesDeAutorizacao {
     }
 
     static void oQueCadaPapelPode() {
-        ok("Cap. 15.1 . o curador cadastra e publica a matriz",
-                Autorizador.pode(com(Papel.CURADOR_MATRIZ), Permissao.CADASTRAR).permitida()
-                        && Autorizador.pode(com(Papel.CURADOR_MATRIZ),
-                                Permissao.PUBLICAR_MATRIZ).permitida());
+        // ADR-004: o cadastro foi concentrado no ADMIN_SISTEMA por decisao da
+        // area. O cap. 15.1 dava "cadastro de contratos/regras" ao curador; a
+        // decisao e explicita e o risco esta declarado no ADR. Estas quatro
+        // assercoes sao o registro executavel dela: se alguem devolver
+        // CADASTRAR ao curador sem passar pelo ADR, duas delas caem.
+        ok("ADR-004 . o admin cadastra cliente, contrato, tipo e regra",
+                Autorizador.pode(com(Papel.ADMIN_SISTEMA), Permissao.CADASTRAR).permitida());
+        ok("ADR-004 . e o curador NAO cadastra mais",
+                Autorizador.pode(com(Papel.CURADOR_MATRIZ), Permissao.CADASTRAR).negada());
+
+        // A METADE QUE FICOU SEPARADA, E E A QUE IMPORTA.
+        //
+        // Cadastrar um tipo nao o coloca em contrato nenhum: e preciso publicar
+        // a versao da matriz para que ele passe a ser cobrado. Quem cria o tipo
+        // e quem decide que ele e exigido continuam sendo pessoas diferentes —
+        // e e isso que sobra da segregacao do cap. 15.1 depois do ADR-004.
+        ok("Cap. 15.1 . publicar a matriz continua com o curador",
+                Autorizador.pode(com(Papel.CURADOR_MATRIZ), Permissao.PUBLICAR_MATRIZ)
+                        .permitida());
+        ok("ADR-004 . e o admin NAO publica a matriz — cadastrar nao e exigir",
+                Autorizador.pode(com(Papel.ADMIN_SISTEMA), Permissao.PUBLICAR_MATRIZ).negada());
         ok("Cap. 15.1 . o gestor registra o ateste",
                 Autorizador.pode(com(Papel.GESTOR_CONTRATO),
                         Permissao.REGISTRAR_ATESTE).permitida());

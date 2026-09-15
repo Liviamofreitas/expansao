@@ -34,7 +34,7 @@ BEGIN
 
     -- 1. Cadastro bem formado é aceito -------------------------------------
     INSERT INTO regra_reconhecimento (tipo_id, ancoras, campos, campos_essenciais, criado_por)
-    VALUES (v_tipo_id, '[]'::jsonb,
+    VALUES (v_tipo_id, '[{"expressao": "documento de teste v8", "peso": 3, "discriminante": true}]'::jsonb,
             '[{"nome": "valor", "padrao": "valor:\\s*([\\d.,]+)", "grupo": 1},
               {"nome": "data",  "padrao": "data:\\s*(\\d{2}/\\d{2}/\\d{4})", "grupo": 1}]'::jsonb,
             '[{"campo": "valor", "formato": "valor",
@@ -45,9 +45,13 @@ BEGIN
 
     -- 2. Campo essencial que a regra não sabe extrair é recusado -----------
     BEGIN
+        -- A ÂNCORA AQUI NÃO É DECORAÇÃO: sem ela, a V021
+        -- (regra_recon_ancora_obrigatoria) dispararia primeiro e este bloco
+        -- passaria pelo motivo errado — o EXCEPTION pega QUALQUER
+        -- check_violation, não a que o teste quer provar.
         INSERT INTO regra_reconhecimento (tipo_id, ancoras, campos, campos_essenciais,
                                           versao, criado_por)
-        VALUES (v_tipo_id, '[]'::jsonb,
+        VALUES (v_tipo_id, '[{"expressao": "documento de teste v8", "peso": 3, "discriminante": true}]'::jsonb,
                 '[{"nome": "valor", "padrao": "x", "grupo": 0}]'::jsonb,
                 '[{"campo": "competencia", "formato": "competencia",
                    "motivo": "campo que a regra não sabe extrair"}]'::jsonb,
@@ -59,9 +63,13 @@ BEGIN
 
     -- 3. Campo essencial sem motivo substantivo é recusado -----------------
     BEGIN
+        -- A ÂNCORA AQUI NÃO É DECORAÇÃO: sem ela, a V021
+        -- (regra_recon_ancora_obrigatoria) dispararia primeiro e este bloco
+        -- passaria pelo motivo errado — o EXCEPTION pega QUALQUER
+        -- check_violation, não a que o teste quer provar.
         INSERT INTO regra_reconhecimento (tipo_id, ancoras, campos, campos_essenciais,
                                           versao, criado_por)
-        VALUES (v_tipo_id, '[]'::jsonb,
+        VALUES (v_tipo_id, '[{"expressao": "documento de teste v8", "peso": 3, "discriminante": true}]'::jsonb,
                 '[{"nome": "valor", "padrao": "x", "grupo": 0}]'::jsonb,
                 '[{"campo": "valor", "formato": "valor", "motivo": "sei la"}]'::jsonb,
                 3, 'teste');
@@ -72,9 +80,13 @@ BEGIN
 
     -- 4. Entrada sem formato é recusada ------------------------------------
     BEGIN
+        -- A ÂNCORA AQUI NÃO É DECORAÇÃO: sem ela, a V021
+        -- (regra_recon_ancora_obrigatoria) dispararia primeiro e este bloco
+        -- passaria pelo motivo errado — o EXCEPTION pega QUALQUER
+        -- check_violation, não a que o teste quer provar.
         INSERT INTO regra_reconhecimento (tipo_id, ancoras, campos, campos_essenciais,
                                           versao, criado_por)
-        VALUES (v_tipo_id, '[]'::jsonb,
+        VALUES (v_tipo_id, '[{"expressao": "documento de teste v8", "peso": 3, "discriminante": true}]'::jsonb,
                 '[{"nome": "valor", "padrao": "x", "grupo": 0}]'::jsonb,
                 '[{"campo": "valor", "motivo": "sem formato declarado nenhum"}]'::jsonb,
                 4, 'teste');
@@ -84,8 +96,12 @@ BEGIN
     END;
 
     -- 5. Lista vazia é válida: V8 fica inerte, não trava faturamento -------
+    --
+    -- "Lista vazia" aqui é a de CAMPOS ESSENCIAIS, não a de âncoras. A regra
+    -- continua tendo âncora — uma regra sem âncora classificaria pelo nome do
+    -- arquivo, e a V021 recusa isso no esquema.
     INSERT INTO regra_reconhecimento (tipo_id, ancoras, campos, versao, criado_por)
-    VALUES (v_tipo_id, '[]'::jsonb, '[]'::jsonb, 5, 'teste');
+    VALUES (v_tipo_id, '[{"expressao": "documento de teste v8", "peso": 3, "discriminante": true}]'::jsonb, '[]'::jsonb, 5, 'teste');
     PERFORM teste_ok('Cap. 1 · tipo sem campos essenciais é válido — V8 fica inerte');
 
     -- 6. Veredito: reprovar sem motivo não é gravável ----------------------
