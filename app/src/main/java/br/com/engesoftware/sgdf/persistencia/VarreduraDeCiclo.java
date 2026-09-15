@@ -46,7 +46,7 @@ import java.util.UUID;
  * calar justamente quando metade da pasta não foi lida — e o painel diria que a
  * competência está completa porque o sistema não olhou o resto.
  */
-public final class VarreduraDeCiclo {
+public class VarreduraDeCiclo {
 
     private final Sgdf sgdf;
     private final Pipeline pipeline;

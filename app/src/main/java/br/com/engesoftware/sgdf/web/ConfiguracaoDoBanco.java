@@ -60,6 +60,21 @@ public class ConfiguracaoDoBanco {
 
     @Bean
     @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
+    br.com.engesoftware.sgdf.persistencia.RepositorioDeColeta repositorioDeColeta(Sgdf sgdf) {
+        return new br.com.engesoftware.sgdf.persistencia.RepositorioDeColeta(sgdf);
+    }
+
+    // O Pipeline é singleton (ConfiguracaoDaColeta): guarda regras, não estado
+    // de requisição. A ingestão é por requisição porque carrega o Sgdf.
+    @Bean
+    @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
+    br.com.engesoftware.sgdf.persistencia.VarreduraDeCiclo varreduraDeCiclo(
+            Sgdf sgdf, br.com.engesoftware.sgdf.pipeline.Pipeline pipeline) {
+        return new br.com.engesoftware.sgdf.persistencia.VarreduraDeCiclo(sgdf, pipeline);
+    }
+
+    @Bean
+    @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
     RepositorioDeRascunho repositorioDeRascunho(Sgdf sgdf) {
         return new RepositorioDeRascunho(sgdf);
     }

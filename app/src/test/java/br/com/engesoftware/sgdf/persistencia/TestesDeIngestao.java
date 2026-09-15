@@ -100,6 +100,9 @@ public final class TestesDeIngestao {
                         () -> oAliasDesligadoViaja(sgdf));
                 executar("aFalhaParcialRegistraOQueJaEntrou",
                         () -> aFalhaParcialRegistraOQueJaEntrou(sgdf));
+                executar("oAlvoDaVarreduraVemDoCiclo", () -> oAlvoDaVarreduraVemDoCiclo(sgdf));
+                executar("oDeltaCompraAUltimaVersaoRegistrada",
+                        () -> oDeltaCompraAUltimaVersaoRegistrada(sgdf));
             } finally {
                 limpar(conexao);
             }
@@ -500,6 +503,71 @@ public final class TestesDeIngestao {
         var r = new br.com.engesoftware.sgdf.coleta.ResultadoVarredura();
         java.util.Collections.addAll(r.coletados, arquivos);
         return r;
+    }
+
+    /**
+     * RA-07: o alvo da varredura sai do ciclo, e nao de quem chama.
+     *
+     * <p>E a mesma regra do painel (achados § 30.1) aplicada a coleta: se a
+     * pasta viesse por parametro, quem chama escolheria ONDE O SISTEMA LE — e
+     * um recorte que o cliente escolhe nao e restricao. Aqui ela vale duas
+     * vezes, porque ler a pasta errada nao e so ver o que nao devia: e ingerir
+     * documento de um contrato no ciclo de outro.
+     */
+    static void oAlvoDaVarreduraVemDoCiclo(Sgdf sgdf) {
+        Fixture f = fixture(sgdf, "CER.CND_RFB");
+        RepositorioDeColeta coleta = new RepositorioDeColeta(sgdf);
+
+        RepositorioDeColeta.Alvo alvo = coleta.alvoDe(f.ciclo);
+        ok("RA-07 . o alvo existe para um ciclo que existe", alvo != null);
+        // A RAIZ E A DO CONTRATO, NAO A DO ARQUIVO — e a primeira versao deste
+        // teste comparou as duas coisas erradas e falhou com o codigo certo.
+        // A fixture grava pasta_origem='/f' no contrato e guarda em f.pasta o
+        // caminho ONDE OS ARQUIVOS MORAM ('/f/ing-N/2026/06'). Sao niveis
+        // diferentes: a varredura recebe a raiz e desce ate AAAA/MM sozinha.
+        ok("RA-07 . a raiz e a pasta_origem do CONTRATO, nao a do arquivo",
+                alvo != null && "/f".equals(alvo.pastaOrigem()));
+        ok("RA-07 . e os arquivos do ciclo ficam abaixo dela",
+                alvo != null && f.pasta.startsWith(alvo.pastaOrigem() + "/"));
+        ok("RA-07 . a competencia vem do ciclo",
+                alvo != null && "2026-06".equals(alvo.competencia()));
+        ok("RA-07 . e o contrato tambem",
+                alvo != null && contratoDo(sgdf, f.ciclo).equals(alvo.contratoId()));
+
+        ok("RA-07 . ciclo inexistente devolve null, e nao a pasta de outro",
+                coleta.alvoDe(UUID.randomUUID()) == null);
+    }
+
+    /**
+     * Cap. 8.1: o delta compara com a ULTIMA versao registrada.
+     *
+     * <p>O caminho e o mesmo; o que muda e a versao na origem. Depois de duas
+     * ingestoes, perguntar "qual versao eu conheco?" tem que responder a
+     * SEGUNDA. Responder a primeira faria a varredura tratar um documento novo
+     * como inalterado — ele nunca mais seria baixado, e o ciclo ficaria com a
+     * versao velha para sempre, sem erro nenhum em lugar nenhum.
+     */
+    static void oDeltaCompraAUltimaVersaoRegistrada(Sgdf sgdf) {
+        Fixture f = fixture(sgdf, "CER.CND_RFB");
+        RepositorioDeColeta coleta = new RepositorioDeColeta(sgdf);
+        String caminho = f.arquivo("cnd.pdf");
+
+        ok("Cap. 8.1 . caminho nunca visto nao tem versao conhecida",
+                coleta.estadoDe("OWNCLOUD").versaoDe(caminho) == null);
+
+        new VarreduraDeCiclo(sgdf, pipeline()).ingerir(f.ciclo, contratoDo(sgdf, f.ciclo),
+                "2026-06", varredura(coletado(caminho, pdf(CND_RFB), "versao-1")), MARCA);
+        ok("Cap. 8.1 . depois de ingerir, a versao da origem e conhecida",
+                "versao-1".equals(coleta.estadoDe("OWNCLOUD").versaoDe(caminho)));
+
+        // O MESMO caminho, conteudo diferente, versao nova na origem.
+        new VarreduraDeCiclo(sgdf, pipeline()).ingerir(f.ciclo, contratoDo(sgdf, f.ciclo),
+                "2026-06", varredura(coletado(caminho, pdf(CNDT), "versao-2")), MARCA);
+        ok("Cap. 8.1 . com duas versoes do mesmo caminho, a conhecida e a ULTIMA",
+                "versao-2".equals(coleta.estadoDe("OWNCLOUD").versaoDe(caminho)));
+
+        ok("Cap. 8.1 . outra origem nao ve a versao desta",
+                coleta.estadoDe("JIRA").versaoDe(caminho) == null);
     }
 
     static br.com.engesoftware.sgdf.coleta.ArquivoColetado coletado(String caminho,
