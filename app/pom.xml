@@ -62,6 +62,32 @@
 
       Sem a propriedade, o parent 4.1.1 traz a linha 11.x que ele testou.
     -->
+    <!--
+      TOMCAT 11.0.25, E A PROPRIEDADE VOLTOU PELO MOTIVO QUE ELA MESMA EXPLICA.
+
+      Ela saiu na subida para o Boot 4 porque forçava a linha 10.1 debaixo de um
+      Spring Framework 7, que exige Servlet 6.1. Removida, o parent 4.1.1 trouxe
+      11.0.24 — e o CI reprovou nos DOIS gates pelo mesmo motivo:
+
+        tomcat-embed-core-11.0.24: CVE-2026-65637(9.8), CVE-2026-65905(9.8),
+        CVE-2026-68525(9.1), CVE-2026-65182(9.1), CVE-2026-66422(8.1),
+        CVE-2026-68569(8.1), CVE-2026-65183(8.1), CVE-2026-65927(7.5),
+        CVE-2026-68763(7.5)
+
+      Entre elas, desvio de autenticação no DIGEST e no FORM. O próprio Trivy
+      nomeia a saída: 11.0.25.
+
+      É o mesmo padrão de sempre, agora medido três vezes nesta base: O PARENT
+      FIXA A VERSÃO QUE ERA CORRENTE QUANDO ELE FOI PUBLICADO, e a CVE não
+      espera o próximo release do Spring Boot. Sobrepor dentro da MESMA linha
+      (11.0.x -> 11.0.x, mudança de patch) é o uso correto da propriedade; o uso
+      errado, que custou um ciclo, foi mantê-la apontando para OUTRA linha
+      depois que o parent mudou.
+
+      Ou seja: a propriedade precisa ser revista a cada troca de parent, não
+      apagada nem esquecida. Fica aqui a regra, porque ela vai vencer de novo.
+    -->
+    <tomcat.version>11.0.25</tomcat.version>
     <log4j2.version>2.26.1</log4j2.version>
   </properties>
 
