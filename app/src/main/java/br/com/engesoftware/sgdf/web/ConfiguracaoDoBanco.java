@@ -64,12 +64,32 @@ public class ConfiguracaoDoBanco {
         return new br.com.engesoftware.sgdf.persistencia.RepositorioDeColeta(sgdf);
     }
 
-    // O Pipeline é singleton (ConfiguracaoDaColeta): guarda regras, não estado
-    // de requisição. A ingestão é por requisição porque carrega o Sgdf.
+    @Bean
+    @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
+    br.com.engesoftware.sgdf.persistencia.RepositorioDeRegras repositorioDeRegras(Sgdf sgdf) {
+        return new br.com.engesoftware.sgdf.persistencia.RepositorioDeRegras(sgdf);
+    }
+
+    // O PIPELINE NASCE AQUI, COM AS REGRAS DAQUELE INSTANTE.
+    //
+    // As regras vêm do banco a cada varredura — é o que faz "entra valendo na
+    // hora" ser verdade sem cache nem invalidação. O custo é ler ~20 linhas ao
+    // lado de baixar e escanear arquivos.
+    //
+    // `new Pipeline(...)` dentro da fábrica, e não um @Bean de Pipeline:
+    // `Pipeline` é final e um bean com escopo de requisição precisaria de proxy
+    // CGLIB, que não estende classe final.
     @Bean
     @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
     br.com.engesoftware.sgdf.persistencia.VarreduraDeCiclo varreduraDeCiclo(
-            Sgdf sgdf, br.com.engesoftware.sgdf.pipeline.Pipeline pipeline) {
+            Sgdf sgdf,
+            br.com.engesoftware.sgdf.persistencia.RepositorioDeRegras regras,
+            br.com.engesoftware.sgdf.coleta.PoliticaDeArquivos politica) {
+        var pipeline = new br.com.engesoftware.sgdf.pipeline.Pipeline(
+                new br.com.engesoftware.sgdf.extracao.ExtratorPdfBox(),
+                new br.com.engesoftware.sgdf.classificacao.Classificador(regras.ativas()),
+                new br.com.engesoftware.sgdf.validacao.ValidacaoDeSeguranca(
+                        politica.tamanhoMaximo()));
         return new br.com.engesoftware.sgdf.persistencia.VarreduraDeCiclo(sgdf, pipeline);
     }
 

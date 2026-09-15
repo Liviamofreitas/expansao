@@ -101,6 +101,8 @@ public final class TestesDeIngestao {
                 executar("aFalhaParcialRegistraOQueJaEntrou",
                         () -> aFalhaParcialRegistraOQueJaEntrou(sgdf));
                 executar("oAlvoDaVarreduraVemDoCiclo", () -> oAlvoDaVarreduraVemDoCiclo(sgdf));
+                executar("oBancoCarregaAsMesmasRegrasQueOCodigoTinha",
+                        () -> oBancoCarregaAsMesmasRegrasQueOCodigoTinha(sgdf));
                 executar("oDeltaCompraAUltimaVersaoRegistrada",
                         () -> oDeltaCompraAUltimaVersaoRegistrada(sgdf));
             } finally {
@@ -568,6 +570,61 @@ public final class TestesDeIngestao {
 
         ok("Cap. 8.1 . outra origem nao ve a versao desta",
                 coleta.estadoDe("JIRA").versaoDe(caminho) == null);
+    }
+
+    /**
+     * A troca de fonte nao pode custar um tipo reconhecido.
+     *
+     * <p>O classificador passou a carregar do banco. Este teste e a prova de que
+     * isso NAO significou deixar de reconhecer nada: o conjunto que o
+     * RepositorioDeRegras devolve — banco mais comprovantes do codigo — tem de
+     * ser o mesmo que `CargaDeRegras.todas()` devolvia sozinho.
+     *
+     * <p>Sem ele, perder uma regra na migracao seria invisivel: documentos
+     * daquele tipo passariam a cair em triagem manual, e a suspeita recairia
+     * sobre os arquivos, nao sobre a carga.
+     */
+    static void oBancoCarregaAsMesmasRegrasQueOCodigoTinha(Sgdf sgdf) {
+        java.util.Set<String> doBanco = new java.util.TreeSet<>();
+        for (br.com.engesoftware.sgdf.classificacao.RegraDeReconhecimento r
+                : new RepositorioDeRegras(sgdf).ativas()) {
+            doBanco.add(r.tipo() + "|" + (r.emissor() == null ? "" : r.emissor()));
+        }
+        java.util.Set<String> doCodigo = new java.util.TreeSet<>();
+        for (br.com.engesoftware.sgdf.classificacao.RegraDeReconhecimento r
+                : br.com.engesoftware.sgdf.classificacao.CargaDeRegras.todas()) {
+            doCodigo.add(r.tipo() + "|" + (r.emissor() == null ? "" : r.emissor()));
+        }
+
+        java.util.Set<String> faltando = new java.util.TreeSet<>(doCodigo);
+        faltando.removeAll(doBanco);
+        ok("F1-03 . o banco carrega TODAS as regras que o codigo tinha — faltam " + faltando,
+                faltando.isEmpty());
+
+        java.util.Set<String> sobrando = new java.util.TreeSet<>(doBanco);
+        sobrando.removeAll(doCodigo);
+        ok("F1-03 . e nenhuma a mais — sobram " + sobrando, sobrando.isEmpty());
+
+        // A FRONTEIRA, VERIFICADA E NAO SO ESCRITA.
+        ok("Cap. 8.5 . os comprovantes NAO vem do banco: nao sao tipo do checklist",
+                doBanco.stream().anyMatch(x -> x.startsWith("CMP."))
+                        && contarTipos(sgdf, "CMP.") == 0);
+    }
+
+    /** Quantos tipos com este prefixo existem no cadastro. */
+    static int contarTipos(Sgdf sgdf, String prefixo) {
+        return sgdf.emTransacao(conexao -> {
+            try (java.sql.PreparedStatement ps = conexao.prepareStatement(
+                    "SELECT count(*) FROM tipo_documental WHERE codigo LIKE ?")) {
+                ps.setString(1, prefixo + "%");
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    rs.next();
+                    return rs.getInt(1);
+                }
+            } catch (java.sql.SQLException e) {
+                throw new IllegalStateException(e);
+            }
+        });
     }
 
     static br.com.engesoftware.sgdf.coleta.ArquivoColetado coletado(String caminho,

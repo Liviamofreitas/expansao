@@ -84,21 +84,20 @@ public class ConfiguracaoDaColeta {
         return new AntivirusClamd(host, porta, timeoutMs);
     }
 
-    /**
-     * O pipeline de identificação por conteúdo.
-     *
-     * <p>As regras vêm do código ({@code CargaDeRegras}), não do banco: são a
-     * especificação de reconhecimento, versionada junto com os testes que as
-     * provam. O limite de tamanho é o mesmo da política de arquivos — dois
-     * limites diferentes para a mesma coisa produziriam um arquivo que a
-     * varredura aceita e o pipeline recusa, sem que ninguém entenda por quê.
-     */
-    @Bean
-    Pipeline pipeline(PoliticaDeArquivos politica) {
-        return new Pipeline(new ExtratorPdfBox(),
-                new Classificador(CargaDeRegras.todas()),
-                new ValidacaoDeSeguranca(politica.tamanhoMaximo()));
-    }
+    // O PIPELINE SAIU DAQUI, E O MOTIVO É O REQUISITO "ENTRA VALENDO NA HORA".
+    //
+    // Ele era singleton construído com `CargaDeRegras.todas()` — regras
+    // compiladas. Com o cadastro de tipo pela aplicação (ADR-004), um pipeline
+    // criado na partida continuaria usando as regras de quando o processo
+    // subiu: cadastrar um documento novo só passaria a valer no próximo
+    // restart, e ninguém ligaria uma coisa à outra.
+    //
+    // Agora ele nasce por requisição, em ConfiguracaoDoBanco.varreduraDeCiclo,
+    // com as regras lidas do banco naquele instante. Não virou bean com escopo
+    // de requisição por um motivo concreto: `Pipeline` é `public final class`, e
+    // proxy CGLIB não estende classe final — foi o defeito que derrubou a
+    // aplicação em dezesseis classes nesta mesma sessão. Construir dentro da
+    // fábrica evita o proxy inteiro.
 
     @Bean
     PoliticaDeArquivos politicaDeArquivos() {
