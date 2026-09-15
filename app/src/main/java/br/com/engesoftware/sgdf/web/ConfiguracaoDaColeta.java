@@ -49,6 +49,13 @@ public class ConfiguracaoDaColeta {
      * recusa explicitamente dizendo QUAL variável falta. Um endpoint que
      * devolve "0 documentos" porque não há repositório configurado seria a
      * falha que se parece com sucesso — e já custou caro neste projeto.
+     *
+     * <p><b>A base carrega o caminho-raiz do WebDAV, não só o endereço</b>
+     * (ADR-005). Numa OwnCloud, {@code
+     * https://cloud.exemplo/remote.php/dav/files/svc-sgdf-leitura} — e o
+     * {@code pasta_origem} do contrato é relativo a isso. É o que faz a troca
+     * de nuvem ser uma variável de ambiente em vez de um UPDATE em todo caminho
+     * já registrado.
      */
     @Bean
     ClienteWebDav clienteWebDav(

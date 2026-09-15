@@ -60,6 +60,7 @@ public final class TestesDeColeta {
         antivirusIndisponivel();
         recursaoLimitada();
         hrefForaDaRaiz();
+        aBaseComCaminhoViraPrefixo();
 
         System.out.println();
         falhas.forEach(f -> System.out.println("  FALHA " + f));
@@ -155,8 +156,8 @@ public final class TestesDeColeta {
                 entradaXml("/c/2026/04/", null, null, true),
                 entradaXml("/c/2026/04/nota.pdf", "\"abc123\"", "2048", false));
 
-        List<EntradaRemota> entradas =
-                ClienteWebDav.interpretarMultistatus(xml.getBytes(StandardCharsets.UTF_8), "/c");
+        List<EntradaRemota> entradas = semPrefixo()
+                .interpretarMultistatus(xml.getBytes(StandardCharsets.UTF_8), "/c");
 
         ok("PROPFIND . colecao e arquivo sao distinguidos",
                 entradas.size() == 2 && entradas.get(0).colecao() && !entradas.get(1).colecao());
@@ -171,7 +172,7 @@ public final class TestesDeColeta {
         ok("R-03 . multistatus com DOCTYPE e rejeitado (XXE)",
                 lanca(() -> {
                     try {
-                        ClienteWebDav.interpretarMultistatus(
+                        semPrefixo().interpretarMultistatus(
                                 comDoctype.getBytes(StandardCharsets.UTF_8), "/c");
                     } catch (IOException e) {
                         throw new RuntimeException(e);
@@ -422,6 +423,87 @@ public final class TestesDeColeta {
     }
 
     // =========================================================================
+    // O caminho da base e prefixo — ADR-005
+    // =========================================================================
+
+    /**
+     * A NUVEM MUDA; O QUE ESTA NO BANCO NAO PODE MUDAR JUNTO.
+     *
+     * <p>Numa OwnCloud/Nextcloud o WebDAV vive sob
+     * {@code /remote.php/dav/files/<conta>}. Se esse trecho tivesse de morar em
+     * {@code pasta_origem}, atualizar a nuvem ou trocar a conta de servico
+     * invalidaria a pasta de TODO contrato e o {@code caminho} de TODO documento
+     * ja registrado — um UPDATE de migracao sobre dado que a trilha do cap. 16
+     * ja carimbou.
+     *
+     * <p>Com o prefixo na base, a troca e uma variavel de ambiente.
+     *
+     * <p>Este teste roda contra o servidor WebDAV simulado de verdade, e por
+     * isso prova as DUAS pontas de uma vez: que a requisicao SAI com o prefixo
+     * (senao o 404 apareceria) e que o caminho VOLTA sem ele (senao a contencao
+     * de raiz reprovaria o proprio arquivo).
+     */
+    static void aBaseComCaminhoViraPrefixo() throws Exception {
+        String prefixo = "/remote.php/dav/files/svc-sgdf-leitura";
+        try (WebDavSimulado servidor = new WebDavSimulado(
+                Map.of(prefixo + "/BNB/2026/04/nota.pdf",
+                        "n".getBytes(StandardCharsets.UTF_8)));
+             ClamdSimulado clamd = new ClamdSimulado()) {
+
+            // A RAIZ DO CONTRATO E RELATIVA. E este e o ponto todo.
+            ResultadoVarredura r = new Varredura(servidor.clienteSob(prefixo),
+                    new AntivirusClamd("127.0.0.1", clamd.porta(), 5000),
+                    PoliticaDeArquivos.padrao(), Varredura.Limites.padrao())
+                    .varrer("/BNB", "2026-04", caminho -> null);
+
+            ok("ADR-005 . o arquivo sob o prefixo e encontrado com raiz relativa",
+                    r.coletados.size() == 1);
+            ok("ADR-005 . e o caminho registrado NAO carrega o prefixo da nuvem",
+                    r.coletados.size() == 1
+                            && r.coletados.get(0).caminho().equals("/BNB/2026/04/nota.pdf"));
+
+            // CONTROLE: sem o prefixo, o mesmo servidor nao entrega nada. Sem
+            // isto, a assercao acima passaria igual se o prefixo fosse ignorado
+            // e o servidor respondesse de qualquer jeito.
+            ResultadoVarredura sem = varredura(servidor, clamd)
+                    .varrer("/BNB", "2026-04", caminho -> null);
+            ok("ADR-005 . sem o prefixo, o mesmo servidor nao entrega nada",
+                    sem.coletados.isEmpty());
+        }
+
+        // FRONTEIRA DE SEGMENTO: com prefixo /dav/files/livia, um startsWith cru
+        // aceitaria /dav/files/liviaOUTRA/x.pdf e o relativizaria para
+        // "OUTRA/x.pdf" — caminho de OUTRA conta entrando como se fosse desta.
+        ClienteWebDav c = new ClienteWebDav(
+                URI.create("http://127.0.0.1:1/dav/files/livia"), null, null,
+                Duration.ofSeconds(1));
+        ok("ADR-005 . o prefixo so casa em fronteira de segmento",
+                c.relativizar("/dav/files/liviaOUTRA/x.pdf")
+                        .equals("/dav/files/liviaOUTRA/x.pdf"));
+        ok("ADR-005 . e o caminho legitimo e relativizado",
+                c.relativizar("/dav/files/livia/BNB/nota.pdf").equals("/BNB/nota.pdf"));
+        ok("ADR-005 . caminho fora do prefixo volta ABSOLUTO, para a contencao "
+                + "de raiz reprova-lo e o painel ve-lo",
+                c.relativizar("/outra-coisa/segredo.pdf").equals("/outra-coisa/segredo.pdf"));
+
+        ok("ADR-005 . base sem caminho continua sem prefixo",
+                ClienteWebDav.prefixoDe(URI.create("http://h:1")).isEmpty()
+                        && ClienteWebDav.prefixoDe(URI.create("http://h:1/")).isEmpty());
+        ok("ADR-005 . barra final na base nao vira prefixo com barra dupla",
+                ClienteWebDav.prefixoDe(URI.create("http://h:1/dav/files/svc/"))
+                        .equals("/dav/files/svc"));
+        ok("ADR-005 . e o prefixo chega DECODIFICADO, para casar com o href",
+                ClienteWebDav.prefixoDe(URI.create("http://h:1/dav/files/nome%20com%20espaco"))
+                        .equals("/dav/files/nome com espaco"));
+    }
+
+    /** Um cliente sem base nenhuma: o parsing do multistatus nao depende dela. */
+    static ClienteWebDav semPrefixo() {
+        return new ClienteWebDav(URI.create("http://127.0.0.1:1"), null, null,
+                Duration.ofSeconds(1));
+    }
+
+    // =========================================================================
     // Apoio
     // =========================================================================
 
@@ -500,8 +582,13 @@ public final class TestesDeColeta {
         }
 
         ClienteWebDav cliente() {
+            return clienteSob("");
+        }
+
+        ClienteWebDav clienteSob(String prefixo) {
             return new ClienteWebDav(
-                    URI.create("http://127.0.0.1:" + servidor.getAddress().getPort()),
+                    URI.create("http://127.0.0.1:" + servidor.getAddress().getPort()
+                            + prefixo),
                     null, null, Duration.ofSeconds(5));
         }
 

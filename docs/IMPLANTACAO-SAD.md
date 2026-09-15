@@ -129,18 +129,29 @@ sem credencial.
 Só depois que o IdP estiver de pé. No `.env`:
 
 ```
-SGDF_WEBDAV_BASE=https://cloud.engesoftware.com.br
+SGDF_WEBDAV_BASE=https://cloud.engesoftware.com.br/remote.php/dav/files/svc-sgdf-leitura
 SGDF_WEBDAV_USUARIO=svc-sgdf-leitura
 SGDF_WEBDAV_SENHA=...
 ```
 
-`SGDF_WEBDAV_BASE` contribui **apenas o endereço** (esquema, host, porta); o
-caminho vem do `pasta_origem` do contrato e precisa ser o caminho DAV completo,
-por exemplo:
+`SGDF_WEBDAV_BASE` carrega **endereço e caminho-raiz do WebDAV**, incluindo o
+`/remote.php/dav/files/<conta>` da OwnCloud/Nextcloud. O `pasta_origem` do
+contrato é **relativo a essa base**:
 
 ```
-/remote.php/dav/files/svc-sgdf-leitura/Departamento de Pessoal/FATURAMENTO
+/Departamento de Pessoal/FATURAMENTO
 ```
+
+Isto não é cosmética. Se o trecho `/remote.php/dav/files/<conta>` morasse no
+`pasta_origem`, atualizar a nuvem ou trocar a conta de serviço invalidaria a
+pasta de **todo** contrato e o `caminho` de **todo** documento já registrado —
+uma migração de dados sobre linhas que a trilha do cap. 16 já carimbou. Com o
+prefixo na base, a troca é uma variável de ambiente. Ver ADR-005.
+
+> **Atenção:** versões anteriores a esta descartavam em silêncio o caminho da
+> base. Se você configurou `SGDF_WEBDAV_BASE` só com o host e pôs o caminho DAV
+> dentro do `pasta_origem`, **os dois precisam mudar juntos** — do contrário a
+> requisição sai com o prefixo duplicado e o PROPFIND devolve 404.
 
 A conta deve ser **somente-leitura** (item 1.3 do plano). Depois:
 
