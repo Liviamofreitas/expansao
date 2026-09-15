@@ -47,6 +47,9 @@ public final class TestesDeCadastro {
                         () -> oAliasUsaAMesmaNormalizacaoDaTriagem(sgdf));
                 executar("desativarNaoApaga", () -> desativarNaoApaga(sgdf));
                 executar("todoCadastroFicaNaTrilha", () -> todoCadastroFicaNaTrilha(sgdf));
+                executar("aPastaDeOrigemMudaComTrilha",
+                        () -> aPastaDeOrigemMudaComTrilha(sgdf));
+                executar("asRecusasDaTrocaDePasta", () -> asRecusasDaTrocaDePasta(sgdf));
             } finally {
                 limpar(conexao);
             }
@@ -201,6 +204,102 @@ public final class TestesDeCadastro {
         ok("Cap. 16 . o cadastro de cliente fica na trilha",
                 1 == contar(sgdf, "log_auditoria WHERE acao = 'CADASTRAR_CLIENTE' "
                         + "AND objeto_id = '" + cliente + "' AND ator = 'quem-cadastrou'"));
+    }
+
+    // --- ADR-005: a pasta muda de lugar dentro da nuvem -------------------------
+
+    /**
+     * O VALOR ANTERIOR NA TRILHA E O MOTIVO OBRIGATORIO SAO O TESTE INTEIRO.
+     *
+     * <p>Sem o anterior, reconstruir para onde apontavam os documentos ja
+     * registrados e impossivel. Sem o motivo, a trilha responde "quem" e
+     * "quando" e deixa sem resposta a unica pergunta que alguem vai fazer:
+     * <i>por que a pasta mudou?</i>
+     */
+    static void aPastaDeOrigemMudaComTrilha(Sgdf sgdf) {
+        RepositorioDeCadastro repo = new RepositorioDeCadastro(sgdf);
+        int n = ++sequencia;
+        UUID cliente = repo.cadastrarCliente("Mudanca " + n, String.format("2%013d", n),
+                "PRIVADA", MARCA, PAPEL);
+        UUID contrato = repo.cadastrarContrato(
+                contrato(cliente, umaEmpresa(sgdf, n), "CT-MUD-" + n, "PRINCIPAL"),
+                MARCA, PAPEL);
+
+        var r = repo.alterarPastaOrigem(contrato, "/Departamento de Pessoal/FATURAMENTO",
+                "a nuvem foi reorganizada em 2026-09 e a pasta saiu de /caixa",
+                "quem-mudou", "ADMIN_SISTEMA");
+
+        ok("ADR-005 . a pasta nova fica no contrato",
+                "/Departamento de Pessoal/FATURAMENTO".equals(escalar(sgdf,
+                        "SELECT pasta_origem FROM contrato_servico WHERE id = '"
+                        + contrato + "'")));
+        ok("ADR-005 . e a resposta diz de onde veio", "/caixa/PRINCIPAL".equals(r.anterior()));
+
+        String detalhe = escalar(sgdf, "SELECT detalhe::text FROM log_auditoria"
+                + " WHERE acao = 'ALTERAR_PASTA_ORIGEM' AND objeto_id = '" + contrato + "'");
+        ok("Cap. 16 . a trilha registra a pasta ANTERIOR",
+                detalhe != null && detalhe.contains("/caixa/PRINCIPAL"));
+        ok("Cap. 16 . e a nova",
+                detalhe != null && detalhe.contains("/Departamento de Pessoal/FATURAMENTO"));
+        ok("Cap. 16 . e o motivo, que e o que reconstroi a decisao",
+                detalhe != null && detalhe.contains("a nuvem foi reorganizada"));
+        ok("Cap. 16 . com o ator que agiu, e nao a marca do teste",
+                1 == contar(sgdf, "log_auditoria WHERE acao = 'ALTERAR_PASTA_ORIGEM'"
+                        + " AND objeto_id = '" + contrato + "' AND ator = 'quem-mudou'"));
+
+        // A CANONICALIZACAO E A MESMA DA VARREDURA, E NAO UMA PARECIDA.
+        //
+        // A contencao de raiz do cap. 14.1 compara o caminho do arquivo com
+        // ESTA pasta. Se o cadastro guardasse '/a/b/../c' e a varredura
+        // canonicalizasse o href para '/a/c', nenhum arquivo estaria dentro da
+        // raiz e a pasta inteira apareceria como fora dela.
+        repo.alterarPastaOrigem(contrato, "/a/b/../c/", "normalizacao conferida no cadastro",
+                MARCA, PAPEL);
+        ok("R-03 . a pasta e canonicalizada e perde a barra final",
+                "/a/c".equals(escalar(sgdf, "SELECT pasta_origem FROM contrato_servico"
+                        + " WHERE id = '" + contrato + "'")));
+    }
+
+    static void asRecusasDaTrocaDePasta(Sgdf sgdf) {
+        RepositorioDeCadastro repo = new RepositorioDeCadastro(sgdf);
+        int n = ++sequencia;
+        UUID cliente = repo.cadastrarCliente("Recusa " + n, String.format("2%013d", n),
+                "PRIVADA", MARCA, PAPEL);
+        UUID contrato = repo.cadastrarContrato(
+                contrato(cliente, umaEmpresa(sgdf, n), "CT-REC-" + n, "PRINCIPAL"),
+                MARCA, PAPEL);
+
+        ok("Cap. 16 . motivo curto e recusado",
+                recusa(() -> repo.alterarPastaOrigem(contrato, "/nova", "ajuste",
+                        MARCA, PAPEL)));
+        ok("ADR-005 . pasta vazia e recusada",
+                recusa(() -> repo.alterarPastaOrigem(contrato, "  ",
+                        "motivo suficientemente longo", MARCA, PAPEL)));
+        ok("Cap. 15.1 . a raiz '/' e recusada ? varreria a nuvem inteira",
+                recusa(() -> repo.alterarPastaOrigem(contrato, "/",
+                        "motivo suficientemente longo", MARCA, PAPEL)));
+        ok("ADR-005 . contrato inexistente e recusado",
+                recusa(() -> repo.alterarPastaOrigem(UUID.randomUUID(), "/nova",
+                        "motivo suficientemente longo", MARCA, PAPEL)));
+
+        // UM UPDATE QUE NAO MUDA NADA NAO PODE VIRAR LINHA DE TRILHA.
+        // "alterado de X para X" e ruido dentro do registro que existe para
+        // responder o que mudou.
+        ok("Cap. 16 . a mesma pasta e recusada",
+                recusa(() -> repo.alterarPastaOrigem(contrato, "/caixa/PRINCIPAL",
+                        "motivo suficientemente longo", MARCA, PAPEL)));
+        ok("Cap. 16 . e nenhuma recusa deixou linha na trilha",
+                0 == contar(sgdf, "log_auditoria WHERE acao = 'ALTERAR_PASTA_ORIGEM'"
+                        + " AND objeto_id = '" + contrato + "'"));
+    }
+
+    static boolean recusa(Runnable trabalho) {
+        try {
+            trabalho.run();
+            return false;
+        } catch (RepositorioDeCadastro.CadastroInvalido e) {
+            return true;
+        }
     }
 
     // -------------------------------------------------------------------------

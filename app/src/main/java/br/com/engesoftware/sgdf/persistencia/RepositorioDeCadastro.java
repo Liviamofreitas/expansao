@@ -209,6 +209,160 @@ public class RepositorioDeCadastro {
         }
     }
 
+    /**
+     * Muda a pasta de origem de um contrato, com registro de quem e por quê.
+     *
+     * <p><b>Por que existe.</b> A ADR-005 tornou {@code pasta_origem} relativo à
+     * base WebDAV: trocar de nuvem virou uma variável de ambiente. O que aquela
+     * decisão NÃO resolve é a pasta mudar de lugar <i>dentro</i> da nuvem — e
+     * até aqui a única forma de acompanhar essa mudança era um {@code UPDATE}
+     * direto no banco, sem ator, sem data e sem motivo. A ADR registrou isso
+     * como bloqueio obrigatório antes de a varredura real ser ligada; este
+     * método é o desbloqueio.
+     *
+     * <p><b>O valor ANTERIOR vai na trilha, e é o ponto todo.</b> Sem ele,
+     * reconstruir para onde apontavam os documentos já registrados é impossível,
+     * e a pergunta que a auditoria faz — <i>"de onde veio este documento, na
+     * época?"</i> — fica sem resposta. É a mesma razão pela qual o motivo é
+     * obrigatório: "quem" e "quando" sem "por quê" não reconstrói decisão
+     * nenhuma.
+     *
+     * <p><b>Não há recusa por pasta repetida, e isso foi MEDIDO, não suposto.</b>
+     * A carga real tem {@code /CAIXA - 09705.2025} em três contratos e
+     * {@code /BNB - 482023} em dois: um contrato guarda-chuva com vários
+     * serviços compartilha a pasta por construção (F0-02). Uma trava de
+     * unicidade aqui recusaria o cadastro correto.
+     *
+     * @return quantos documentos já registrados apontam para a pasta ANTERIOR —
+     *         ver {@link PastaAlterada#documentosNaPastaAnterior()}
+     */
+    public PastaAlterada alterarPastaOrigem(UUID contratoId, String pastaNova, String motivo,
+                                            String ator, String papel) {
+        String nova = canonica(pastaNova);
+        if (motivo == null || motivo.strip().length() < 15) {
+            throw new CadastroInvalido(
+                    "a alteração de pasta exige motivo com ao menos 15 caracteres: quem "
+                    + "auditar vai perguntar POR QUE a pasta mudou, e 'ajuste' não responde");
+        }
+        return sgdf.emTransacao(conexao -> {
+            String anterior = pastaAtual(conexao, contratoId);
+            if (anterior == null) {
+                throw new CadastroInvalido("contrato " + contratoId + " não existe");
+            }
+            // UM UPDATE QUE NÃO MUDA NADA NÃO PODE VIRAR LINHA DE TRILHA.
+            //
+            // "alterado de X para X" é ruído dentro do registro que existe
+            // justamente para responder o que mudou — e ninguém que audita
+            // consegue distinguir esse ruído de uma alteração real desfeita.
+            if (anterior.equals(nova)) {
+                throw new CadastroInvalido(
+                        "a pasta já é '" + nova + "': nada a alterar");
+            }
+
+            long documentos = documentosSob(conexao, contratoId, anterior);
+            atualizar(conexao, contratoId, nova);
+            trilha(conexao, ator, papel, "ALTERAR_PASTA_ORIGEM", "contrato_servico",
+                    contratoId, Map.of(
+                            "anterior", List.of(anterior),
+                            "nova", List.of(nova),
+                            "motivo", List.of(motivo.strip()),
+                            "documentos_na_pasta_anterior", List.of(String.valueOf(documentos))));
+            return new PastaAlterada(anterior, nova, documentos);
+        });
+    }
+
+    /**
+     * O desfecho da alteração.
+     *
+     * @param documentosNaPastaAnterior documentos já ingeridos cujo caminho está
+     *        sob a pasta antiga. <b>Eles não são movidos nem reescritos</b>: o
+     *        {@code caminho} registra de onde o documento veio, e reescrevê-lo
+     *        seria falsificar o histórico que o cap. 16 existe para preservar.
+     *        A consequência prática é uma só, e é branda: o delta do cap. 8.1
+     *        indexa por caminho, então os arquivos sob a pasta nova entram como
+     *        nunca vistos e são baixados de novo uma vez — a deduplicação por
+     *        hash reconhece o conteúdo e não duplica documento.
+     */
+    public record PastaAlterada(String anterior, String nova, long documentosNaPastaAnterior) {}
+
+    /** Canonicaliza e recusa o que não é caminho absoluto de pasta. */
+    private static String canonica(String pasta) {
+        if (pasta == null || pasta.isBlank()) {
+            throw new CadastroInvalido("a pasta de origem não pode ser vazia: sem ela o "
+                    + "contrato não tem onde ser varrido");
+        }
+        String limpa;
+        try {
+            limpa = br.com.engesoftware.sgdf.coleta.CaminhoRemoto.canonicalizar(pasta.strip());
+        } catch (IllegalArgumentException e) {
+            throw new CadastroInvalido("pasta de origem inválida: " + e.getMessage());
+        }
+        // A MESMA CANONICALIZAÇÃO QUE A VARREDURA USA, E NÃO UMA PARECIDA.
+        //
+        // A contenção de raiz do cap. 14.1 compara o caminho do arquivo com
+        // ESTA pasta. Se o cadastro guardasse '/a/b/../c' e a varredura
+        // canonicalizasse o href para '/a/c', nenhum arquivo estaria "dentro da
+        // raiz" e a pasta inteira apareceria como fora dela.
+        if (limpa.endsWith("/") && limpa.length() > 1) {
+            limpa = limpa.substring(0, limpa.length() - 1);
+        }
+        if (limpa.equals("/")) {
+            throw new CadastroInvalido("a raiz '/' não é pasta de contrato: varrer a nuvem "
+                    + "inteira ignoraria o recorte por contrato do cap. 15.1");
+        }
+        return limpa;
+    }
+
+    private static String pastaAtual(Connection conexao, UUID contratoId) {
+        try (PreparedStatement ps = conexao.prepareStatement(
+                "SELECT pasta_origem FROM contrato_servico WHERE id = ?")) {
+            ps.setObject(1, contratoId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getString(1) : null;
+            }
+        } catch (SQLException e) {
+            throw new Sgdf.FalhaDePersistencia("falha ao ler a pasta do contrato", e);
+        }
+    }
+
+    private static long documentosSob(Connection conexao, UUID contratoId, String pasta) {
+        String sql = """
+                SELECT count(*)
+                FROM   documento d
+                JOIN   vinculo_exigencia_documento v ON v.documento_id = d.id
+                JOIN   exigencia e ON e.id = v.exigencia_id
+                JOIN   ciclo c ON c.id = e.ciclo_id
+                WHERE  c.contrato_servico_id = ? AND d.caminho LIKE ? || '/%'
+                """;
+        try (PreparedStatement ps = conexao.prepareStatement(sql)) {
+            ps.setObject(1, contratoId);
+            ps.setString(2, pasta);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : 0;
+            }
+        } catch (SQLException e) {
+            throw new Sgdf.FalhaDePersistencia("falha ao contar documentos da pasta", e);
+        }
+    }
+
+    private static void atualizar(Connection conexao, UUID contratoId, String pasta) {
+        try (PreparedStatement ps = conexao.prepareStatement(
+                "UPDATE contrato_servico SET pasta_origem = ? WHERE id = ?")) {
+            ps.setString(1, pasta);
+            ps.setObject(2, contratoId);
+            if (ps.executeUpdate() != 1) {
+                // Inalcançável: pastaAtual() já provou que a linha existe, na
+                // mesma transação. Fica porque um UPDATE que não atinge linha
+                // nenhuma e segue para a trilha registraria uma alteração que
+                // não houve — e a trilha é append-only, então o registro falso
+                // não sai mais de lá.
+                throw new CadastroInvalido("contrato " + contratoId + " não existe");
+            }
+        } catch (SQLException e) {
+            throw new Sgdf.FalhaDePersistencia("falha ao alterar a pasta do contrato", e);
+        }
+    }
+
     private static void trilha(Connection conexao, String ator, String papel, String acao,
                                String objetoTipo, UUID objetoId,
                                Map<String, List<String>> detalhe) {

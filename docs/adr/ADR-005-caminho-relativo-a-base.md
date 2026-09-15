@@ -83,11 +83,30 @@ PROPFIND devolve 404. Hoje isso não atinge dado nenhum — **nenhum documento r
 foi ingerido ainda**, e é precisamente por isso que a mudança acontece agora e
 não depois. Registrado na `IMPLANTACAO-SAD` § 6 como aviso.
 
-**O que esta ADR NÃO resolve.** Se a *pasta* mudar de lugar dentro da nuvem — e
-não apenas a raiz DAV —, o `pasta_origem` do contrato continua tendo de mudar.
-Não existe hoje caminho auditado para alterá-lo pela aplicação; a alteração é
-por SQL. É uma lacuna conhecida e está no backlog como **recomendação
-obrigatória antes de a varredura real ser ligada em produção**.
+**O que esta ADR não resolvia, e já está resolvido.** Se a *pasta* mudar de lugar
+dentro da nuvem — e não apenas a raiz DAV —, o `pasta_origem` do contrato
+continua tendo de mudar. Quando esta ADR foi escrita não havia caminho auditado
+para isso: a alteração era `UPDATE` direto no banco, sem ator, sem data e sem
+motivo, e a ADR registrou o item como bloqueio obrigatório antes de ligar a
+varredura real.
+
+O bloqueio foi fechado no mesmo dia por `POST /api/contratos/{id}/pasta-origem`
+(`CADASTRAR`, portanto ADMIN_SISTEMA e só ele, por ADR-004). O valor **anterior**
+vai na trilha junto com o motivo — sem o anterior não se reconstrói para onde
+apontavam os documentos já registrados, e sem o motivo a trilha responde "quem" e
+"quando" e deixa sem resposta a única pergunta que a auditoria faz.
+
+Os documentos já ingeridos **não** são movidos nem reescritos: o `caminho`
+registra de onde o documento veio, e reescrevê-lo falsificaria o histórico que o
+cap. 16 existe para preservar. A consequência prática é branda e está na resposta
+do endpoint — o delta do cap. 8.1 indexa por caminho, então os arquivos sob a
+pasta nova entram como nunca vistos e são baixados de novo uma vez; a
+deduplicação por hash reconhece o conteúdo e não duplica documento.
+
+**Não há recusa por pasta repetida, e isso foi medido, não suposto.** A carga
+real tem `/CAIXA - 09705.2025` em três contratos e `/BNB - 482023` em dois: um
+contrato guarda-chuva com vários serviços compartilha a pasta por construção
+(F0-02). Uma trava de unicidade recusaria o cadastro correto.
 
 ## Verificação
 

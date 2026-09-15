@@ -54,6 +54,8 @@ public final class TestesDeWeb {
                 TestesDeWeb::aVarreduraEASimulacaoExigemConduzirCiclo);
         executar("semRepositorioConfiguradoARecusaEAlta",
                 TestesDeWeb::semRepositorioConfiguradoARecusaEAlta);
+        executar("trocarAPastaDeOrigemESoDoAdmin",
+                TestesDeWeb::trocarAPastaDeOrigemESoDoAdmin);
         executar("tokenTraduzGrupos", TestesDeWeb::tokenTraduzGrupos);
         executar("tokenSemSujeitoNaoAutentica", TestesDeWeb::tokenSemSujeitoNaoAutentica);
         executar("contratoMalFormadoNoTokenNaoDaAcesso",
@@ -517,7 +519,55 @@ public final class TestesDeWeb {
         }
     }
 
+    /**
+     * ADR-004 + ADR-005: escolher ONDE o sistema le e cadastro, e cadastro e do
+     * ADMIN_SISTEMA.
+     *
+     * <p>Uma pasta trocada aponta a coleta para documentos de outro contrato ou
+     * de outra area. Quem conduz o ciclo opera dentro do recorte que o cadastro
+     * definiu; nao redefine o recorte.
+     *
+     * <p>O banco EXPLODE em qualquer consulta: negar nao pode ter lido nada.
+     */
+    static void trocarAPastaDeOrigemESoDoAdmin() {
+        var corpo = new CadastroController.NovaPasta("/nova",
+                "motivo suficientemente longo para passar");
+
+        for (Papel papel : new Papel[] {Papel.PUBLICADOR_FIN, Papel.GESTOR_CONTRATO,
+                                        Papel.CURADOR_MATRIZ, Papel.APROVADOR_DAF}) {
+            Ator quem = ator(papel.name(), papel, CONTRATO_DO_ATOR);
+            ok("ADR-004 . " + papel + " nao troca a pasta de origem",
+                    negou(() -> cadastroControlador(quem, bancoQueExplode())
+                            .pastaOrigem(CONTRATO_DO_ATOR, corpo)));
+        }
+
+        // O CONTROLE POSITIVO, E SEM ELE O LACO ACIMA NAO PROVA NADA. Quatro
+        // papeis negados passariam igual se o endpoint negasse TODO MUNDO —
+        // inclusive por um erro de digitacao no nome da permissao.
+        //
+        // O sinal de que o admin PASSOU e o proprio banco que explode: ele so e
+        // consultado depois da autorizacao. Os quatro acima nao chegaram la.
+        Ator admin = ator("admin", Papel.ADMIN_SISTEMA);
+        String consulta = null;
+        try {
+            cadastroControlador(admin, bancoQueExplode()).pastaOrigem(CONTRATO_DO_ATOR, corpo);
+        } catch (AssertionError e) {
+            consulta = e.getMessage();
+        } catch (RuntimeException e) {
+            consulta = null;
+        }
+        ok("ADR-004 . e o ADMIN_SISTEMA passa da autorizacao e chega a ler o contrato",
+                consulta != null && consulta.contains("pasta_origem FROM contrato_servico"));
+    }
+
     // -------------------------------------------------------------------------
+
+    static CadastroController cadastroControlador(Ator ator, ConexaoDeMentira banco) {
+        Sgdf sgdf = new Sgdf(banco.conexao());
+        return new CadastroController(atores(ator),
+                new br.com.engesoftware.sgdf.persistencia.RepositorioDeCadastro(sgdf),
+                new br.com.engesoftware.sgdf.persistencia.RepositorioDeRascunho(sgdf));
+    }
 
     static VarreduraController varreduraControlador(Ator ator, ConexaoDeMentira banco) {
         Sgdf sgdf = new Sgdf(banco.conexao());

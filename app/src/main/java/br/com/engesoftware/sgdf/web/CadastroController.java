@@ -65,6 +65,37 @@ public class CadastroController {
         return cadastro.contratosDoCliente(clienteId);
     }
 
+    /**
+     * Mudar a pasta de origem de um contrato, com quem, quando e POR QUÊ.
+     *
+     * <p>A ADR-005 tornou {@code pasta_origem} relativo à base WebDAV — trocar
+     * de nuvem virou variável de ambiente. O que ela não resolve é a pasta mudar
+     * de lugar <i>dentro</i> da nuvem, e até aqui a única forma de acompanhar
+     * era {@code UPDATE} direto no banco: sem ator, sem data, sem motivo. A
+     * própria ADR registrou isso como bloqueio obrigatório antes de a varredura
+     * real ser ligada em produção.
+     *
+     * <p><b>{@code CADASTRAR}, portanto ADMIN_SISTEMA e só ele</b> (ADR-004).
+     * Escolher onde o sistema lê é a mesma classe de decisão que cadastrar um
+     * contrato — e uma pasta trocada aponta a coleta para documentos de outro
+     * contrato ou de outra área.
+     *
+     * <p>A resposta diz quantos documentos já registrados apontam para a pasta
+     * ANTERIOR. Eles não são movidos nem reescritos: o {@code caminho} registra
+     * de onde o documento veio, e reescrevê-lo falsificaria o histórico que o
+     * cap. 16 existe para preservar.
+     */
+    @PostMapping("/contratos/{contratoId}/pasta-origem")
+    public RepositorioDeCadastro.PastaAlterada pastaOrigem(
+            @PathVariable UUID contratoId, @RequestBody NovaPasta corpo) {
+        Ator ator = exigir(Permissao.CADASTRAR);
+        return cadastro.alterarPastaOrigem(contratoId, corpo.pasta(), corpo.motivo(),
+                ator.identificador(), papelDe(ator));
+    }
+
+    /** @param motivo obrigatório: "quem" e "quando" sem "por quê" não reconstrói decisão */
+    public record NovaPasta(String pasta, String motivo) {}
+
     // --- F0-03: tipo documental e aliases ------------------------------------
 
     @PostMapping("/tipos")

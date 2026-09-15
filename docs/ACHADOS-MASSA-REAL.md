@@ -4718,3 +4718,85 @@ ficou aqui em vez de disfarçada por uma asserção que passaria de qualquer jei
 **Ação:** um `ClienteWebDav` de mentira na `TestesDeWeb` fecharia isso. Fica no
 backlog técnico como *recomendação desejável* — a consequência de errar é uma
 prévia que mostra menos do que deveria, não uma gravação indevida.
+
+## 64. O caminho auditado para trocar a pasta de origem
+
+A ADR-005 tirou o prefixo DAV de dentro do `pasta_origem` e, ao fazê-lo,
+declarou um bloqueio: *se a pasta mudar de lugar dentro da nuvem, o
+`pasta_origem` continua tendo de mudar, e não existe caminho auditado para
+isso*. Era `UPDATE` direto no banco — sem ator, sem data, sem motivo.
+
+`POST /api/contratos/{id}/pasta-origem` fecha o bloqueio.
+
+### 64.1 O que a trilha precisa registrar, e por quê
+
+| campo | por que sem ele a trilha não serve |
+|---|---|
+| pasta **anterior** | sem ela não se reconstrói para onde apontavam os documentos já registrados |
+| pasta nova | o estado resultante |
+| **motivo** (≥ 15 caracteres) | "quem" e "quando" sem "por quê" não reconstrói decisão nenhuma; `"ajuste"` não responde à pergunta que a auditoria faz |
+| ator e papel | cap. 16 |
+| quantos documentos estavam sob a pasta anterior | é a consequência da mudança, e ela precisa estar visível na hora de decidir |
+
+### 64.2 As recusas, e uma que não parece recusa
+
+Além das óbvias — pasta vazia, contrato inexistente, motivo curto — duas
+merecem registro:
+
+- **A raiz `/` é recusada.** Varrer a nuvem inteira ignoraria o recorte por
+  contrato do cap. 15.1: um contrato passaria a ver documento de todos os
+  outros.
+- **A pasta idêntica à atual é recusada.** Um `UPDATE` que não muda nada geraria
+  uma linha de trilha dizendo *"alterado de X para X"* — ruído dentro do registro
+  que existe justamente para responder o que mudou, e indistinguível, para quem
+  audita, de uma alteração real desfeita. A trilha é append-only: o ruído não sai
+  mais de lá.
+
+Um teste confere que **nenhuma** recusa deixou linha na trilha. Sem ele, uma
+recusa que gravasse antes de validar passaria despercebida.
+
+### 64.3 Canonicalização: a mesma da varredura, não uma parecida
+
+A pasta é canonicalizada por `CaminhoRemoto.canonicalizar` — a mesma função que
+a varredura usa no href. Se o cadastro guardasse `/a/b/../c` e a varredura
+canonicalizasse o href para `/a/c`, **nenhum arquivo estaria "dentro da raiz"** e
+a pasta inteira apareceria como fora dela. Duas normalizações parecidas são pior
+que nenhuma: a divergência só aparece nos casos raros, que é quando ninguém está
+olhando.
+
+### 64.4 O que foi medido antes de virar regra
+
+A primeira versão deste código ia recusar pasta repetida entre contratos — parece
+isolamento. A consulta à carga real desmentiu:
+
+```
+/CAIXA - 09705.2025 → 3 contratos
+/BNB - 482023       → 2 contratos
+```
+
+Um contrato guarda-chuva com vários serviços **compartilha a pasta por
+construção** — é o critério de aceite da F0-02, não um erro de cadastro. A trava
+teria recusado o cadastro correto. É o mesmo aprendizado do § 58, onde 12 dos 17
+"conflitos" eram a mesma regra escrita duas vezes: **medir antes de concluir**.
+
+### 64.5 Autorização, com controle positivo
+
+`CADASTRAR` — ADMIN_SISTEMA e só ele, por ADR-004. Escolher **onde o sistema lê**
+é a mesma classe de decisão que cadastrar um contrato, e uma pasta trocada aponta
+a coleta para documentos de outro contrato ou de outra área. Quem conduz o ciclo
+opera dentro do recorte que o cadastro definiu; não redefine o recorte.
+
+PUBLICADOR_FIN, GESTOR_CONTRATO, CURADOR_MATRIZ e APROVADOR_DAF recebem 403 — e
+o teste **não para aí**. Quatro papéis negados passariam igual se o endpoint
+negasse todo mundo, inclusive por um erro de digitação no nome da permissão. O
+controle positivo usa o banco que explode: ele só é consultado depois da
+autorização, então a explosão no caminho do ADMIN_SISTEMA *é* a prova de que ele
+passou, e a ausência dela nos outros quatro é a prova de que não chegaram lá.
+
+### 64.6 Quebras deliberadas
+
+| quebra | assertivas que caíram |
+|---|---|
+| trilha sem o valor anterior | 1 |
+| motivo deixa de ser obrigatório | 3 |
+| sem canonicalização do caminho | 1 |
