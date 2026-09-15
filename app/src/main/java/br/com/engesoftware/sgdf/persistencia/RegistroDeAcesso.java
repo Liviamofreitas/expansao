@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <b>na memória do processo</b> ({@link Falhas}), que alimenta a ressalva do
  * relatório, e uma <b>na trilha</b>, que é durável e atravessa instâncias.
  */
-public final class RegistroDeAcesso {
+public class RegistroDeAcesso {
 
     /** O que aconteceu com a observação. Quatro fatos, e nenhum é o outro. */
     public enum Desfecho {

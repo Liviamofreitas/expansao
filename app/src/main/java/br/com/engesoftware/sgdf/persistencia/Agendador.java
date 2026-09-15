@@ -31,7 +31,7 @@ import java.util.function.Supplier;
  * V018: sem isso, "rodou e não achou" e "não rodou" são o mesmo estado
  * observável, e o segundo deixa o painel verde por nada ter acontecido.
  */
-public final class Agendador {
+public class Agendador {
 
     private final Sgdf sgdf;
     private final String instancia;

@@ -22,7 +22,7 @@ import java.util.UUID;
  * <p>Uma feature flag que falha no uso em vez de falhar na troca dá à
  * organização dias de confiança falsa. {@link #ativarEnvio} falha na troca.
  */
-public final class RepositorioDeParametro {
+public class RepositorioDeParametro {
 
     /**
      * Existe transporte de e-mail configurado?

@@ -25,7 +25,7 @@ import java.util.UUID;
  *       a cópia na pasta nunca saberia por que ela não conta.</li>
  * </ul>
  */
-public final class RepositorioDeOrganizacao {
+public class RepositorioDeOrganizacao {
 
     private final Sgdf sgdf;
 

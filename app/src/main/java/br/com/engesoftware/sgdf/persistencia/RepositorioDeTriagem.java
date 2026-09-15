@@ -24,7 +24,7 @@ import java.util.UUID;
  * da transação ensina o sistema a partir de uma decisão que pode ter sido
  * desfeita.
  */
-public final class RepositorioDeTriagem {
+public class RepositorioDeTriagem {
 
     private final Sgdf sgdf;
 

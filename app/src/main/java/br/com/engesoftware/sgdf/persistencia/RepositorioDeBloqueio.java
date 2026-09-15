@@ -18,7 +18,7 @@ import java.util.Optional;
  * sobre o mesmo fato, e a primeira vez que elas divergissem ninguém saberia
  * qual acreditar.
  */
-public final class RepositorioDeBloqueio {
+public class RepositorioDeBloqueio {
 
     private final Sgdf sgdf;
 

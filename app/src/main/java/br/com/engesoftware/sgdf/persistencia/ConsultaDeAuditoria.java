@@ -22,7 +22,7 @@ import java.util.List;
  * completa da trilha, num sistema que registra CPF em detalhe de decisão, é o
  * pior arquivo possível para sair sem justificativa.
  */
-public final class ConsultaDeAuditoria {
+public class ConsultaDeAuditoria {
 
     /** Teto por consulta. Quem precisa de mais paginа com {@code desde}. */
     public static final int LIMITE_MAXIMO = 5000;

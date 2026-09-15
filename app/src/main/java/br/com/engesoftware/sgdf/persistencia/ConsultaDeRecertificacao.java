@@ -42,7 +42,7 @@ import java.util.List;
  * das duas. O cabeçalho do relatório diz isso, para que ninguém aprove metade
  * achando que aprovou o todo.
  */
-public final class ConsultaDeRecertificacao {
+public class ConsultaDeRecertificacao {
 
     /** O que o relatório NÃO cobre. Vai no topo do CSV e do JSON. */
     public static final String RESSALVA =

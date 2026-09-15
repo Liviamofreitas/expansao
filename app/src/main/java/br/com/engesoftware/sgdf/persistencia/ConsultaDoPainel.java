@@ -17,7 +17,7 @@ import java.util.UUID;
  * ou consultas ineficientes ou objetos de domínio deformados para servir a uma
  * tela.
  */
-public final class ConsultaDoPainel {
+public class ConsultaDoPainel {
 
     private final Sgdf sgdf;
 

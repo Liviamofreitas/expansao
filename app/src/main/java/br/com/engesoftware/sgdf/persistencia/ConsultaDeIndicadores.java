@@ -35,7 +35,7 @@ import java.util.List;
  *       nada.</li>
  * </ul>
  */
-public final class ConsultaDeIndicadores {
+public class ConsultaDeIndicadores {
 
     private final Sgdf sgdf;
 

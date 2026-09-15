@@ -28,7 +28,7 @@ import java.util.UUID;
  * e um e-mail amanhã — as três camadas concordam que são duas pessoas. A defesa
  * está no provedor de identidade, não aqui; registrado em PENDENCIAS.
  */
-public final class RepositorioDeExcecao {
+public class RepositorioDeExcecao {
 
     /**
      * Os estados de onde uma exigência pode ser dispensada.

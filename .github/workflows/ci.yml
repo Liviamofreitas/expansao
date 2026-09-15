@@ -93,6 +93,81 @@ jobs:
       - name: Empacotar
         run: cd app && mvn -B -DskipTests package
 
+      # 1320 ASSERÇÕES VERDES SOBRE UMA APLICAÇÃO QUE NÃO SUBIA.
+      #
+      # Este passo existe por causa de um defeito que a suíte inteira não via, e
+      # não via por construção: os testes montam os objetos de domínio à mão e
+      # nunca passam pelo contexto do Spring. A fiação da camada web — os
+      # @Bean, os escopos, os proxies — não tinha nenhum teste.
+      #
+      # E ela estava quebrada desde sempre. Dezesseis classes de persistência
+      # eram `public final class` e ao mesmo tempo @Bean com
+      # ScopedProxyMode.TARGET_CLASS, que exige subclasse CGLIB. CGLIB não
+      # estende classe final: "Cannot subclass final class ...Sgdf". O contexto
+      # morria no primeiro bean, sempre, em qualquer versão do Spring Boot.
+      #
+      # Nada apontava para isso. O CI ficava verde, a imagem era construída e
+      # escaneada, o `java -version` respondia — e o jar publicado não subia.
+      # Descoberto ao tentar iniciar a aplicação de verdade pela primeira vez.
+      #
+      # O CRITÉRIO É 401, NÃO 200, E ISSO É DELIBERADO. Um 401 prova as duas
+      # coisas que interessam de uma vez: o servidor está no ar respondendo
+      # HTTP, e ele NEGA sem credencial (cap. 15.1 — negar é o padrão). Um 200
+      # aqui seria notícia ruim: significaria endpoint aberto.
+      #
+      # `jwk-set-uri` em vez de contatar um IdP: o resource server só busca as
+      # chaves na primeira validação de token, então o contexto sobe sem rede
+      # externa. Isto NÃO prova que a integração OIDC funciona — prova que a
+      # aplicação inicia. É o que este passo promete, e nada além disso.
+      - name: Fumaça (a aplicação sobe e nega sem credencial)
+        env:
+          SGDF_PORTA: "8099"
+          SGDF_JDBC_URL: jdbc:postgresql://localhost:5432/sgdf
+          SGDF_JDBC_USUARIO: postgres
+          SGDF_JDBC_SENHA: postgres
+          SGDF_OIDC_ISSUER: https://idp.exemplo.invalido/realms/sgdf
+          SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI: http://127.0.0.1:1/jwks
+        run: |
+          set -uo pipefail
+          # PID GUARDADO, E NÃO `pkill -f`. O padrão que casaria com o jar casa
+          # também com a linha de comando DESTE shell, que recebe o script
+          # inteiro como argumento — `pkill -f 'sgdf-.*jar'` mata o próprio
+          # passo e o job morre com a aplicação no ar. Mesma armadilha que o
+          # scripts/banco-de-teste.sh já registra, aqui de novo. Verificado.
+          setsid java -jar app/target/sgdf-*.jar > /tmp/boot.log 2>&1 < /dev/null &
+          pid=$!
+          # ATRIBUIÇÃO SEPARADA DO FALLBACK. `$(curl -w '%{http_code}' || echo 000)`
+          # concatena os dois "000" quando o curl falha e produz "000000" — que
+          # é != "000", então o laço de espera quebrava na PRIMEIRA tentativa e
+          # a aplicação nunca tinha chance de subir. Verificado rodando.
+          codigo=000
+          for i in $(seq 1 60); do
+            codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 \
+                     http://127.0.0.1:8099/actuator/health) || codigo=000
+            if [ "$codigo" != "000" ]; then break; fi
+            if grep -q "APPLICATION FAILED TO START\|cancelling refresh" /tmp/boot.log; then
+              echo "::error title=A APLICACAO NAO SOBE::O contexto do Spring falhou. Trecho:"
+              grep -E "Caused by|Description|Action:" /tmp/boot.log | head -10
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "resposta de /actuator/health: HTTP $codigo"
+          grep -oE "Started SgdfApplication in [0-9.]+ seconds" /tmp/boot.log || true
+          kill "$pid" 2>/dev/null || true
+          if [ "$codigo" = "401" ]; then
+            echo "a aplicação subiu e negou sem credencial."
+            exit 0
+          fi
+          if [ "$codigo" = "000" ]; then
+            echo "::error title=A APLICACAO NAO RESPONDEU::Nenhuma resposta HTTP em 120s. Fim do log:"
+            tail -30 /tmp/boot.log
+            exit 1
+          fi
+          echo "::error title=RESPOSTA INESPERADA::Esperado 401 (sobe e nega); veio $codigo. \
+          Um 200 aqui significa endpoint aberto sem credencial, o que é pior que nao subir."
+          exit 1
+
       - uses: actions/upload-artifact@v4
         with:
           name: sgdf-jar

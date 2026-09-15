@@ -10,7 +10,7 @@ import java.util.function.Function;
  * <p>Ver ADR-002 para por que não há ORM aqui. Esta classe é o mínimo que
  * permite aos repositórios existirem sem que cada um abra a própria conexão.
  */
-public final class Sgdf {
+public class Sgdf {
 
     private final Connection conexao;
 

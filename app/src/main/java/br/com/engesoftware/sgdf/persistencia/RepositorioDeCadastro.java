@@ -22,7 +22,7 @@ import java.util.UUID;
  * recusas explicadas; a garantia é do esquema, porque um caminho de código novo
  * não pode reabrir o que uma restrição fecha.
  */
-public final class RepositorioDeCadastro {
+public class RepositorioDeCadastro {
 
     private final Sgdf sgdf;
 

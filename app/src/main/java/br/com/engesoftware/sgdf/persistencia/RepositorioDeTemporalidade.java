@@ -10,7 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /** Leitura e aprovação da tabela de temporalidade (A08 / LGPD-02). */
-public final class RepositorioDeTemporalidade {
+public class RepositorioDeTemporalidade {
 
     private final Sgdf sgdf;
 

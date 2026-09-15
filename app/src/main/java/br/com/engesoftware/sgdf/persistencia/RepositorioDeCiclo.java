@@ -48,7 +48,7 @@ import java.util.UUID;
  * "nós consideramos o ciclo atestado" — e é do primeiro fato, não do segundo,
  * que o relógio do D+3 conta.
  */
-public final class RepositorioDeCiclo {
+public class RepositorioDeCiclo {
 
     private final Sgdf sgdf;
 

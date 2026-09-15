@@ -23,7 +23,7 @@ import java.util.UUID;
  * fica intacta — e é o que faz o ciclo que a congelou continuar respondendo o
  * mesmo, que é a garantia da F0-05 provada em {@code TestesDeMatriz}.
  */
-public final class RepositorioDeRascunho {
+public class RepositorioDeRascunho {
 
     private final Sgdf sgdf;
 
