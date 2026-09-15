@@ -4,11 +4,13 @@ import br.com.engesoftware.sgdf.coleta.ResultadoVarredura;
 import br.com.engesoftware.sgdf.coleta.Varredura;
 import br.com.engesoftware.sgdf.persistencia.ConsultaDoPainel;
 import br.com.engesoftware.sgdf.persistencia.RepositorioDeColeta;
+import br.com.engesoftware.sgdf.persistencia.SimulacaoDeVarredura;
 import br.com.engesoftware.sgdf.persistencia.VarreduraDeCiclo;
 import br.com.engesoftware.sgdf.seguranca.Ator;
 import br.com.engesoftware.sgdf.seguranca.Autorizador;
 import br.com.engesoftware.sgdf.seguranca.Permissao;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.ObjectProvider;
@@ -54,15 +56,18 @@ public class VarreduraController {
     private final ConsultaDoPainel painel;
     private final RepositorioDeColeta coleta;
     private final VarreduraDeCiclo ingestao;
+    private final SimulacaoDeVarredura simulacao;
     private final Varredura varredura;
 
     public VarreduraController(AtorDaRequisicao atores, ConsultaDoPainel painel,
                                RepositorioDeColeta coleta, VarreduraDeCiclo ingestao,
+                               SimulacaoDeVarredura simulacao,
                                ObjectProvider<Varredura> varredura) {
         this.atores = atores;
         this.painel = painel;
         this.coleta = coleta;
         this.ingestao = ingestao;
+        this.simulacao = simulacao;
         this.varredura = varredura.getIfAvailable();
     }
 
@@ -131,6 +136,84 @@ public class VarreduraController {
         corpo.put("truncada", ingerida.truncada());
         corpo.put("motivo_truncamento", ingerida.motivoTruncamento());
         corpo.put("alias_desligado", ingerida.aliasDesligado());
+        return corpo;
+    }
+
+    /**
+     * O que a varredura encontraria — <b>sem gravar nada</b>.
+     *
+     * <p>Este é o endpoint do PRIMEIRO teste contra uma pasta de verdade. Ele
+     * responde à única pergunta que importa antes de ligar a ingestão: <i>o
+     * sistema reconhece estes documentos?</i> E responde sem tornar a resposta
+     * irreversível — ver {@link SimulacaoDeVarredura} para por que uma primeira
+     * varredura real numa pasta de Departamento de Pessoal é uma decisão de via
+     * única.
+     *
+     * <p><b>POST, e não GET, apesar de não gravar.</b> A operação baixa a pasta
+     * inteira e roda antivírus e extração sobre cada arquivo: é cara, não é
+     * cacheável e não deve aparecer em barra de endereço, histórico de
+     * navegador ou log de proxy com o identificador do ciclo. GET prometeria
+     * uma inocuidade que esta chamada não tem.
+     *
+     * <p><b>Mesma permissão da varredura real.</b> A prévia lê os mesmos bytes
+     * dos mesmos arquivos; só não os guarda. Fosse mais frouxa, seria o caminho
+     * mais curto para ler documento de contrato alheio sem ter CONDUZIR_CICLO —
+     * um controle contornado pela porta que existe para não gravar nada.
+     */
+    @PostMapping("/ciclos/{cicloId}/varredura/simulacao")
+    public Map<String, Object> simular(@PathVariable UUID cicloId) {
+        exigir(Permissao.CONDUZIR_CICLO, cicloId);
+
+        if (varredura == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "a varredura não está configurada: falta SGDF_WEBDAV_BASE (e as "
+                    + "credenciais SGDF_WEBDAV_USUARIO/SENHA). Isto NÃO é 'nenhum "
+                    + "documento encontrado' — é o sistema não tendo onde olhar.");
+        }
+
+        RepositorioDeColeta.Alvo alvo = coleta.alvoDe(cicloId);
+        if (alvo == null) {
+            throw new AcessoNegado("ciclo " + cicloId + " não existe");
+        }
+        if (alvo.pastaOrigem() == null || alvo.pastaOrigem().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "o contrato do ciclo não tem pasta_origem no cadastro; "
+                    + "sem ela não há onde varrer");
+        }
+
+        // SEM DELTA: a prévia olha a pasta INTEIRA, sempre. Ver o javadoc da
+        // SimulacaoDeVarredura — esconder o que já foi ingerido faria o
+        // relatório de conferência conferir metade.
+        ResultadoVarredura resultado = varredura.varrer(alvo.pastaOrigem(),
+                alvo.competencia(), SimulacaoDeVarredura.SEM_DELTA);
+
+        SimulacaoDeVarredura.Simulada s = simulacao.simular(cicloId, alvo.competencia(),
+                alvo.pastaOrigem(), resultado);
+
+        Map<String, Object> corpo = new LinkedHashMap<>();
+        // O AVISO VEM PRIMEIRO, NO CORPO, E NÃO SÓ NO NOME DA ROTA. Quem lê o
+        // JSON num terminal vê a primeira linha; quem monta uma tela em cima
+        // dele tem um campo para exibir. "gravou" é a pergunta que alguém vai
+        // fazer olhando este relatório, e ela tem que estar respondida nele.
+        corpo.put("modo", "SIMULACAO");
+        corpo.put("gravou", false);
+        corpo.put("origem", ORIGEM);
+        corpo.put("raiz", s.raiz());
+        corpo.put("competencia", s.competencia());
+        corpo.put("visitados", s.visitados());
+        corpo.put("lidos", s.itens().size());
+        corpo.put("automaticos", s.automaticos());
+        corpo.put("em_triagem", s.comDecisao(br.com.engesoftware.sgdf.classificacao
+                .Decisao.TRIAGEM));
+        corpo.put("nao_reconhecidos", s.comDecisao(br.com.engesoftware.sgdf.classificacao
+                .Decisao.NAO_RECONHECIDO));
+        corpo.put("por_tipo", s.porTipo());
+        corpo.put("exigencias_sem_documento", s.exigenciasSemDocumento());
+        corpo.put("itens", s.itens());
+        corpo.put("descartados", s.descartados());
+        corpo.put("truncada", s.truncada());
+        corpo.put("motivo_truncamento", s.motivoTruncamento());
+        corpo.put("alias_desligado", s.aliasDesligado());
         return corpo;
     }
 

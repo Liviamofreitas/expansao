@@ -85,12 +85,35 @@ public class ConfiguracaoDoBanco {
             Sgdf sgdf,
             br.com.engesoftware.sgdf.persistencia.RepositorioDeRegras regras,
             br.com.engesoftware.sgdf.coleta.PoliticaDeArquivos politica) {
-        var pipeline = new br.com.engesoftware.sgdf.pipeline.Pipeline(
+        return new br.com.engesoftware.sgdf.persistencia.VarreduraDeCiclo(
+                sgdf, montarPipeline(regras, politica));
+    }
+
+    /**
+     * A prévia usa O MESMO pipeline da ingestão, montado pela mesma fábrica.
+     *
+     * <p>Duas construções paralelas divergiriam no dia em que uma delas ganhasse
+     * um validador novo — e a simulação passaria a responder sobre uma cadeia
+     * que não é a que grava. Aí ela deixa de ser prévia e vira opinião.
+     */
+    @Bean
+    @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
+    br.com.engesoftware.sgdf.persistencia.SimulacaoDeVarredura simulacaoDeVarredura(
+            Sgdf sgdf,
+            br.com.engesoftware.sgdf.persistencia.RepositorioDeRegras regras,
+            br.com.engesoftware.sgdf.coleta.PoliticaDeArquivos politica) {
+        return new br.com.engesoftware.sgdf.persistencia.SimulacaoDeVarredura(
+                sgdf, montarPipeline(regras, politica));
+    }
+
+    private br.com.engesoftware.sgdf.pipeline.Pipeline montarPipeline(
+            br.com.engesoftware.sgdf.persistencia.RepositorioDeRegras regras,
+            br.com.engesoftware.sgdf.coleta.PoliticaDeArquivos politica) {
+        return new br.com.engesoftware.sgdf.pipeline.Pipeline(
                 new br.com.engesoftware.sgdf.extracao.ExtratorPdfBox(),
                 new br.com.engesoftware.sgdf.classificacao.Classificador(regras.ativas()),
                 new br.com.engesoftware.sgdf.validacao.ValidacaoDeSeguranca(
                         politica.tamanhoMaximo()));
-        return new br.com.engesoftware.sgdf.persistencia.VarreduraDeCiclo(sgdf, pipeline);
     }
 
     @Bean

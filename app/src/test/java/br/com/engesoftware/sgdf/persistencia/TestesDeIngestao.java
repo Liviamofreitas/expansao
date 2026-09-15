@@ -110,6 +110,18 @@ public final class TestesDeIngestao {
                         () -> aRegraCadastradaEntraValendoNaHora(sgdf));
                 executar("oDeltaCompraAUltimaVersaoRegistrada",
                         () -> oDeltaCompraAUltimaVersaoRegistrada(sgdf));
+                executar("oBancoRecusaEscritaNaLeituraEstrita",
+                        () -> oBancoRecusaEscritaNaLeituraEstrita(sgdf));
+                executar("aLeituraEstritaRecusaTransacaoAlheia",
+                        () -> aLeituraEstritaRecusaTransacaoAlheia(sgdf));
+                executar("aSimulacaoIdentificaENaoGrava",
+                        () -> aSimulacaoIdentificaENaoGrava(sgdf));
+                executar("aSimulacaoConcordaComAIngestaoReal",
+                        () -> aSimulacaoConcordaComAIngestaoReal(sgdf));
+                executar("aSimulacaoNaoVazaCpfNoRelatorio",
+                        () -> aSimulacaoNaoVazaCpfNoRelatorio(sgdf));
+                executar("aSimulacaoDizOQueFicariaSemDocumento",
+                        () -> aSimulacaoDizOQueFicariaSemDocumento(sgdf));
             } finally {
                 limpar(conexao);
             }
@@ -773,6 +785,206 @@ public final class TestesDeIngestao {
                 throw new IllegalStateException(e);
             }
         });
+    }
+
+    // --- o modo simulacao: ler a pasta sem tornar a leitura irreversivel --------
+
+    /**
+     * A TRAVA DE VERDADE, E ELA NAO E MINHA — E DO SERVIDOR.
+     *
+     * <p>Este e o teste que sustenta a promessa inteira do modo simulacao. Sem
+     * ele, "a simulacao nao grava" seria uma afirmacao sobre o codigo de hoje,
+     * verificavel so por leitura, e que morreria na primeira linha que alguem
+     * acrescentasse num metodo auxiliar — sem nenhuma assercao cair, porque o
+     * relatorio continuaria identico.
+     *
+     * <p>Aqui a tentativa de INSERT e explicita e o veredito vem do PostgreSQL:
+     * <i>cannot execute INSERT in a read-only transaction</i>. A garantia vale
+     * para codigo que ainda nao existe.
+     */
+    static void oBancoRecusaEscritaNaLeituraEstrita(Sgdf sgdf) {
+        long antes = contar(sgdf, "empresa WHERE criado_por = '" + MARCA + "'");
+
+        String erro = null;
+        try {
+            sgdf.emLeituraEstrita(conexao -> {
+                // Uma leitura primeiro, para provar que o bloco FUNCIONA e nao
+                // esta apenas rejeitando tudo. Um bloco que recusasse tambem os
+                // SELECTs passaria nesta assercao pelo motivo errado.
+                escalar(sgdf, "SELECT 1");
+                executarSql(sgdf, "INSERT INTO empresa (razao_social, cnpj, criado_por)"
+                        + " VALUES ('Nao deve existir', '99999999999999', '" + MARCA + "')");
+                return null;
+            });
+        } catch (RuntimeException e) {
+            erro = String.valueOf(e.getMessage()) + " / "
+                    + (e.getCause() == null ? "" : e.getCause().getMessage());
+        }
+
+        ok("Simulacao . o banco RECUSA a escrita dentro da leitura estrita",
+                erro != null && erro.toLowerCase().contains("read-only"));
+        ok("Simulacao . e a linha nao existe depois — nem pendente, nem comitada",
+                antes == contar(sgdf, "empresa WHERE criado_por = '" + MARCA + "'"));
+    }
+
+    /**
+     * Aderir a uma transacao alheia daria uma "leitura estrita" que nao e
+     * estrita — o controle que parece ativo e nao esta, que e a pior especie de
+     * defeito desta base.
+     */
+    static void aLeituraEstritaRecusaTransacaoAlheia(Sgdf sgdf) {
+        String erro = null;
+        try {
+            sgdf.emTransacao(c -> sgdf.emLeituraEstrita(c2 -> "nunca chega aqui"));
+        } catch (RuntimeException e) {
+            erro = e.getMessage();
+        }
+        ok("Simulacao . leitura estrita dentro de transacao aberta e RECUSADA",
+                erro != null && erro.contains("transação já aberta"));
+    }
+
+    static void aSimulacaoIdentificaENaoGrava(Sgdf sgdf) {
+        Fixture f = fixture(sgdf, "CER.CND_RFB");
+        long documentosAntes = contar(sgdf, "documento WHERE criado_por = '" + MARCA + "'");
+        long organizacaoAntes = contar(sgdf, "achado_de_organizacao");
+
+        var r = varredura(coletado(f.arquivo("cnd.pdf"), pdf(CND_RFB), "e1"),
+                coletado(f.arquivo("cndt.pdf"), pdf(CNDT), "e2"));
+        r.ignorados.add(new br.com.engesoftware.sgdf.coleta.ResultadoVarredura.Ignorado(
+                f.arquivo("~$check.xlsx"),
+                br.com.engesoftware.sgdf.coleta.PoliticaDeArquivos.Motivo.ARQUIVO_TEMPORARIO,
+                "temporario do Office"));
+
+        var s = new SimulacaoDeVarredura(sgdf, pipeline())
+                .simular(f.ciclo, "2026-06", f.pasta(), r);
+
+        ok("Simulacao . os dois arquivos foram identificados", s.itens().size() == 2);
+        ok("Simulacao . a CND_RFB entra como automatica",
+                s.itens().stream().anyMatch(i -> "CER.CND_RFB".equals(i.tipo())
+                        && "AUTOMATICA".equals(i.decisao())));
+        ok("Simulacao . e o relatorio diz qual deles cobriria exigencia do ciclo",
+                s.itens().stream().anyMatch(i -> "CER.CND_RFB".equals(i.tipo())
+                        && i.cobreExigencia())
+                        && s.itens().stream().anyMatch(i -> "CER.CNDT".equals(i.tipo())
+                        && !i.cobreExigencia()));
+        ok("F1-10 . o ignorado aparece no relatorio em vez de sumir",
+                s.descartados().stream().anyMatch(d -> d.caminho().endsWith("~$check.xlsx")));
+
+        // AS DUAS CONTAGENS, E NAO SO A DE DOCUMENTO.
+        //
+        // A ingestao real grava em DOIS lugares antes de qualquer outra coisa:
+        // o painel de organizacao e o documento. Conferir so o segundo deixaria
+        // passar uma simulacao que registra descarte — que ja e gravar.
+        ok("Simulacao . NENHUM documento foi gravado",
+                documentosAntes == contar(sgdf, "documento WHERE criado_por = '"
+                        + MARCA + "'"));
+        ok("Simulacao . e nenhum achado de organizacao tambem",
+                organizacaoAntes == contar(sgdf, "achado_de_organizacao"));
+    }
+
+    /**
+     * A PREVIA TEM QUE CONCORDAR COM O QUE ACONTECE DEPOIS.
+     *
+     * <p>Uma simulacao que identificasse diferente da ingestao seria pior que
+     * nao ter simulacao: daria confianca calibrada sobre a coisa errada. Aqui
+     * os MESMOS BYTES passam pelos dois caminhos e o tipo e comparado contra o
+     * que ficou gravado em {@code documento.tipo_id}.
+     */
+    static void aSimulacaoConcordaComAIngestaoReal(Sgdf sgdf) {
+        Fixture f = fixture(sgdf, "CER.CND_RFB");
+        byte[] cnd = pdf(CND_RFB);
+
+        var s = new SimulacaoDeVarredura(sgdf, pipeline()).simular(f.ciclo, "2026-06",
+                f.pasta(), varredura(coletado(f.arquivo("cnd.pdf"), cnd, "e1")));
+        String tipoPrevisto = s.itens().get(0).tipo();
+
+        new VarreduraDeCiclo(sgdf, pipeline()).ingerir(f.ciclo, contratoDo(sgdf, f.ciclo),
+                "2026-06", varredura(coletado(f.arquivo("cnd.pdf"), cnd, "e1")), MARCA);
+        String tipoGravado = escalar(sgdf, "SELECT t.codigo FROM documento d"
+                + " JOIN tipo_documental t ON t.id = d.tipo_id"
+                + " WHERE d.caminho = '" + f.arquivo("cnd.pdf") + "'");
+
+        ok("Simulacao . o tipo previsto e o mesmo que a ingestao gravou ("
+                + tipoPrevisto + " / " + tipoGravado + ")",
+                tipoPrevisto != null && tipoPrevisto.equals(tipoGravado));
+
+        // A PREVIA E REPETIVEL: rodar de novo sobre o arquivo JA INGERIDO
+        // devolve o mesmo relatorio, em vez de um item a menos ou um erro.
+        //
+        // NOTA DE HONESTIDADE SOBRE O QUE ESTA ASSERCAO *NAO* PROVA. O delta do
+        // cap. 8.1 — pular o que ja foi registrado com a mesma versao — nao
+        // mora aqui: mora na Varredura, que recebe um EstadoConhecido de quem a
+        // chama. Esta classe so processa a lista que lhe entregam. Que o
+        // controlador passe SimulacaoDeVarredura.SEM_DELTA e nao o estado real
+        // da origem continua SEM TESTE, e esta registrado como lacuna no
+        // ACHADOS em vez de disfarcado por uma assercao aqui que passaria de
+        // qualquer jeito.
+        var denovo = new SimulacaoDeVarredura(sgdf, pipeline()).simular(f.ciclo, "2026-06",
+                f.pasta(), varredura(coletado(f.arquivo("cnd.pdf"), cnd, "e1")));
+        ok("Simulacao . rodar a previa sobre o que ja foi ingerido devolve o mesmo relatorio",
+                denovo.itens().size() == 1
+                        && tipoPrevisto.equals(denovo.itens().get(0).tipo()));
+
+        // E A DUPLICIDADE NAO CONTAMINA A PREVIA.
+        //
+        // A V7 so olha hash JA VINCULADO a uma exigencia — e o vinculo nasce da
+        // CONFIRMACAO na triagem, nao da ingestao. Sem confirmar, os dois
+        // caminhos (com e sem os hashes do ciclo) dariam o mesmo resultado, e a
+        // assercao passaria sem medir nada: foi o que a quebra deliberada
+        // mostrou na primeira versao deste teste, quando trocar Set.of() pelos
+        // hashes do ciclo nao derrubou assercao nenhuma.
+        //
+        // Por isso o vinculo e criado aqui, a mao. Com ele, a V7 TEM do que
+        // reclamar, e a assercao abaixo passa a distinguir os dois caminhos.
+        executarSql(sgdf, "INSERT INTO vinculo_exigencia_documento (exigencia_id,"
+                + " documento_id, formato, decidido_por, decidido_ator)"
+                + " SELECT '" + f.exigencia() + "', d.id, 'PDF', 'USUARIO', '" + MARCA + "'"
+                + " FROM documento d WHERE d.caminho = '" + f.arquivo("cnd.pdf") + "'");
+
+        var apos = new SimulacaoDeVarredura(sgdf, pipeline()).simular(f.ciclo, "2026-06",
+                f.pasta(), varredura(coletado(f.arquivo("cnd.pdf"), cnd, "e1")));
+        ok("Simulacao . e nao acusa duplicidade do que ela mesma ja viu ingerido",
+                apos.itens().get(0).reprovacoesUnitarias().stream()
+                        .noneMatch(v -> v.startsWith("V7")));
+    }
+
+    /**
+     * F2-06: CPF nunca em claro em UI, log ou notificacao — e um relatorio de
+     * simulacao e as duas primeiras coisas.
+     */
+    static void aSimulacaoNaoVazaCpfNoRelatorio(Sgdf sgdf) {
+        Fixture f = fixture(sgdf, "CER.CND_RFB");
+        // CPF com DV valido — a Mascara so mascara o que e CPF de verdade.
+        String cpf = "052.190.471-40";
+        String nome = "contracheque " + cpf + ".pdf";
+
+        var s = new SimulacaoDeVarredura(sgdf, pipeline()).simular(f.ciclo, "2026-06",
+                f.pasta(), varredura(coletado(f.arquivo(nome), pdf(CND_RFB), "e1")));
+
+        String relatorio = s.itens().toString() + s.descartados();
+        ok("F2-06 . o CPF do nome do arquivo nao aparece em claro no relatorio",
+                !relatorio.contains(cpf) && !relatorio.contains("05219047140"));
+        ok("F2-06 . e o nome continua reconhecivel, mascarado",
+                relatorio.contains("***.190.471-**"));
+    }
+
+    /**
+     * A pergunta que o operador realmente tem: <i>o que vai FALTAR?</i>
+     */
+    static void aSimulacaoDizOQueFicariaSemDocumento(Sgdf sgdf) {
+        Fixture f = fixture(sgdf, "CER.CND_RFB");
+
+        var s = new SimulacaoDeVarredura(sgdf, pipeline()).simular(f.ciclo, "2026-06",
+                f.pasta(), varredura(coletado(f.arquivo("cndt.pdf"), pdf(CNDT), "e1")));
+
+        ok("Simulacao . a exigencia que nenhum arquivo cobriria e nomeada",
+                s.exigenciasSemDocumento().contains("CER.CND_RFB"));
+
+        var comADocumento = new SimulacaoDeVarredura(sgdf, pipeline()).simular(f.ciclo,
+                "2026-06", f.pasta(),
+                varredura(coletado(f.arquivo("cnd.pdf"), pdf(CND_RFB), "e1")));
+        ok("Simulacao . e some da lista quando um arquivo a cobre",
+                !comADocumento.exigenciasSemDocumento().contains("CER.CND_RFB"));
     }
 
     static br.com.engesoftware.sgdf.coleta.ArquivoColetado coletado(String caminho,

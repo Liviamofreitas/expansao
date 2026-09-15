@@ -50,6 +50,10 @@ public final class TestesDeWeb {
         executar("triagemEscondeConteudoProfissional",
                 TestesDeWeb::triagemEscondeConteudoProfissional);
         executar("nomeDeArquivoSaiMascarado", TestesDeWeb::nomeDeArquivoSaiMascarado);
+        executar("aVarreduraEASimulacaoExigemConduzirCiclo",
+                TestesDeWeb::aVarreduraEASimulacaoExigemConduzirCiclo);
+        executar("semRepositorioConfiguradoARecusaEAlta",
+                TestesDeWeb::semRepositorioConfiguradoARecusaEAlta);
         executar("tokenTraduzGrupos", TestesDeWeb::tokenTraduzGrupos);
         executar("tokenSemSujeitoNaoAutentica", TestesDeWeb::tokenSemSujeitoNaoAutentica);
         executar("contratoMalFormadoNoTokenNaoDaAcesso",
@@ -455,7 +459,104 @@ public final class TestesDeWeb {
         }
     }
 
+    /**
+     * F0-01 no gatilho da varredura — e a SIMULACAO nao e porta dos fundos.
+     *
+     * <p>A previa le os mesmos bytes dos mesmos arquivos; so nao os guarda.
+     * Fosse mais frouxa que a varredura real, seria o caminho mais curto para
+     * ler documento de contrato alheio sem CONDUZIR_CICLO — um controle
+     * contornado justamente pela porta que existe para nao gravar nada.
+     *
+     * <p>O banco aqui EXPLODE em qualquer consulta que nao seja a do contrato
+     * do ciclo: negar nao pode ter lido nada antes.
+     */
+    static void aVarreduraEASimulacaoExigemConduzirCiclo() {
+        Ator gestor = ator("gestor", Papel.GESTOR_CONTRATO, CONTRATO_DO_ATOR);
+        ok("F0-01 . GESTOR_CONTRATO nao dispara varredura",
+                negou(() -> varreduraControlador(gestor, bancoDoCiclo(CONTRATO_DO_ATOR))
+                        .varrer(CICLO)));
+        ok("F0-01 . e tambem nao dispara a SIMULACAO",
+                negou(() -> varreduraControlador(gestor, bancoDoCiclo(CONTRATO_DO_ATOR))
+                        .simular(CICLO)));
+
+        Ator alheio = ator("fin", Papel.PUBLICADOR_FIN, CONTRATO_ALHEIO);
+        ok("Cap. 15.1 . nem o PUBLICADOR_FIN de OUTRO contrato, na simulacao",
+                negou(() -> varreduraControlador(alheio, bancoDoCiclo(CONTRATO_DO_ATOR))
+                        .simular(CICLO)));
+    }
+
+    /**
+     * "Nao sei olhar" nao pode ter a mesma resposta que "nao ha nada la".
+     *
+     * <p>Sem repositorio configurado, as duas rotas devolvem 503 nomeando a
+     * variavel que falta — em vez de zero documentos, que e exatamente o que
+     * elas devolvem quando a pasta esta vazia. Esta base ja pagou caro por essa
+     * confusao mais de uma vez.
+     */
+    static void semRepositorioConfiguradoARecusaEAlta() {
+        Ator fin = ator("fin", Papel.PUBLICADOR_FIN, CONTRATO_DO_ATOR);
+
+        for (String rota : new String[] {"varredura", "simulacao"}) {
+            org.springframework.web.server.ResponseStatusException erro = null;
+            try {
+                var c = varreduraControlador(fin, bancoDoCiclo(CONTRATO_DO_ATOR));
+                if (rota.equals("varredura")) {
+                    c.varrer(CICLO);
+                } else {
+                    c.simular(CICLO);
+                }
+            } catch (org.springframework.web.server.ResponseStatusException e) {
+                erro = e;
+            }
+            ok("Cap. 8.1 . /" + rota + " sem SGDF_WEBDAV_BASE devolve 503, nao zero",
+                    erro != null && erro.getStatusCode()
+                            == HttpStatus.SERVICE_UNAVAILABLE);
+            ok("Cap. 8.1 . e a recusa de /" + rota + " NOMEIA a variavel que falta",
+                    erro != null && String.valueOf(erro.getReason())
+                            .contains("SGDF_WEBDAV_BASE"));
+        }
+    }
+
     // -------------------------------------------------------------------------
+
+    static VarreduraController varreduraControlador(Ator ator, ConexaoDeMentira banco) {
+        Sgdf sgdf = new Sgdf(banco.conexao());
+        return new VarreduraController(atores(ator), new ConsultaDoPainel(sgdf),
+                new br.com.engesoftware.sgdf.persistencia.RepositorioDeColeta(sgdf),
+                new br.com.engesoftware.sgdf.persistencia.VarreduraDeCiclo(sgdf, null),
+                new br.com.engesoftware.sgdf.persistencia.SimulacaoDeVarredura(sgdf, null),
+                semVarredura());
+    }
+
+    /**
+     * O {@code ObjectProvider} que nao tem bean — o estado real de quem sobe a
+     * aplicacao sem SGDF_WEBDAV_BASE.
+     */
+    static org.springframework.beans.factory.ObjectProvider<
+            br.com.engesoftware.sgdf.coleta.Varredura> semVarredura() {
+        return new org.springframework.beans.factory.ObjectProvider<>() {
+            @Override
+            public br.com.engesoftware.sgdf.coleta.Varredura getObject() {
+                throw new org.springframework.beans.factory.NoSuchBeanDefinitionException(
+                        br.com.engesoftware.sgdf.coleta.Varredura.class);
+            }
+
+            @Override
+            public br.com.engesoftware.sgdf.coleta.Varredura getObject(Object... args) {
+                return getObject();
+            }
+
+            @Override
+            public br.com.engesoftware.sgdf.coleta.Varredura getIfAvailable() {
+                return null;
+            }
+
+            @Override
+            public br.com.engesoftware.sgdf.coleta.Varredura getIfUnique() {
+                return null;
+            }
+        };
+    }
 
     static NotificacaoController notificacaoControlador(Ator ator, ConexaoDeMentira banco) {
         Sgdf sgdf = new Sgdf(banco.conexao());

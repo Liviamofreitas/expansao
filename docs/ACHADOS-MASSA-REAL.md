@@ -4573,3 +4573,148 @@ O plano de implantação previa *"é razoável que a primeira execução falhe u
 duas vezes"*. Falhou 23. A previsão errou no número e acertou no princípio: **o
 CI não é cerimônia de verificação de coisas já sabidas — é o primeiro lugar onde
 o sistema é olhado por inteiro.**
+
+## 63. O modo simulação: a primeira varredura não pode ser irreversível
+
+Esta seção nasce de uma pergunta prática — *"quero apontar a varredura para a
+pasta de hoje e ver se funciona"* — e do que ela implica quando a pasta é
+`/Departamento de Pessoal/FATURAMENTO`.
+
+### 63.1 Por que uma primeira varredura real é uma decisão de via única
+
+Apontar a ingestão para uma pasta de verdade produz, de uma vez:
+
+| efeito | como se desfaz |
+|---|---|
+| linhas em `documento`, `campo_extraido`, `validacao_documento` | `DELETE` — que o esquema recusa em várias das tabelas envolvidas |
+| trilha do cap. 16 registrando que entraram | não se desfaz: é append-only por `RULE` |
+| temporalidade (A08) passando a valer sobre eles | só por expurgo autorizado, que é ato humano registrado |
+| CPF, nome e remuneração individual de 160 pessoas dentro do sistema | eliminação com registro de expurgo, e ainda assim o incidente aconteceu |
+
+Se a identificação estiver ruim — regra mal calibrada, emissor que mudou o
+layout, material de outra competência na mesma pasta — o conserto é apagar
+documento de um sistema **construído para não deixar apagar**. E a causa mais
+provável de uma identificação ruim na estreia não é defeito: é a regra nunca
+ter visto aqueles arquivos.
+
+Entrar com isso errado não é um mau teste. É um incidente de privacidade.
+
+### 63.2 O que o modo simulação faz
+
+`POST /api/ciclos/{id}/varredura/simulacao` percorre a pasta, baixa, passa cada
+arquivo pelo **mesmo** `Pipeline` da ingestão real e relata o que identificaria
+— sem gravar nada. O relatório traz, por arquivo: decisão, tipo, score, motivo,
+evidências que casaram, **os três candidatos seguintes com seus scores** (o dado
+que permite calibrar um limiar sem adivinhar), reprovações unitárias, e se o
+tipo cobriria uma exigência aberta do ciclo. No agregado: contagem por tipo,
+e **quais exigências ficariam sem documento**.
+
+Quem opera vê a qualidade do reconhecimento sobre os arquivos de verdade *antes*
+de qualquer documento existir no sistema.
+
+### 63.3 A promessa de não gravar não podia depender de disciplina
+
+"Esta classe não chama o gravador" é uma afirmação sobre o código de hoje,
+verificável só por leitura, e que morreria na primeira linha acrescentada por
+alguém apressado num método auxiliar. O defeito seria **invisível**: o relatório
+continuaria idêntico, com documentos a mais no banco. É a assinatura do pior
+tipo de defeito desta base — o componente cuja falha se parece com sucesso.
+
+Por isso a garantia mudou de dono. Tudo roda dentro de `Sgdf.emLeituraEstrita`:
+
+1. `SET TRANSACTION READ ONLY` — o **PostgreSQL** recusa qualquer INSERT,
+   UPDATE, DELETE ou DDL no bloco, venha de onde vier, inclusive de código que
+   ainda não existe;
+2. o bloco termina **sempre** em `rollback()`, nunca em commit, mesmo no caminho
+   feliz.
+
+As duas travas são independentes de propósito, e a quebra deliberada provou que
+são:
+
+| quebra | assertivas que caíram |
+|---|---|
+| remover `SET TRANSACTION READ ONLY` | só *"o banco RECUSA a escrita"* — a linha continuou não existindo, pelo rollback |
+| remover o READ ONLY **e** trocar rollback por commit | as duas |
+
+E `emLeituraEstrita` **recusa participar de transação alheia**. Aderir teria dois
+desfechos, ambos ruins: marcar READ ONLY uma transação em que o chamador ainda
+pretende gravar (derrubando gravação legítima num ponto distante dali), ou não
+marcar — e devolver silenciosamente uma "leitura estrita" que não é estrita.
+
+### 63.4 A prévia usa o mesmo pipeline, e isso é o requisito
+
+Uma simulação que reimplementasse a identificação responderia sobre si mesma. O
+bean da prévia e o da ingestão saem da **mesma fábrica** (`montarPipeline`), e um
+teste compara o tipo previsto com o que a ingestão real gravou em
+`documento.tipo_id` sobre **os mesmos bytes**.
+
+Duas divergências são deliberadas, ambas a favor de quem lê o relatório:
+
+- **ignora o delta do cap. 8.1** (`SimulacaoDeVarredura.SEM_DELTA`): a prévia
+  olha a pasta inteira, sempre. Uma prévia que esconde metade dos arquivos
+  porque eles já foram ingeridos não serve para conferir identificação, e o
+  operador não teria como distinguir *"não está mais lá"* de *"não te mostrei"*;
+- **não passa os hashes do ciclo ao pipeline**: a V7 reprovaria por duplicidade
+  os arquivos que a varredura real já ingeriu, e "duplicado" na prévia leria
+  como problema no arquivo quando é apenas *"isto já está no sistema"*.
+
+### 63.5 Uma asserção que não media nada, e como isso apareceu
+
+A primeira versão do teste de duplicidade **passava sem medir**. A quebra
+deliberada mostrou: trocar `Set.of()` pelos hashes do ciclo não derrubou
+asserção nenhuma.
+
+A causa: a V7 só olha hash **já vinculado** a uma exigência, e o vínculo nasce da
+*confirmação na triagem*, não da ingestão. Sem confirmar, os dois caminhos davam
+o mesmo resultado.
+
+O conserto foi no teste, não no código: o vínculo passou a ser criado à mão no
+fixture. Com ele, a V7 tem do que reclamar, e a quebra passou a derrubar a
+asserção — que é a única forma de saber que ela mede alguma coisa.
+
+Este é o terceiro caso registrado nesta base do mesmo padrão. O primeiro foi
+`TestesDeFiacao` (uma varredura que não acha nada aprova tudo); o segundo, o
+`INSERT ... SELECT` da V108 que inseriu zero linhas com sucesso.
+
+### 63.6 Privacidade no relatório, e o que a máscara não pega
+
+Nome de arquivo e motivo de veredito passam por `Mascara.texto` antes de sair. A
+F2-06 exige que CPF nunca apareça em claro em UI ou log, e um relatório de
+simulação é as duas coisas. Quebra deliberada: remover a máscara do nome derruba
+as duas asserções de F2-06.
+
+**Risco residual declarado:** nome de *pessoa* no nome do arquivo
+(`contracheque JOAO DA SILVA.pdf`) **não** é mascarado. Reconhecer nome próprio
+em texto livre sem lista de referência erra dos dois lados — deixa passar o que
+deveria esconder e esconde o que a tela precisa mostrar. Fica registrado como
+lacuna, não disfarçado de resolvido.
+
+### 63.7 A simulação não é porta dos fundos
+
+Mesma permissão da varredura real (`CONDUZIR_CICLO`, recorte por contrato do
+cap. 15.1). A prévia lê os mesmos bytes dos mesmos arquivos; só não os guarda.
+Fosse mais frouxa, seria o caminho mais curto para ler documento de contrato
+alheio sem ter a permissão — um controle contornado justamente pela porta que
+existe para não gravar nada.
+
+Quebra deliberada: baixar a exigência da simulação para `VER_PAINEL` derruba a
+suíte de fronteira HTTP.
+
+`POST` e não `GET`, apesar de não gravar: a operação baixa a pasta inteira e roda
+antivírus e extração sobre cada arquivo. É cara, não é cacheável, e não deve
+aparecer em barra de endereço, histórico de navegador ou log de proxy com o
+identificador do ciclo. `GET` prometeria uma inocuidade que esta chamada não tem.
+
+### 63.8 Lacuna conhecida, sem teste
+
+Nenhum teste automatizado prova que o **controlador** passa
+`SimulacaoDeVarredura.SEM_DELTA` e não o estado real da origem. A cobertura da
+`VarreduraController` não tem hoje um servidor WebDAV de mentira, e a decisão do
+delta mora na `Varredura`, não na classe testada. A asserção que parecia cobrir
+isso (`a prévia mostra a pasta inteira`) passava independentemente do código —
+foi reescrita para dizer o que de fato prova (a prévia é repetível), e a lacuna
+ficou aqui em vez de disfarçada por uma asserção que passaria de qualquer jeito.
+
+**Ação:** um `ClienteWebDav` de mentira na `TestesDeWeb` fecharia isso. Fica no
+backlog técnico como *recomendação desejável* — a consequência de errar é uma
+prévia que mostra menos do que deveria, não uma gravação indevida.
