@@ -215,6 +215,29 @@
             <version>10.0.4</version>
             <configuration>
               <failBuildOnCVSS>7</failBuildOnCVSS>
+              <!--
+                O ANALISADOR DO OSS INDEX FICA DESLIGADO, E NÃO É AFROUXAMENTO.
+
+                Ele consulta o Sonatype OSS Index, que passou a exigir
+                credencial: cada jar analisado devolvia
+                "Invalid credentials provided for OSS Index ... status: 401".
+                Sem credencial ele não contribui NENHUM achado — só acumula
+                AnalysisException até derrubar o build por erro do scanner.
+
+                E ele já fazia isso na execução 22, escondido: o build falhava
+                antes por CVE de verdade, então o erro do OSS Index nunca virava
+                a causa. Corrigidas as CVEs, ele apareceu — e o passo Veredito o
+                anunciou como "SCA REPROVOU, suba a dependência", que era falso.
+                UM ERRO MASCARADO POR OUTRO ERRO SÓ APARECE QUANDO O PRIMEIRO É
+                CONSERTADO.
+
+                A base que sustenta o gate continua sendo a NVD, com
+                failBuildOnCVSS=7 intacto. Para RELIGAR este analisador é
+                preciso cadastrar ossIndexServerId com usuário e token do
+                Sonatype — enquanto isso não existir, mantê-lo ligado é ruído
+                que produz veredito falso.
+              -->
+              <ossindexAnalyzerEnabled>false</ossindexAnalyzerEnabled>
               <formats>
                 <format>HTML</format>
                 <format>SARIF</format>

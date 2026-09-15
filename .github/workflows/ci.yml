@@ -243,7 +243,8 @@ jobs:
           https://nvd.nist.gov/developers/request-an-api-key e cadastre-a em \
           Settings > Secrets > Actions."
           fi
-          cd app && mvn -B -Psca verify -DskipTests
+          set -o pipefail
+          cd app && mvn -B -Psca verify -DskipTests 2>&1 | tee /tmp/sca.log
 
       # SÓ GUARDA A BASE SE ELA PRESTA — e o relatório é a prova disso.
       #
@@ -253,9 +254,15 @@ jobs:
       # documents exist") — e o save guardou 2 MB de base quebrada no cache.
       # A execução seguinte restauraria o lixo.
       #
-      # O relatório existir é equivalente a a análise ter rodado até o fim, e a
-      # análise só roda até o fim com base válida. É o sinal observável que
-      # separa "o gate reprovou" de "o scanner não conseguiu rodar".
+      # PRECISÃO SOBRE O QUE ESTE SINAL PROVA — a versão anterior deste
+      # comentário afirmava demais, e a afirmação foi derrubada por um caso real.
+      #
+      # O relatório existir prova que A BASE DA NVD CARREGOU, que é exatamente o
+      # que este passo precisa saber antes de guardá-la. NÃO prova que a análise
+      # inteira terminou sem erro: na execução 23 o relatório foi escrito E a
+      # análise abortou com AnalysisException do OSS Index. Guardar a base ali
+      # continuou certo; concluir "houve veredito" a partir disso, não — e era
+      # o que o passo Veredito fazia.
       - name: Guardar a base da NVD
         if: always() && hashFiles('app/target/dependency-check-report.sarif') != ''
         uses: actions/cache/save@v4
@@ -278,6 +285,30 @@ jobs:
       # resposta ruim. As duas barram o release, e é certo que barrem: publicar
       # sem saber é pior que publicar sabendo. Mas mandam procurar em lugares
       # opostos, e o log tem de dizer qual das duas foi.
+      # ESTE PASSO JÁ DEU UM VEREDITO FALSO, E O SINAL ERRADO ERA A CAUSA.
+      #
+      # A versão anterior perguntava "o relatório existe?" para decidir se a
+      # falha era um veredito sobre dependências. Na execução 23 o relatório
+      # existia E a análise tinha abortado:
+      #
+      #   [ERROR] AnalysisException: Invalid credentials provided for OSS Index
+      #   [ERROR]   caused by TransportException: Unexpected response; status: 401
+      #
+      # O passo anunciou "SCA REPROVOU, suba a versão da dependência". Não havia
+      # dependência a subir. Quem lesse iria procurar uma CVE que não existia —
+      # o mesmo defeito que este passo foi escrito para impedir, cometido por
+      # ele próprio, porque media um sinal que só CORRELACIONA com o que
+      # interessa em vez de ser o que interessa.
+      #
+      # O sinal certo é a FRASE QUE O PRÓPRIO SCANNER EMITE ao reprovar por
+      # CVSS. Ela só aparece quando houve veredito, e é o que o passo agora lê.
+      # Qualquer outra falha é ausência de veredito, com o trecho do erro
+      # impresso para que a pessoa saiba onde procurar.
+      #
+      # Três desfechos, e nenhum deles é "não sei":
+      #   sucesso              -> aprovado
+      #   falha com a frase    -> REPROVOU: há dependência a subir
+      #   falha sem a frase    -> NÃO CONCLUIU: não é veredito, e não é aprovação
       - name: Veredito
         if: always()
         run: |
@@ -285,16 +316,21 @@ jobs:
             echo "SCA: nenhuma dependência com CVE >= 7,0."
             exit 0
           fi
-          if [ -f app/target/dependency-check-report.sarif ]; then
+          if grep -q "vulnerabilities that have a CVSS score greater than or equal to" \
+             /tmp/sca.log 2>/dev/null; then
             echo "::error title=SCA REPROVOU::Há dependência com CVE de CVSS >= 7,0. \
           A lista está no log acima e os achados na aba Security. Isto É um \
           veredito: suba a versão da dependência."
             exit 1
           fi
-          echo "::error title=O SCA NAO RODOU::O scanner não conseguiu montar a base \
-          da NVD (ex.: HTTP 524, ou limite de requisição por falta de NVD_API_KEY). \
-          ISTO NAO E UM VEREDITO SOBRE AS DEPENDENCIAS — e ausencia de veredito nao \
-          e aprovacao. Cadastre o segredo NVD_API_KEY e rode de novo."
+          echo "--- por que não houve veredito (últimos erros do scanner) ---"
+          grep -E "\[ERROR\]" /tmp/sca.log 2>/dev/null | tail -20 || \
+            echo "(nenhum log do scanner foi produzido)"
+          echo "::error title=O SCA NAO CONCLUIU::O scanner falhou ANTES de chegar a um \
+          veredito sobre as dependências: base da NVD que não montou (HTTP 524, ou \
+          limite de requisição por falta de NVD_API_KEY), analisador sem credencial, \
+          ou erro de rede. Os erros estão logo acima. ISTO NAO E UM VEREDITO — e \
+          ausencia de veredito nao e aprovacao."
           exit 1
 
   imagem:
